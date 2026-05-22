@@ -4,6 +4,9 @@ import type { ElevatorSummary, RiskLevel } from '../types/elevator'
 import RiskBadge from '../components/RiskBadge'
 import ScopeTag from '../components/ScopeTag'
 
+type FilterType = RiskLevel | 'all' | 'out-of-scope'
+type SortCol = 'risk' | 'last_visit'
+
 const BUILDING_TYPE_LABEL: Record<string, string> = {
   residential: 'Residential',
   commercial: 'Commercial',
@@ -11,11 +14,18 @@ const BUILDING_TYPE_LABEL: Record<string, string> = {
   infrastructure: 'Infrastructure',
 }
 
+function SortIndicator({ col, active, dir }: { col: SortCol; active: SortCol; dir: 'asc' | 'desc' }) {
+  if (col !== active) return <span className="ml-1 text-slate-300">⇅</span>
+  return <span className="ml-1 text-slate-600">{dir === 'desc' ? '↓' : '↑'}</span>
+}
+
 export default function Dashboard() {
   const [elevators, setElevators] = useState<ElevatorSummary[]>([])
-  const [filter, setFilter] = useState<RiskLevel | 'all'>('all')
+  const [filter, setFilter] = useState<FilterType>('all')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [sortBy, setSortBy] = useState<SortCol>('risk')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   useEffect(() => {
     fetch('/api/elevators')
@@ -23,20 +33,44 @@ export default function Dashboard() {
       .then((data) => { setElevators(data); setLoading(false) })
   }, [])
 
-  const high = elevators.filter((e) => e.risk_level === 'high').length
-  const medium = elevators.filter((e) => e.risk_level === 'medium').length
+  const handleSort = (col: SortCol) => {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(col)
+      setSortDir(col === 'risk' ? 'desc' : 'asc')
+    }
+  }
+
+  const high = elevators.filter((e) => e.in_model_scope && e.risk_level === 'high').length
+  const medium = elevators.filter((e) => e.in_model_scope && e.risk_level === 'medium').length
   const outOfScope = elevators.filter((e) => !e.in_model_scope).length
 
-  const visible = elevators.filter((e) => {
-    if (filter !== 'all' && e.risk_level !== filter) return false
-    if (search && !e.building_name.toLowerCase().includes(search.toLowerCase()) &&
-        !e.id.toLowerCase().includes(search.toLowerCase())) return false
-    return true
-  })
+  const visible = elevators
+    .filter((e) => {
+      if (filter === 'out-of-scope') return !e.in_model_scope
+      if (filter !== 'all') {
+        if (!e.in_model_scope) return false
+        if (e.risk_level !== filter) return false
+      }
+      if (search && !e.building_name.toLowerCase().includes(search.toLowerCase()) &&
+          !e.id.toLowerCase().includes(search.toLowerCase())) return false
+      return true
+    })
+    .sort((a, b) => {
+      if (sortBy === 'risk') {
+        if (!a.in_model_scope && !b.in_model_scope) return 0
+        if (!a.in_model_scope) return 1
+        if (!b.in_model_scope) return -1
+        const cmp = a.risk_score - b.risk_score
+        return sortDir === 'desc' ? -cmp : cmp
+      }
+      const cmp = new Date(a.last_visit_date).getTime() - new Date(b.last_visit_date).getTime()
+      return sortDir === 'desc' ? -cmp : cmp
+    })
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div>
@@ -51,7 +85,6 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-6">
-        {/* KPI cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <KpiCard label="Total elevators" value={elevators.length} color="slate" />
           <KpiCard label="High risk (>80%)" value={high} color="red" />
@@ -59,7 +92,6 @@ export default function Dashboard() {
           <KpiCard label="Out of model scope" value={outOfScope} color="gray" note="insufficient sensor data" />
         </div>
 
-        {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-4">
           <input
             type="text"
@@ -68,7 +100,7 @@ export default function Dashboard() {
             onChange={(e) => setSearch(e.target.value)}
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-slate-400"
           />
-          {(['all', 'high', 'medium', 'low'] as const).map((f) => (
+          {(['all', 'high', 'medium', 'low', 'out-of-scope'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -78,13 +110,12 @@ export default function Dashboard() {
                   : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
               }`}
             >
-              {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === 'all' ? 'All' : f === 'out-of-scope' ? 'Out of scope' : f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
           <span className="ml-auto text-sm text-slate-500 self-center">{visible.length} shown</span>
         </div>
 
-        {/* Table */}
         {loading ? (
           <div className="text-center py-20 text-slate-400">Loading...</div>
         ) : (
@@ -96,14 +127,27 @@ export default function Dashboard() {
                   <th className="text-left px-4 py-3">Building</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">Type</th>
                   <th className="text-left px-4 py-3 hidden lg:table-cell">Zone</th>
-                  <th className="text-left px-4 py-3 hidden lg:table-cell">Last visit</th>
-                  <th className="text-left px-4 py-3">Risk</th>
+                  <th
+                    className="text-left px-4 py-3 hidden lg:table-cell cursor-pointer select-none hover:text-slate-700"
+                    onClick={() => handleSort('last_visit')}
+                  >
+                    Last visit <SortIndicator col="last_visit" active={sortBy} dir={sortDir} />
+                  </th>
+                  <th
+                    className="text-left px-4 py-3 cursor-pointer select-none hover:text-slate-700"
+                    onClick={() => handleSort('risk')}
+                  >
+                    Risk <SortIndicator col="risk" active={sortBy} dir={sortDir} />
+                  </th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {visible.map((e) => (
-                  <tr key={e.id} className={`hover:bg-slate-50 transition-colors ${e.risk_level === 'high' ? 'bg-red-50/40' : ''}`}>
+                  <tr
+                    key={e.id}
+                    className={`hover:bg-slate-50 transition-colors ${e.in_model_scope && e.risk_level === 'high' ? 'bg-red-50/40' : ''}`}
+                  >
                     <td className="px-4 py-3 font-mono text-xs text-slate-500">{e.id}</td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-800">{e.building_name}</div>
@@ -118,8 +162,10 @@ export default function Dashboard() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <RiskBadge level={e.risk_level} score={e.risk_score} showScore />
-                        <ScopeTag inScope={e.in_model_scope} />
+                        {e.in_model_scope
+                          ? <RiskBadge level={e.risk_level} score={e.risk_score} showScore />
+                          : <ScopeTag inScope={false} />
+                        }
                       </div>
                     </td>
                     <td className="px-4 py-3">

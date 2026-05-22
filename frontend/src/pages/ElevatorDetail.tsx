@@ -41,7 +41,9 @@ export default function ElevatorDetail() {
               <p className="text-sm text-slate-500">{elevator.id} · {elevator.model} · {elevator.age_years} years old · {elevator.floor_count} floors</p>
             </div>
             <div className="flex items-center gap-3">
-              <RiskBadge level={elevator.risk_level} score={elevator.risk_score} showScore />
+              {elevator.in_model_scope && (
+                <RiskBadge level={elevator.risk_level} score={elevator.risk_score} showScore />
+              )}
               <ScopeTag inScope={elevator.in_model_scope} />
             </div>
           </div>
@@ -49,43 +51,48 @@ export default function ElevatorDetail() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-6 space-y-6">
-        {/* Alert explanation */}
-        <section className={`rounded-xl border px-5 py-4 ${
-          elevator.risk_level === 'high'
-            ? 'bg-red-50 border-red-200'
-            : elevator.risk_level === 'medium'
-            ? 'bg-orange-50 border-orange-200'
-            : 'bg-yellow-50 border-yellow-200'
-        }`}>
-          <p className="text-sm font-semibold text-slate-700 mb-1">Model explanation</p>
-          <p className="text-slate-800">{elevator.nl_explanation}</p>
-        </section>
+        {elevator.in_model_scope ? (
+          <>
+            <section className={`rounded-xl border px-5 py-4 ${
+              elevator.risk_level === 'high'
+                ? 'bg-red-50 border-red-200'
+                : elevator.risk_level === 'medium'
+                ? 'bg-orange-50 border-orange-200'
+                : 'bg-green-50 border-green-200'
+            }`}>
+              <p className="text-sm font-semibold text-slate-700 mb-1">Model explanation</p>
+              <p className="text-slate-800">{elevator.nl_explanation}</p>
+            </section>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Feature importance */}
-          <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
-            <h2 className="text-sm font-semibold text-slate-700 mb-4">Prediction drivers</h2>
-            <FeatureBar features={elevator.features} />
-          </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
+                <h2 className="text-sm font-semibold text-slate-700 mb-4">Prediction drivers</h2>
+                <FeatureBar features={elevator.features} />
+              </div>
 
-          {/* Risk probability trend */}
-          <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
-            <h2 className="text-sm font-semibold text-slate-700 mb-1">Failure probability trend</h2>
-            <p className="text-xs text-slate-400 mb-4">Last 6 days · 48h horizon</p>
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={trendData}>
-                <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-                <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} width={36} />
-                <Tooltip formatter={(v) => [`${v}%`, 'Failure probability']} />
-                <ReferenceLine y={80} stroke="#ef4444" strokeDasharray="4 4" label={{ value: '80%', fontSize: 10, fill: '#ef4444' }} />
-                <ReferenceLine y={50} stroke="#f97316" strokeDasharray="4 4" label={{ value: '50%', fontSize: 10, fill: '#f97316' }} />
-                <Line type="monotone" dataKey="probability" stroke="#475569" strokeWidth={2} dot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+              <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
+                <h2 className="text-sm font-semibold text-slate-700 mb-1">Failure probability trend</h2>
+                <p className="text-xs text-slate-400 mb-4">Last 6 days · 48h horizon</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={trendData}>
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} width={36} />
+                    <Tooltip formatter={(v) => [`${v}%`, 'Failure probability']} />
+                    <ReferenceLine y={80} stroke="#ef4444" strokeDasharray="4 4" label={{ value: '80%', fontSize: 10, fill: '#ef4444' }} />
+                    <ReferenceLine y={50} stroke="#f97316" strokeDasharray="4 4" label={{ value: '50%', fontSize: 10, fill: '#f97316' }} />
+                    <Line type="monotone" dataKey="probability" stroke="#475569" strokeWidth={2} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </>
+        ) : (
+          <section className="rounded-xl border border-slate-200 px-5 py-4 bg-slate-50">
+            <p className="text-sm font-semibold text-slate-600 mb-1">Outside model scope</p>
+            <p className="text-sm text-slate-500">Insufficient sensor data to generate a prediction for this elevator. Refer to last visit notes below.</p>
+          </section>
+        )}
 
-        {/* Last visit */}
         <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
           <h2 className="text-sm font-semibold text-slate-700 mb-3">Last visit</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
@@ -108,7 +115,6 @@ export default function ElevatorDetail() {
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex gap-3 flex-wrap">
           {!dispatched ? (
             <button
