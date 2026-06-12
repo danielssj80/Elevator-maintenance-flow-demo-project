@@ -1,0 +1,344 @@
+openapi: 3.1.0
+
+info:
+  title: Elevator Maintenance API
+  version: 0.1.0
+  description: >
+    API for the Elevator Maintenance Flow Demo — exposes elevator fleet data,
+    AI-generated risk scores, and post-visit report submission.
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: http://backend:8000
+    description: Docker Compose internal
+
+tags:
+  - name: elevators
+    description: Elevator fleet — listing, detail, and risk data
+  - name: reports
+    description: Post-visit report submission
+  - name: system
+    description: Health and system endpoints
+
+paths:
+
+  /health:
+    get:
+      tags: [system]
+      summary: Health check
+      operationId: health_check
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/elevators:
+    get:
+      tags: [elevators]
+      summary: List all elevators
+      description: >
+        Returns the full fleet sorted by risk_score descending.
+        Returns summary-level data (no trend, features, or nl_explanation).
+      operationId: list_elevators
+      responses:
+        "200":
+          description: List of elevator summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ElevatorSummary"
+
+  /api/elevators/{elevator_id}:
+    get:
+      tags: [elevators]
+      summary: Get elevator detail
+      description: >
+        Returns full detail for a single elevator, including risk trend,
+        explainability features, and natural language risk explanation.
+      operationId: get_elevator
+      parameters:
+        - name: elevator_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: ELV-001
+      responses:
+        "200":
+          description: Elevator detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ElevatorDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/elevators/{elevator_id}/report:
+    post:
+      tags: [reports]
+      summary: Submit post-visit report
+      description: >
+        Accepts a technician's post-visit report for an elevator.
+        Persists the report to the `visit_reports` table and queues data for model retraining.
+      operationId: submit_report
+      parameters:
+        - name: elevator_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: ELV-001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostVisitReport"
+      responses:
+        "201":
+          description: Report created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+components:
+
+  schemas:
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    Feature:
+      type: object
+      required: [name, impact, value]
+      properties:
+        name:
+          type: string
+          description: Human-readable risk factor name
+          example: Vibration anomaly
+        impact:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Proportional contribution to the risk score. Sum of all features ≈ 1.0
+          example: 0.45
+        value:
+          type: string
+          description: Human-readable measured value
+          example: "2.4× baseline"
+
+    ElevatorSummary:
+      type: object
+      required:
+        - id
+        - building_name
+        - building_type
+        - floor_count
+        - model
+        - age_years
+        - risk_score
+        - risk_level
+        - last_visit_date
+        - last_visit_technician
+        - in_model_scope
+        - zone
+      properties:
+        id:
+          type: string
+          pattern: "^ELV-\\d{3}$"
+          example: ELV-001
+        building_name:
+          type: string
+          example: Torre Picasso
+        building_type:
+          type: string
+          enum: [residential, commercial, office, infrastructure]
+          example: office
+        floor_count:
+          type: integer
+          minimum: 1
+          example: 28
+        model:
+          type: string
+          example: ThyssenKrupp MAX 3000
+        age_years:
+          type: integer
+          minimum: 0
+          example: 7
+        risk_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.91
+        risk_level:
+          type: string
+          enum: [high, medium, low]
+          description: Derived from risk_score — high >0.80, medium 0.50–0.80, low <0.50
+          example: high
+        last_visit_date:
+          type: string
+          format: date
+          example: "2025-12-15"
+        last_visit_technician:
+          type: string
+          example: Carlos Martínez
+        in_model_scope:
+          type: boolean
+          description: Whether this elevator is covered by the predictive model
+          example: true
+        zone:
+          type: string
+          example: Madrid
+
+    ElevatorDetail:
+      allOf:
+        - $ref: "#/components/schemas/ElevatorSummary"
+        - type: object
+          required:
+            - brand
+            - trend
+            - last_visit_notes
+            - nl_explanation
+            - features
+            - hourly_trips_avg
+          properties:
+            brand:
+              type: string
+              enum: [own, third_party]
+              description: own = ThyssenKrupp fleet; third_party = other manufacturers
+              example: own
+            trend:
+              type: array
+              items:
+                type: number
+                format: float
+                minimum: 0.0
+                maximum: 1.0
+              minItems: 6
+              maxItems: 6
+              description: Daily risk_score for the past 6 days. Index 0 = oldest, index 5 = today
+              example: [0.55, 0.62, 0.71, 0.78, 0.86, 0.91]
+            last_visit_notes:
+              type: string
+              example: Routine preventive maintenance completed. No anomalies recorded.
+            nl_explanation:
+              type: string
+              description: Natural language explanation of the current risk score
+              example: >
+                Elevated risk due to abnormal vibration (2.4× baseline over 72 hours)
+                and approaching 6-month service interval.
+            features:
+              type: array
+              items:
+                $ref: "#/components/schemas/Feature"
+              minItems: 3
+              maxItems: 3
+              description: Top 3 risk factors contributing to the score
+            hourly_trips_avg:
+              type: integer
+              minimum: 0
+              description: Average number of elevator trips per hour
+              example: 32
+
+    PostVisitReport:
+      type: object
+      required:
+        - technician_name
+        - visit_date
+        - failure_found
+      properties:
+        technician_name:
+          type: string
+          example: Carlos Martínez
+        visit_date:
+          type: string
+          format: date
+          example: "2026-06-11"
+        failure_found:
+          type: boolean
+          example: false
+        components_replaced:
+          type: array
+          items:
+            type: string
+          default: []
+          example: ["door seal", "motor brush"]
+        parameters_corrected:
+          type: array
+          items:
+            type: string
+          default: []
+          example: ["door speed", "leveling accuracy"]
+        notes:
+          type: string
+          default: ""
+          example: Door adjusted and lubrication cycle completed.
+
+    ReportResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          example: ok
+        message:
+          type: string
+          example: "Report for ELV-001 received. Data queued for model retraining."
+
+    ErrorResponse:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          example: Elevator not found
+
+  responses:
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            detail: Elevator not found
+
+    ValidationError:
+      description: Request body validation failed
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    loc:
+                      type: array
+                      items:
+                        type: string
+                    msg:
+                      type: string
+                    type:
+                      type: string

@@ -1,0 +1,91 @@
+schema: spec-driven
+
+context: |
+  # Elevator Maintenance Flow Demo — Project Context
+
+  ## Domain
+  A demo system for AI-assisted elevator maintenance workflows. A predictive ML model scores
+  each elevator's failure probability daily from telemetry signals (vibration, motor current,
+  temperature, door cycles). Maintenance technicians receive a prioritised visit list and
+  submit post-visit reports that feed back into model retraining.
+
+  ## Tech Stack
+  - Backend: Python 3.12, FastAPI 0.115, Pydantic v2, SQLAlchemy 2.x async, PostgreSQL 16, Alembic
+  - Frontend: React 19, TypeScript ~6.0, Vite 8, Tailwind CSS 4, Recharts, React Router 7
+  - Testing: pytest + pytest-asyncio + httpx (backend), Playwright (E2E)
+  - Infrastructure: Docker Compose for all environments (dev, staging, production)
+
+  ## Backend Architecture (three layers, dependencies flow downward)
+  - routers/ — HTTP boundary only: parse request, call service, return response
+  - services/ — All business logic and domain rules
+  - repositories/ — SQLAlchemy queries only, no business logic
+  - models/ — SQLAlchemy ORM classes (DB tables)
+  - schemas/ — Pydantic schemas (API validation/response)
+  - core/ — config.py (env vars), exceptions.py (custom exception classes)
+
+  ## Frontend Architecture
+  - pages/ — Route-level components, orchestrate data fetching
+  - components/ — Reusable UI components, receive props only
+  - services/ — All API calls via fetch (never call fetch directly from components)
+  - hooks/ — Shared stateful logic
+  - types/ — Shared TypeScript interfaces and type aliases
+
+  ## Key Domain Entities
+  - Elevator: id (ELV-NNN), building_name, building_type, model, brand (own/third_party),
+    age_years, risk_score (0.0–1.0), risk_level (high >0.80 / medium 0.50–0.80 / low <0.50),
+    trend (6-day float array), features (3 risk factors with impact + value),
+    in_model_scope, zone, hourly_trips_avg
+  - PostVisitReport: technician_name, visit_date, failure_found, components_replaced,
+    parameters_corrected, notes
+  - See docs/data-model.md for full entity definitions and business rules
+
+  ## Current API Endpoints
+  - GET  /api/elevators           → list[ElevatorSummary] sorted by risk_score desc
+  - GET  /api/elevators/{id}      → ElevatorDetail (includes trend, features, nl_explanation)
+  - POST /api/elevators/{id}/report → submit PostVisitReport
+  - GET  /health                  → { status: "ok" }
+  - See docs/api-spec.yml for full OpenAPI 3.1 specification
+
+  ## Project Standards (read before creating any artifact)
+  - docs/base-standards.md — core principles, TDD, language rules, git conventions
+  - docs/backend-standards.md — FastAPI patterns, SQLAlchemy, Alembic, testing
+  - docs/frontend-standards.md — React 19, Vite, Tailwind, service layer, Playwright
+  - docs/data-model.md — domain entities and business rules
+  - docs/api-spec.yml — API contracts and schemas
+  - docs/openspec-tasks-mandatory-steps.md — MANDATORY testing steps for all tasks.md
+
+  ## Development Conventions
+  - All technical artifacts in English (code, commits, docs, specs)
+  - Conventional commits: feat:, fix:, test:, docs:, refactor:, chore:
+  - Branch naming: feature/<change-name>
+  - TDD: write the failing test before the implementation
+  - Never commit .env files or secrets
+
+rules:
+  _global:
+    - Before creating any artifact, read docs/base-standards.md to apply core principles
+    - All content must be in English
+    - When making API or data model decisions, check docs/api-spec.yml and docs/data-model.md first
+
+  proposal:
+    - Read docs/data-model.md to identify which entities are affected
+    - Read docs/api-spec.yml to identify which endpoints are affected or need to be added
+    - Capabilities section is critical — each listed capability becomes a spec file
+
+  specs:
+    - Read docs/backend-standards.md for backend capabilities
+    - Read docs/frontend-standards.md for frontend capabilities
+    - Each requirement must have at least one WHEN/THEN scenario
+    - Scenarios must cover happy path and at least one error case
+
+  design:
+    - Reference the three-layer backend architecture (routers → services → repositories)
+    - Reference the frontend service layer pattern (pages → services → fetch)
+    - Explicitly state what is out of scope
+
+  tasks:
+    - Read docs/openspec-tasks-mandatory-steps.md before writing — ALL mandatory steps must be included
+    - "Step 0 must always be: create feature branch feature/<change-name>"
+    - "Include TDD steps — failing test BEFORE implementation for every service/repository function"
+    - Include Alembic migration step if any DB schema change is involved
+    - "Mandatory steps at the end (in order): review existing tests, run unit tests + DB verification, manual endpoint testing (AGENT MUST EXECUTE), E2E Playwright (if frontend changed), update docs"
