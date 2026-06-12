@@ -39,6 +39,19 @@ The system SHALL read the database connection from the `DATABASE_URL` environmen
 - **WHEN** the backend logs startup and request activity
 - **THEN** no database password appears in any log output
 
+### Requirement: Production data persists across Compose restarts
+The production Docker Compose configuration SHALL use a named Docker volume for the PostgreSQL data directory. An anonymous volume or bind mount SHALL NOT be used in production.
+
+#### Scenario: Data survives `docker compose down`
+- **GIVEN** the production stack has been running and visit reports have been written
+- **WHEN** `docker compose -f docker-compose.prod.yml down` is run and then `docker compose -f docker-compose.prod.yml up -d` is run
+- **THEN** all elevator rows, features, trend points, and visit reports are intact
+
+#### Scenario: Named volume created on first start
+- **WHEN** the production stack starts for the first time
+- **THEN** Docker creates a named volume (`elevator_postgres_data_prod`) for the PostgreSQL data directory
+- **AND** `docker volume ls` shows this volume
+
 ### Requirement: Tests run against a dedicated test database
 The test suite SHALL use a dedicated test database, never the development database. Unit tests SHALL mock repositories; integration tests SHALL use httpx against the test database.
 
