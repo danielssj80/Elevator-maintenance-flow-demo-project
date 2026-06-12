@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import settings
 from app.database import AsyncSessionLocal
 from app.routers import elevators
 from app.seed import seed_database
@@ -21,7 +22,7 @@ app = FastAPI(title="Elevator Maintenance API", version="0.1.0", lifespan=lifesp
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://frontend:5173"],
+    allow_origins=settings.allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

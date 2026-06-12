@@ -8,6 +8,8 @@ info:
     AI-generated risk scores, and post-visit report submission.
 
 servers:
+  - url: https://elevator.dsaavedra.dev
+    description: Production
   - url: http://localhost:8000
     description: Local development
   - url: http://backend:8000
