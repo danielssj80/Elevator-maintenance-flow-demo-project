@@ -1,14 +1,19 @@
-from pydantic import BaseModel
 from typing import Literal
 
+from pydantic import BaseModel, ConfigDict
 
-class Feature(BaseModel):
+
+class FeatureSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     name: str
     impact: float
     value: str
 
 
-class ElevatorSummary(BaseModel):
+class ElevatorSummarySchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     building_name: str
     building_type: str
@@ -23,24 +28,10 @@ class ElevatorSummary(BaseModel):
     zone: str
 
 
-class ElevatorDetail(ElevatorSummary):
+class ElevatorDetailSchema(ElevatorSummarySchema):
     brand: str
     trend: list[float]
     last_visit_notes: str
     nl_explanation: str
-    features: list[Feature]
+    features: list[FeatureSchema]
     hourly_trips_avg: int
-
-
-class PostVisitReport(BaseModel):
-    technician_name: str
-    visit_date: str
-    failure_found: bool
-    components_replaced: list[str] = []
-    parameters_corrected: list[str] = []
-    notes: str = ""
-
-
-class ReportResponse(BaseModel):
-    status: str
-    message: str

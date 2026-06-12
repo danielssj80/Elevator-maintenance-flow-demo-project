@@ -80,4 +80,4 @@ This project is tracked in Notion under **Elevator Maintenance Flow Demo Project
 
 ## 7. Planning Model
 
-Planning and spec-creation workflows must use **Opus with extended thinking**. This applies to `enrich-us` and filling OpenSpec artifacts. Switch manually via `/model` before running these workflows.
+Planning and spec-creation workflows must use **Fable** (the most capable model). This applies to `enrich-us` and filling OpenSpec artifacts. Switch manually via `/model` before running these workflows, and consider switching back to a lighter model for routine implementation afterwards.

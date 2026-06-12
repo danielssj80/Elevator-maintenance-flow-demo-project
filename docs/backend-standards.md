@@ -242,13 +242,13 @@ def list_elevators() -> list[ElevatorSummarySchema]:
 ### SQLAlchemy Setup (`app/database.py`)
 
 ```python
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@db/elevator_db")
 
 engine = create_async_engine(DATABASE_URL)
-AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 class Base(DeclarativeBase):
     pass
@@ -256,6 +256,7 @@ class Base(DeclarativeBase):
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
+        await session.commit()  # commit on success; session.__aexit__ rolls back on exception
 ```
 
 ### Alembic Migrations

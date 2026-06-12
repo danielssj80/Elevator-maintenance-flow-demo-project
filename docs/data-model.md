@@ -70,9 +70,9 @@ Represents a single risk factor contributing to the elevator's `risk_score`. Alw
 
 ---
 
-### PostVisitReport (input, not yet persisted)
+### VisitReport (persisted)
 
-Submitted by a technician after completing an elevator visit. Currently not stored — queued for model retraining.
+Submitted by a technician after completing an elevator visit. Stored in the `visit_reports` table and queued for model retraining.
 
 | Field | Type | Constraints | Description |
 |---|---|---|---|
@@ -121,7 +121,6 @@ The following entities are expected as the project evolves:
 
 | Entity | Purpose |
 |---|---|
-| `VisitReport` | Persisted version of `PostVisitReport` linked to `Elevator` |
 | `Technician` | Technician profile with zone assignment and visit history |
 | `MaintenanceZone` | Geographic zone grouping elevators and technicians |
 | `TelemetryReading` | Raw sensor data point (vibration, temperature, door cycles, motor current) |
@@ -132,9 +131,13 @@ When any of these entities are implemented, update this file and `docs/api-spec.
 
 ## Current Data Storage
 
-The current implementation uses in-memory data (`backend/app/data.py`). The schema above defines the target PostgreSQL model. When the DB migration is implemented:
+The backend uses **PostgreSQL 16** (managed by SQLAlchemy 2.x async + Alembic migrations). Tables:
 
-- `Elevator` → table `elevators`
-- `Feature` → table `elevator_features` (FK to `elevators.id`)
-- `trend` → table `elevator_trend_points` (FK to `elevators.id`, ordered by `day_index`)
-- `PostVisitReport` → table `visit_reports` (FK to `elevators.id`)
+| Table | Entity |
+|---|---|
+| `elevators` | `Elevator` (all scalar fields) |
+| `elevator_features` | `Feature` (FK to `elevators.id`, cascade delete) |
+| `elevator_trend_points` | trend data (FK to `elevators.id`, unique on `(elevator_id, day_index)`) |
+| `visit_reports` | `VisitReport` (FK to `elevators.id`, JSONB for list fields) |
+
+`risk_level` is derived in the service layer from `risk_score` — not stored. `trend` is stored as individual rows and assembled into a sorted array by the service.
