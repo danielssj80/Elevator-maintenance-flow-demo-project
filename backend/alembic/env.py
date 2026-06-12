@@ -8,15 +8,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+from app.core.config import settings
+
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Override sqlalchemy.url from environment so docker-compose / CI don't need alembic.ini edits
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# Use settings.database_url so DATABASE_URL env var or POSTGRES_* components both work
+config.set_main_option("sqlalchemy.url", settings.database_url)
 
 from app.database import Base  # noqa: E402
 import app.models.elevator  # noqa: E402, F401 — register models with Base
