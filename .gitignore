@@ -21,6 +21,9 @@ e2e/playwright-report/
 backend/.coverage
 backend/htmlcov/
 
+# Claude Code (user-local settings, never commit)
+.claude/settings.local.json
+
 # Misc
 .DS_Store
 *.log

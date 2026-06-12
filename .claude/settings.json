@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(node -e *)",
+
+      "Bash(openspec *)",
+
+      "Bash(python3 -c *)",
+      "Bash(venv/bin/pip install *)",
+      "Bash(venv/bin/alembic *)",
+      "Bash(xargs cat)",
+
+      "Bash(venv/bin/python -m pytest *)",
+      "Bash(*venv/bin/python -m pytest *)",
+
+      "Bash(docker-compose up *)",
+      "Bash(docker-compose down)",
+      "Bash(docker-compose stop *)",
+      "Bash(docker-compose restart *)",
+      "Bash(docker-compose build *)",
+      "Bash(docker-compose logs *)",
+      "Bash(docker-compose ps *)",
+
+      "Bash(docker exec elevator-maintenance-flow-demo-project-* *)",
+      "Bash(docker ps*)",
+
+      "Bash(curl * http://localhost:*)",
+
+      "Bash(gh pr *)",
+      "Bash(gh auth status)",
+
+      "mcp__claude_ai_Notion__notion-search",
+      "mcp__claude_ai_Notion__notion-fetch",
+      "mcp__claude_ai_Notion__notion-update-page",
+      "mcp__claude_ai_Notion__notion-create-pages",
+
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "mcp__plugin_playwright_playwright__browser_fill_form",
+      "mcp__plugin_playwright_playwright__browser_type",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "mcp__plugin_playwright_playwright__browser_press_key",
+      "mcp__plugin_playwright_playwright__browser_select_option",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_console_messages",
+      "mcp__plugin_playwright_playwright__browser_network_requests"
+    ]
+  }
+}
