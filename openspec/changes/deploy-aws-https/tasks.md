@@ -69,11 +69,11 @@ Confirm dev stack renders correctly as a sanity check if desired.
 
 > These steps are executed once by the operator in the AWS Console and SSM shell. They cannot be automated by the agent.
 
-- [ ] 8.1 Launch EC2 instance: t3.micro, Amazon Linux 2023, IAM instance profile `elevator-ssm-profile` (AmazonSSMManagedInstanceCore), SG inbound TCP 80 + TCP 443 only, 20 GB gp3, no key pair
-- [ ] 8.2 Allocate Elastic IP and associate with instance
-- [ ] 8.3 Create IAM user `certbot-route53` with inline policy: `route53:ChangeResourceRecordSets` + `route53:ListHostedZones` on the `dsaavedra.dev` hosted zone ARN only
-- [ ] 8.4 In Route 53: create A record `elevator.dsaavedra.dev` → Elastic IP (TTL 300)
-- [ ] 8.5 Verify SSM Session Manager connection: open session from AWS Console → Systems Manager → Session Manager
+- [x] 8.1 Launch EC2 instance: t3.micro, Amazon Linux 2023, IAM instance profile `elevator-ssm-profile` (AmazonSSMManagedInstanceCore), SG inbound TCP 80 + TCP 443 only, 20 GB gp3, no key pair
+- [x] 8.2 Allocate Elastic IP and associate with instance
+- [x] 8.3 Create IAM user `certbot-route53` with inline policy: `route53:ChangeResourceRecordSets` + `route53:ListHostedZones` on the `dsaavedra.dev` hosted zone ARN only
+- [x] 8.4 In Route 53: create A record `elevator.dsaavedra.dev` → Elastic IP (TTL 300)
+- [x] 8.5 Verify SSM Session Manager connection: open session from AWS Console → Systems Manager → Session Manager
 
 ---
 
@@ -81,59 +81,26 @@ Confirm dev stack renders correctly as a sanity check if desired.
 
 > Execute these commands in the SSM shell session on the EC2 instance.
 
-- [ ] 9.1 Install Docker and Docker Compose plugin on Amazon Linux 2023:
-  ```bash
-  dnf update -y
-  dnf install -y docker
-  systemctl enable --now docker
-  mkdir -p /usr/local/lib/docker/cli-plugins
-  curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
-  chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-  ```
-- [ ] 9.2 Clone repo to `/opt/elevator/`:
-  ```bash
-  dnf install -y git
-  git clone https://github.com/<org>/elevator-maintenance-flow-demo-project.git /opt/elevator
-  ```
-- [ ] 9.3 Create `/etc/elevator/.env` with production secrets (see design §5), then `chmod 600 /etc/elevator/.env && chown root:root /etc/elevator/.env`
-- [ ] 9.4 Install certbot with DNS-Route53 plugin:
-  ```bash
-  dnf install -y python3-pip
-  pip3 install certbot certbot-dns-route53
-  ```
-- [ ] 9.5 Configure certbot IAM credentials in `/root/.aws/credentials` (access key for `certbot-route53` user)
-- [ ] 9.6 Obtain wildcard Let's Encrypt certificate:
-  ```bash
-  certbot certonly --dns-route53 -d "dsaavedra.dev" -d "*.dsaavedra.dev" \
-    --email danielssj@gmail.com --agree-tos --non-interactive
-  ```
-- [ ] 9.7 Start production stack:
-  ```bash
-  cd /opt/elevator && docker compose -f docker-compose.prod.yml up -d --build
-  ```
-- [ ] 9.8 Add certbot renewal cron (as root):
-  ```bash
-  echo "0 3 * * * certbot renew --quiet && docker compose -f /opt/elevator/docker-compose.prod.yml exec nginx nginx -s reload" | crontab -
-  ```
+- [x] 9.1 Install Docker and Docker Compose plugin on Amazon Linux 2023:
+- [x] 9.2 Clone repo to `/opt/elevator/`:
+- [x] 9.3 Create `/etc/elevator/.env` with production secrets (see design §5), then `chmod 600 /etc/elevator/.env && chown root:root /etc/elevator/.env`
+- [x] 9.4 Install certbot with DNS-Route53 plugin:
+- [x] 9.5 Configure certbot IAM credentials in `/root/.aws/credentials` (access key for `certbot-route53` user)
+- [x] 9.6 Obtain wildcard Let's Encrypt certificate
+- [x] 9.7 Start production stack
+- [x] 9.8 Add certbot renewal cron (as root)
 
 ---
 
 ## 10. Production Verification (MANDATORY — AGENT MUST EXECUTE via curl)
 
-- [ ] 10.1 Verify HTTP redirects to HTTPS: `curl -s -o /dev/null -w "%{http_code} %{redirect_url}" http://elevator.dsaavedra.dev/` → expect `301 https://elevator.dsaavedra.dev/`
-- [ ] 10.2 Verify health endpoint over HTTPS: `curl -s https://elevator.dsaavedra.dev/health` → expect `{"status":"ok"}`
-- [ ] 10.3 Verify TLS certificate issuer: `curl -v https://elevator.dsaavedra.dev/health 2>&1 | grep -i "issuer"` → expect Let's Encrypt
-- [ ] 10.4 Verify API returns 100 elevators: `curl -s https://elevator.dsaavedra.dev/api/elevators | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d))"` → expect `100`
-- [ ] 10.5 Submit a test report via HTTPS:
-  ```bash
-  curl -s -X POST https://elevator.dsaavedra.dev/api/elevators/ELV-001/report \
-    -H "Content-Type: application/json" \
-    -d '{"technician_name":"Deploy Test","visit_date":"2026-06-12","failure_found":false}' \
-    | python3 -m json.tool
-  ```
-  Expect 201; verify row exists in DB via SSM psql; then delete test row.
-- [ ] 10.6 Verify certbot renewal dry-run: `certbot renew --dry-run` → expect success
-- [ ] 10.7 Create report `openspec/changes/deploy-aws-https/reports/YYYY-MM-DD-step-10-production-verification.md`
+- [x] 10.1 Verify HTTP redirects to HTTPS: `curl -s -o /dev/null -w "%{http_code} %{redirect_url}" http://elevator.dsaavedra.dev/` → expect `301 https://elevator.dsaavedra.dev/`
+- [x] 10.2 Verify health endpoint over HTTPS: `curl -s https://elevator.dsaavedra.dev/health` → expect `{"status":"ok"}`
+- [x] 10.3 Verify TLS certificate issuer: `curl -v https://elevator.dsaavedra.dev/health 2>&1 | grep -i "issuer"` → expect Let's Encrypt
+- [x] 10.4 Verify API returns 100 elevators: `curl -s https://elevator.dsaavedra.dev/api/elevators | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d))"` → expect `100`
+- [x] 10.5 Submit a test report via HTTPS; verify row exists in DB via SSM psql; delete test row.
+- [x] 10.6 Verify certbot renewal dry-run: `certbot renew --dry-run` → expect success
+- [x] 10.7 Create report `openspec/changes/deploy-aws-https/reports/YYYY-MM-DD-step-10-production-verification.md`
 
 ---
 
