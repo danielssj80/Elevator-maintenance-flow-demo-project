@@ -61,15 +61,18 @@ jobs:
             esac
             sleep 15
           done
+          # Log fetches must never decide the job result — guard them so a
+          # transient SSM API error can't fail an otherwise successful deploy.
+          # Only the status assertion below determines success.
           echo "::group::Remote stdout"
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
-            --query "StandardOutputContent" --output text
+            --query "StandardOutputContent" --output text || echo "(stdout unavailable)"
           echo "::endgroup::"
           echo "::group::Remote stderr"
           aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
-            --query "StandardErrorContent" --output text
+            --query "StandardErrorContent" --output text || echo "(stderr unavailable)"
           echo "::endgroup::"
           echo "SSM command status: $STATUS"
           test "$STATUS" = "Success"
