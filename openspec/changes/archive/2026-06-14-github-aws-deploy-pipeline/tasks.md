@@ -46,12 +46,12 @@
 
 ## 6. End-to-End Pipeline Verification (MANDATORY — AGENT MUST EXECUTE)
 
-- [ ] 6.1 Merge/push the workflow to `main` (after user confirmation) to trigger the first run
-- [ ] 6.2 Watch the run with `gh run watch` — verify OIDC auth, SSM command, polling, and smoke check all pass
-- [ ] 6.3 Verify production endpoints after deploy: `GET https://elevator.dsaavedra.dev/health` → 200 `{"status":"ok"}`; `GET https://elevator.dsaavedra.dev/api/elevators` → 200 with 100 elevators
-- [ ] 6.4 Verify failure propagation: confirm via spec review of the polling step (or a forced-failure dry run if the user approves) that a non-`Success` SSM status fails the workflow
-- [ ] 6.5 Verify no SSH was used and port 22 remains closed (security group check via AWS CLI)
-- [ ] 6.6 Create report `openspec/changes/github-aws-deploy-pipeline/reports/YYYY-MM-DD-step-6-pipeline-verification.md`
+- [x] 6.1 PR #4 merged to `main` (user-approved) → run `27504696400` triggered automatically
+- [x] 6.2 Run completed `success` in 28s — OIDC auth, SSM command, polling, and smoke check all passed
+- [x] 6.3 Production verified: `/health` → 200 `{"status":"ok"}`; `/api/elevators` → 200 with 100 elevators (ELV-001 risk 0.91)
+- [x] 6.4 Failure propagation confirmed via run log: polling step ends with `test "$STATUS" = "Success"` → non-Success fails the job
+- [x] 6.5 Security group ingress is only TCP 80/443 — port 22 closed, no SSH used
+- [x] 6.6 Created report `openspec/changes/github-aws-deploy-pipeline/reports/2026-06-14-step-6-pipeline-verification.md`
 
 ## 7. E2E Testing with Playwright MCP (NOT APPLICABLE)
 
