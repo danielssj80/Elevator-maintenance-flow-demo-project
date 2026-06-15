@@ -1,6 +1,11 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { getBriefing } from '../services/briefingService'
 import type { Briefing } from '../types/elevator'
+
+// Briefing text is always English, so speak it with an English voice regardless
+// of the browser's configured locale (otherwise a non-English voice mispronounces
+// it and reads numbers like "0.83" with local rules instead of "zero point eight three").
+const BRIEFING_LANG = 'en-US'
 
 type State = 'idle' | 'loading' | 'ready' | 'speaking'
 
@@ -15,6 +20,16 @@ export default function VoiceBriefing({ elevatorId }: Props) {
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
 
   const hasSpeech = typeof window !== 'undefined' && 'speechSynthesis' in window
+
+  // Stop any in-progress playback when the component unmounts (e.g. navigating
+  // away mid-briefing) so the voice does not keep speaking off-screen.
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel()
+      }
+    }
+  }, [])
 
   async function handleBriefMe() {
     setState('loading')
@@ -36,6 +51,7 @@ export default function VoiceBriefing({ elevatorId }: Props) {
     if (!hasSpeech) return
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = BRIEFING_LANG
     utteranceRef.current = utterance
     utterance.onstart = () => setState('speaking')
     utterance.onend = () => setState('ready')
