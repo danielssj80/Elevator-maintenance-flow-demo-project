@@ -2,10 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import { getBriefing } from '../services/briefingService'
 import type { Briefing } from '../types/elevator'
 
-// Briefing text is always English, so speak it with an English voice regardless
-// of the browser's configured locale (otherwise a non-English voice mispronounces
-// it and reads numbers like "0.83" with local rules instead of "zero point eight three").
-const BRIEFING_LANG = 'en-US'
+// Briefing text is always English. Prefer an English voice so it is pronounced
+// correctly (otherwise a non-English voice reads numbers like "0.83" with local
+// rules instead of "zero point eight three"). If no English voice is installed we
+// fall back to the device default so playback still works rather than going silent.
 
 type State = 'idle' | 'loading' | 'ready' | 'speaking'
 
@@ -17,19 +17,40 @@ export default function VoiceBriefing({ elevatorId }: Props) {
   const [state, setState] = useState<State>('idle')
   const [briefing, setBriefing] = useState<Briefing | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [voicesLoaded, setVoicesLoaded] = useState(false)
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
 
   const hasSpeech = typeof window !== 'undefined' && 'speechSynthesis' in window
 
-  // Stop any in-progress playback when the component unmounts (e.g. navigating
-  // away mid-briefing) so the voice does not keep speaking off-screen.
+  // Voices load asynchronously in most browsers (getVoices() is empty until the
+  // 'voiceschanged' event fires), so populate them reactively. Also stop any
+  // in-progress playback on unmount so the voice does not keep speaking off-screen.
   useEffect(() => {
-    return () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel()
-      }
+    if (!hasSpeech) return
+    const load = () => {
+      setVoices(window.speechSynthesis.getVoices())
+      setVoicesLoaded(true)
     }
-  }, [])
+    load()
+    window.speechSynthesis.addEventListener('voiceschanged', load)
+    return () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', load)
+      window.speechSynthesis.cancel()
+    }
+  }, [hasSpeech])
+
+  function pickEnglishVoice(): SpeechSynthesisVoice | null {
+    return (
+      voices.find((v) => v.lang?.toLowerCase() === 'en-us') ||
+      voices.find((v) => v.lang?.toLowerCase().startsWith('en')) ||
+      null
+    )
+  }
+
+  const englishVoice = pickEnglishVoice()
+  // Audio can only play if the API exists AND the device exposes at least one voice.
+  const canSpeak = hasSpeech && voices.length > 0
 
   async function handleBriefMe() {
     setState('loading')
@@ -38,7 +59,7 @@ export default function VoiceBriefing({ elevatorId }: Props) {
       const data = await getBriefing(elevatorId)
       setBriefing(data)
       setState('ready')
-      if (hasSpeech) {
+      if (canSpeak) {
         speak(data.text)
       }
     } catch {
@@ -48,10 +69,16 @@ export default function VoiceBriefing({ elevatorId }: Props) {
   }
 
   function speak(text: string) {
-    if (!hasSpeech) return
+    if (!canSpeak) return
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = BRIEFING_LANG
+    if (englishVoice) {
+      utterance.voice = englishVoice
+      utterance.lang = englishVoice.lang
+    } else {
+      // No English voice installed — use the device default so playback still works.
+      utterance.voice = voices[0]
+    }
     utteranceRef.current = utterance
     utterance.onstart = () => setState('speaking')
     utterance.onend = () => setState('ready')
@@ -112,7 +139,7 @@ export default function VoiceBriefing({ elevatorId }: Props) {
               >
                 Stop
               </button>
-            ) : hasSpeech ? (
+            ) : canSpeak ? (
               <button
                 onClick={handleReplay}
                 className="bg-slate-100 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
@@ -122,6 +149,16 @@ export default function VoiceBriefing({ elevatorId }: Props) {
               </button>
             ) : null}
           </div>
+          {hasSpeech && voicesLoaded && voices.length === 0 && (
+            <p className="text-xs text-slate-400" data-testid="no-voice-note">
+              No text-to-speech voice is available on this device — showing text only.
+            </p>
+          )}
+          {canSpeak && !englishVoice && (
+            <p className="text-xs text-slate-400" data-testid="non-english-voice-note">
+              No English voice installed — using the device default voice.
+            </p>
+          )}
         </div>
       )}
 
