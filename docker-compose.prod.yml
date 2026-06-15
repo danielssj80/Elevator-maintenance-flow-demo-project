@@ -23,6 +23,11 @@ services:
   backend:
     build: ./backend
     env_file: /etc/elevator/.env
+    # Bedrock env vars — add to /etc/elevator/.env on the EC2 instance:
+    #   BEDROCK_REGION=eu-north-1
+    #   BEDROCK_MODEL_ID=eu.amazon.nova-lite-v1:0
+    # The EC2 instance role must have bedrock:InvokeModel on the EU inference-profile ARN.
+    # Without these, the briefing endpoint returns source="fallback" (200, not 5xx).
     depends_on:
       db:
         condition: service_healthy

@@ -5,6 +5,7 @@ import type { ElevatorDetail as ElevatorDetailType } from '../types/elevator'
 import RiskBadge from '../components/RiskBadge'
 import FeatureBar from '../components/FeatureBar'
 import ScopeTag from '../components/ScopeTag'
+import VoiceBriefing from '../components/VoiceBriefing'
 
 const DAYS = ['5d ago', '4d ago', '3d ago', '2d ago', 'Yesterday', 'Today']
 
@@ -91,6 +92,10 @@ export default function ElevatorDetail() {
             <p className="text-sm font-semibold text-slate-600 mb-1">Outside model scope</p>
             <p className="text-sm text-slate-500">Insufficient sensor data to generate a prediction for this elevator. Refer to last visit notes below.</p>
           </section>
+        )}
+
+        {elevator.in_model_scope && id && (
+          <VoiceBriefing elevatorId={id} />
         )}
 
         <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">

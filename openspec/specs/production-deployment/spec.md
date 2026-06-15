@@ -56,6 +56,13 @@ Deploy the Elevator Maintenance application to AWS as a publicly accessible HTTP
 **Then** `certbot renew` completes successfully and nginx reloads with the renewed certificate  
 **And** `certbot renew --dry-run` succeeds at any time
 
+### S9 — Pre-visit briefing works in production (Bedrock)
+
+**Given** the EC2 instance role has `bedrock:InvokeModel` on the EU inference-profile ARN  
+**And** `/etc/elevator/.env` contains `BEDROCK_REGION=eu-north-1` and `BEDROCK_MODEL_ID=eu.amazon.nova-lite-v1:0`  
+**When** a client sends `GET https://elevator.dsaavedra.dev/api/elevators/ELV-001/briefing`  
+**Then** the response is 200 with `source: "bedrock"` and a non-empty `text`
+
 ### S8 — CORS enforced in production
 
 **Given** the backend is running with `ALLOWED_ORIGINS=https://elevator.dsaavedra.dev`  
@@ -73,7 +80,7 @@ Deploy the Elevator Maintenance application to AWS as a publicly accessible HTTP
 - Access method: AWS SSM Session Manager (IAM-based, no key pair required)
 - TLS: Let's Encrypt via DNS-01 challenge (certbot-dns-route53), wildcard cert `*.dsaavedra.dev`
 - TLS minimum version: TLS 1.2; HSTS header included in nginx response
-- Secrets: production `.env` at `/etc/elevator/.env`, `chmod 600`, owned by root — never committed
+- Secrets: production `.env` at `/etc/elevator/.env`, `chmod 600`, owned by root — never committed; must include `BEDROCK_REGION` and `BEDROCK_MODEL_ID`
 - IAM certbot user (`certbot-route53`) scoped to single Route 53 hosted zone (least privilege)
 - PostgreSQL data on named Docker volume — survives `docker compose down`
 - Production Compose file: `docker-compose.prod.yml` (separate from dev `docker-compose.yml`)
@@ -93,7 +100,6 @@ Deploy the Elevator Maintenance application to AWS as a publicly accessible HTTP
 
 ## Out of Scope
 
-- CI/CD pipeline (manual deploy via SSM)
 - RDS or managed database
 - CloudFront CDN
 - High availability or auto-scaling

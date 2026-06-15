@@ -27,6 +27,9 @@ class Settings:
         "ALLOWED_ORIGINS",
         "http://localhost:5173,http://frontend:5173",
     ).split(",")
+    bedrock_region: str = os.getenv("BEDROCK_REGION", "eu-north-1")
+    bedrock_model_id: str = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-lite-v1:0")
+    briefing_timeout_seconds: int = int(os.getenv("BRIEFING_TIMEOUT_SECONDS", "5"))
 
 
 settings = Settings()
