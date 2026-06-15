@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -8,6 +9,8 @@ from app.repositories.elevator_repository import ElevatorRepository
 from app.schemas.briefing import BriefingSchema
 from app.services.bedrock_client import BedrockClient
 from app.services.elevator_service import _derive_risk_level
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
     "You are a field-service assistant. Write a concise spoken pre-visit briefing of 4-8 sentences "
@@ -125,9 +128,16 @@ class BriefingService:
                 system_prompt=_SYSTEM_PROMPT,
                 user_message=_build_prompt_message(elevator),
             )
+            if not text or not text.strip():
+                raise ValueError("Bedrock returned empty briefing text")
             _CACHE[cache_key] = text
             source = "bedrock"
         except Exception:
+            logger.warning(
+                "Bedrock briefing generation failed for %s; using deterministic fallback",
+                elevator_id,
+                exc_info=True,
+            )
             text = _build_fallback_briefing(elevator)
             source = "fallback"
 

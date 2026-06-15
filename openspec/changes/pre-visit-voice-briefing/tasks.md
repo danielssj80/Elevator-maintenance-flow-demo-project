@@ -89,4 +89,4 @@
 ## 14. Deployment configuration (one-time)
 
 - [x] 14.1 Add `BEDROCK_REGION` / `BEDROCK_MODEL_ID` to the production compose env
-- [ ] 14.2 Grant the production EC2 instance role `bedrock:InvokeModel` on the EU inference-profile ARN and the routed foundation-model ARNs; verify the endpoint returns `source:"bedrock"` in production
+- [x] 14.2 Grant the production EC2 instance role `bedrock:InvokeModel` on the EU inference-profile ARN and the routed foundation-model ARNs; verify the endpoint returns `source:"bedrock"` in production

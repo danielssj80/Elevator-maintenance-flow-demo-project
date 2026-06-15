@@ -33,11 +33,15 @@ The system SHALL generate the briefing text by calling Amazon Bedrock through th
 - **THEN** the briefing is generated with that model and the response parsing still succeeds, with no code change required
 
 ### Requirement: Deterministic fallback on Bedrock failure
-WHEN the Bedrock call fails, errors, or exceeds its timeout, the system SHALL return a deterministic briefing built from the unit's fields rather than an error, and SHALL set `source` to `"fallback"`. A valid unit SHALL never produce a 5xx response from the briefing endpoint due to a model failure.
+WHEN the Bedrock call fails, errors, exceeds its timeout, or returns empty/blank text, the system SHALL return a deterministic briefing built from the unit's fields rather than an error, and SHALL set `source` to `"fallback"`. A valid unit SHALL never produce a 5xx response from the briefing endpoint due to a model failure. The system SHALL log the underlying cause at WARNING level before falling back, so a persistent fallback (e.g. missing IAM permission) is diagnosable from logs.
 
 #### Scenario: Bedrock unavailable
 - **WHEN** the Bedrock call raises an error or times out for an existing unit
 - **THEN** the API returns 200 with `source: "fallback"` and a coherent briefing assembled from the unit's data
+
+#### Scenario: Bedrock returns empty text
+- **WHEN** the Bedrock call succeeds but returns empty or whitespace-only text
+- **THEN** the API returns 200 with `source: "fallback"` and non-empty briefing text rather than an empty `"bedrock"` briefing
 
 ### Requirement: Briefing playback in the browser via Web Speech API
 The unit detail view SHALL provide a "Brief me" control for in-scope units that fetches the briefing, displays its text, and reads it aloud using the browser Web Speech API (`speechSynthesis`), with a control to stop playback. The text SHALL always be shown so the briefing is usable without audio.

@@ -1,11 +1,20 @@
-from datetime import date
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
 
 from app.models.elevator import Elevator, ElevatorFeature, ElevatorTrendPoint
 from app.schemas.briefing import BriefingSchema
+
+
+@pytest.fixture(autouse=True)
+def _clear_briefing_cache():
+    """Reset the process-local briefing cache so tests do not couple through it."""
+    from app.services import briefing_service
+
+    briefing_service._CACHE.clear()
+    yield
+    briefing_service._CACHE.clear()
 
 
 def _make_orm_elevator(
@@ -190,3 +199,50 @@ async def test_briefing_service_raises_404_for_unknown_elevator():
         await service.get_briefing("UNKNOWN")
 
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_briefing_service_falls_back_on_empty_bedrock_text():
+    elevator = _make_orm_elevator(id="ELV-003", risk_score=0.66)
+    service = _make_briefing_service(elevator=elevator, bedrock_text="   ")
+
+    result = await service.get_briefing("ELV-003")
+
+    assert result.source == "fallback"
+    assert result.text.strip() != ""
+
+
+@pytest.mark.asyncio
+async def test_briefing_service_caches_and_does_not_reinvoke_client():
+    from app.services.briefing_service import BriefingService
+
+    elevator = _make_orm_elevator(id="ELV-010", risk_score=0.77)
+    elev_repo = AsyncMock()
+    elev_repo.get_by_id.return_value = elevator
+    mock_client = MagicMock()
+    mock_client.generate.return_value = "Cached briefing text."
+    service = BriefingService(elevator_repository=elev_repo, bedrock_client=mock_client)
+
+    first = await service.get_briefing("ELV-010")
+    second = await service.get_briefing("ELV-010")
+
+    assert first.text == second.text == "Cached briefing text."
+    assert mock_client.generate.call_count == 1
+
+
+def test_bedrock_client_uses_model_id_from_settings(monkeypatch):
+    from app.core.config import settings
+    from app.services.bedrock_client import BedrockClient
+
+    monkeypatch.setattr(settings, "bedrock_model_id", "eu.anthropic.claude-haiku-4-5-20251001-v1:0")
+    mock_boto_client = MagicMock()
+    mock_boto_client.converse.return_value = {
+        "output": {"message": {"content": [{"text": "ok"}]}}
+    }
+
+    client = BedrockClient(boto_client=mock_boto_client)
+    client.generate(system_prompt="s", user_message="u")
+
+    assert mock_boto_client.converse.call_args.kwargs["modelId"] == (
+        "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
