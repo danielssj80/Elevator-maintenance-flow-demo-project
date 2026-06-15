@@ -58,10 +58,16 @@ Deploy the Elevator Maintenance application to AWS as a publicly accessible HTTP
 
 ### S9 — Pre-visit briefing works in production (Bedrock)
 
-**Given** the EC2 instance role has `bedrock:InvokeModel` on the EU inference-profile ARN  
+**Given** the EC2 instance role (`elevator-ssm-role`) has the customer-managed policy `ElevatorBedrockInvokeNova` attached, granting `bedrock:InvokeModel` on the EU Nova Lite inference-profile ARN and its four routed foundation-model ARNs  
 **And** `/etc/elevator/.env` contains `BEDROCK_REGION=eu-north-1` and `BEDROCK_MODEL_ID=eu.amazon.nova-lite-v1:0`  
-**When** a client sends `GET https://elevator.dsaavedra.dev/api/elevators/ELV-001/briefing`  
+**When** a client sends `GET https://elevator.dsaavedra.dev/api/elevators/{id}/briefing` for an uncached in-scope unit  
 **Then** the response is 200 with `source: "bedrock"` and a non-empty `text`
+
+**And** the briefing IAM grant follows least privilege:
+- it is a **customer-managed** policy (not inline), so it is independently versioned and auditable;
+- the only action is `bedrock:InvokeModel` (no `bedrock:*`, no `Resource: "*"`);
+- the foundation-model ARNs are pinned to the exact four regions the EU inference profile routes to (`eu-central-1`, `eu-north-1`, `eu-west-1`, `eu-west-3`) — no region wildcard;
+- the backend authenticates via the instance role through IMDSv2 (tokens required) — no AWS credentials in code or `.env`.
 
 ### S8 — CORS enforced in production
 
@@ -82,6 +88,7 @@ Deploy the Elevator Maintenance application to AWS as a publicly accessible HTTP
 - TLS minimum version: TLS 1.2; HSTS header included in nginx response
 - Secrets: production `.env` at `/etc/elevator/.env`, `chmod 600`, owned by root — never committed; must include `BEDROCK_REGION` and `BEDROCK_MODEL_ID`
 - IAM certbot user (`certbot-route53`) scoped to single Route 53 hosted zone (least privilege)
+- Bedrock access granted via customer-managed policy `ElevatorBedrockInvokeNova` attached to `elevator-ssm-role` — `bedrock:InvokeModel` only, scoped to the EU Nova Lite inference-profile ARN plus its four routed foundation-model ARNs (`eu-central-1`, `eu-north-1`, `eu-west-1`, `eu-west-3`); no inline policy, no region wildcard, no credentials in code (resolved via IMDSv2 instance role)
 - PostgreSQL data on named Docker volume — survives `docker compose down`
 - Production Compose file: `docker-compose.prod.yml` (separate from dev `docker-compose.yml`)
 

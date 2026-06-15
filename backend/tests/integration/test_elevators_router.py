@@ -1,8 +1,14 @@
+from unittest.mock import MagicMock
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.main import app
 from app.models.elevator import Elevator, ElevatorFeature, ElevatorTrendPoint
+from app.repositories.elevator_repository import ElevatorRepository
+from app.routers.elevators import get_briefing_service
+from app.services.briefing_service import BriefingService
 
 
 def _seed_elevator(id: str, risk_score: float) -> Elevator:
@@ -102,3 +108,63 @@ async def test_submit_report_returns_404_for_unknown_elevator(client: AsyncClien
 async def test_submit_report_returns_422_for_invalid_body(client: AsyncClient):
     response = await client.post("/api/elevators/ELV-R04/report", json={})
     assert response.status_code == 422
+
+
+# --- briefing ---
+
+@pytest.mark.asyncio
+async def test_get_briefing_returns_200_with_bedrock_source(
+    client: AsyncClient, db_session: AsyncSession
+):
+    db_session.add(_seed_elevator("ELV-B01", 0.9))
+    await db_session.flush()
+
+    mock_client = MagicMock()
+    mock_client.generate.return_value = "Pre-visit briefing for ELV-B01."
+    app.dependency_overrides[get_briefing_service] = lambda: BriefingService(
+        elevator_repository=ElevatorRepository(db_session),
+        bedrock_client=mock_client,
+    )
+
+    response = await client.get("/api/elevators/ELV-B01/briefing")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["elevator_id"] == "ELV-B01"
+    assert data["source"] == "bedrock"
+    assert data["text"]
+    assert "generated_at" in data
+
+
+@pytest.mark.asyncio
+async def test_get_briefing_falls_back_when_client_fails(
+    client: AsyncClient, db_session: AsyncSession
+):
+    db_session.add(_seed_elevator("ELV-B02", 0.6))
+    await db_session.flush()
+
+    mock_client = MagicMock()
+    mock_client.generate.side_effect = RuntimeError("bedrock unavailable")
+    app.dependency_overrides[get_briefing_service] = lambda: BriefingService(
+        elevator_repository=ElevatorRepository(db_session),
+        bedrock_client=mock_client,
+    )
+
+    response = await client.get("/api/elevators/ELV-B02/briefing")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "fallback"
+    assert data["text"]
+
+
+@pytest.mark.asyncio
+async def test_get_briefing_returns_404_for_unknown(
+    client: AsyncClient, db_session: AsyncSession
+):
+    app.dependency_overrides[get_briefing_service] = lambda: BriefingService(
+        elevator_repository=ElevatorRepository(db_session),
+        bedrock_client=MagicMock(),
+    )
+
+    response = await client.get("/api/elevators/DOES-NOT-EXIST/briefing")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Elevator not found"}
