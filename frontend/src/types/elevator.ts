@@ -30,6 +30,13 @@ export interface ElevatorDetail extends ElevatorSummary {
   hourly_trips_avg: number
 }
 
+export interface Briefing {
+  elevator_id: string
+  text: string
+  source: 'bedrock' | 'fallback'
+  generated_at: string
+}
+
 export interface PostVisitReport {
   technician_name: string
   visit_date: string
