@@ -38,7 +38,7 @@ The GitHub Actions workflow `.github/workflows/deploy.yml`:
 
 1. Authenticates to AWS via OIDC (assumes the `github-actions-deploy` IAM role — no stored AWS or SSH credentials).
 2. Sends an SSM `AWS-RunShellScript` command to the instance that runs:
-   `cd /opt/elevator && git fetch origin main && git reset --hard origin/main && docker compose -f docker-compose.prod.yml up --build -d`
+   `cd /opt/elevator && git fetch origin main && git reset --hard origin/main` and then recreates the stack with `docker compose up --build -d`. The Compose file list always includes `docker-compose.prod.yml` and **additionally** includes `/opt/portfolio/docker-compose.portfolio.yml` when that file exists (see [Co-located sites](#co-located-sites-shared-nginx)). When the override is included, the merged nginx config is validated with `nginx -t` in a throwaway container first, falling back to an Elevator-only deploy if it is invalid; the `up` is wrapped in `flock -w 600 /opt/deploy.lock`.
 3. Polls the command, streams its stdout/stderr into the Actions log, and fails the job if the remote command does not finish with status `Success`.
 4. Runs a smoke check against `https://elevator.dsaavedra.dev/health`.
 
@@ -78,8 +78,46 @@ git fetch origin main
 git reset --hard origin/main        # or: git reset --hard <previous-sha> to roll back
 
 # 3. Rebuild and restart
-docker compose -f docker-compose.prod.yml up -d --build
+#    Include the portfolio override only if it exists, validate the merged nginx
+#    config (falling back to Elevator-only on failure), and serialize with the lock,
+#    mirroring the CI/CD command (see "Co-located sites" below).
+CF="-f docker-compose.prod.yml"
+if [ -f /opt/portfolio/docker-compose.portfolio.yml ]; then
+  CF="$CF -f /opt/portfolio/docker-compose.portfolio.yml"
+  if ! docker compose $CF run --rm --no-deps --entrypoint nginx nginx -t; then
+    echo "WARNING: merged nginx config invalid; deploying Elevator without the portfolio override" >&2
+    CF="-f docker-compose.prod.yml"
+  fi
+fi
+flock -w 600 /opt/deploy.lock docker compose $CF up -d --build
 ```
+
+---
+
+## Co-located sites (shared nginx)
+
+A second site — the personal portfolio at `https://dsaavedra.dev` — is served from the
+**same nginx container** that fronts the Elevator stack (nginx owns ports 80/443 and the
+`*.dsaavedra.dev` + apex certificate). The portfolio is deployed from a separate
+repository (`dsaavedra-web`), checked out at `/opt/portfolio`, and attaches to nginx via
+a Compose override (`/opt/portfolio/docker-compose.portfolio.yml`) that adds two
+read-only mounts to the `nginx` service: the static root and a `conf.d` drop-in
+(`portfolio.conf`).
+
+Because the nginx container is shared, the two pipelines are coordinated so they cannot
+break each other:
+
+- **Conditional override** — the Elevator deploy includes the portfolio override only
+  when `/opt/portfolio/docker-compose.portfolio.yml` exists, so it never recreates nginx
+  without the portfolio mounts, and never fails if the portfolio is absent.
+- **Merged-config validation + fallback** — when the override is included, the Elevator
+  deploy validates the merged nginx config with `nginx -t` in a throwaway container and,
+  if it is invalid, drops the override and deploys Elevator alone. This guarantees a
+  broken co-located `portfolio.conf` (left on disk by a failed portfolio deploy) can
+  never take Elevator down. The portfolio deploy validates the same way before applying.
+- **Host-level lock** — both deploys wrap `docker compose ... up` in
+  `flock -w 600 /opt/deploy.lock` (GitHub `concurrency` groups are per-repo and cannot
+  coordinate across repositories); the bounded wait fails the deploy rather than hanging.
 
 ---
 
