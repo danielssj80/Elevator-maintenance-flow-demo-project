@@ -28,6 +28,7 @@ jobs:
       - name: Send deploy command via SSM
         id: send
         run: |
+          # shellcheck disable=SC2016  # $CF is intentionally literal: it must expand on the EC2 instance (inside the SSM script), not on the GitHub runner
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
@@ -38,7 +39,15 @@ jobs:
                 "cd /opt/elevator",
                 "git fetch origin main",
                 "git reset --hard origin/main",
-                "docker compose -f docker-compose.prod.yml up --build -d"
+                "CF=\"-f docker-compose.prod.yml\"",
+                "if [ -f /opt/portfolio/docker-compose.portfolio.yml ]; then",
+                "  CF=\"$CF -f /opt/portfolio/docker-compose.portfolio.yml\"",
+                "  if ! docker compose $CF run --rm --no-deps -T --entrypoint nginx nginx -t; then",
+                "    echo \"WARNING: merged nginx config invalid; deploying Elevator without the portfolio override\" >&2",
+                "    CF=\"-f docker-compose.prod.yml\"",
+                "  fi",
+                "fi",
+                "flock -w 600 /opt/deploy.lock docker compose $CF up --build -d"
               ],
               "executionTimeout": ["1800"]
             }' \
