@@ -35,6 +35,7 @@ For detailed standards per area, refer to:
 - [Frontend Standards](./frontend-standards.md) — React 19, Vite, Tailwind, testing with Playwright
 - [Documentation Standards](./documentation-standards.md) — when to update Notion, OpenSpec, and `docs/`
 - [OpenSpec Tasks Mandatory Steps](./openspec-tasks-mandatory-steps.md) — required checklist when creating or executing `tasks.md`
+- [Development Workflow](./dev-workflow.md) — developing safely from Claude Code on the web (and locally): branch → PR → merge → auto-deploy, cloud environment setup, running the stack/tests in Docker
 
 ## 4. Project Skills
 

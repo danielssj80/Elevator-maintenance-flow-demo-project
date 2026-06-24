@@ -80,4 +80,6 @@ This project is tracked in Notion under **Elevator Maintenance Flow Demo Project
 
 ## 7. Planning Model
 
-Planning and spec-creation workflows must use **Fable** (the most capable model). This applies to `enrich-us` and filling OpenSpec artifacts. Switch manually via `/model` before running these workflows, and consider switching back to a lighter model for routine implementation afterwards.
+Planning and spec-creation workflows must use **Opus 4.8** (the most capable model currently available). This applies to `enrich-us` and filling OpenSpec artifacts. Routine implementation tasks may use a lighter model such as **Sonnet**. Switch manually via `/model` before running these workflows.
+
+> Note: Fable was previously the designated planning model but is currently unavailable, with no known return date. Revisit this section if it becomes available again.
