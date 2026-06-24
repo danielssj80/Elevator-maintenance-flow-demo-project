@@ -61,5 +61,33 @@ Two Majors were found and fixed, then re-verified:
   **verbatim**: `PROJECT=elevator-maintenance-flow-demo-project`, **22 passed,
   exit 0**.
 
+## Live Claude Code web sandbox validation (2026-06-24)
+A real web session on this branch was used to validate the cloud workflow. Findings
+(cumulative, in the order hit):
+1. **Docker daemon not auto-started** — `dockerd` starts as root; the cache keeps
+   files, not processes, so it must be started per session.
+2. **Setup-script CWD is not the repo root** — `bash scripts/dev-setup.sh` as the
+   setup script → `exit 127`; the same command run interactively worked
+   (`repo root = /home/user/Elevator-maintenance-flow-demo-project`). Absolute path
+   required.
+3. **`Trusted` network blocks Docker Hub's CDN** — `docker compose pull postgres:16-alpine`
+   → `403` from `production.cloudfront.docker.com` (Trusted allows `cloudflare`, not
+   `cloudfront`). **Full** unblocked the pull.
+4. **The wall — image builds fail TLS** — with daemon up + Full, `docker compose build`
+   failed: `pip install` inside the build container →
+   `CERTIFICATE_VERIFY_FAILED: self-signed certificate in certificate chain` against
+   pypi.org. The sandbox's MITM proxy CA is trusted on the host but not inside build
+   containers. `npm ci` would hit the same.
+5. **Non-Docker work confirmed** — host `python3 -m venv && pip install xgboost
+   scikit-learn pandas` → `HOST-PIP-OK`.
+
+`scripts/dev-setup.sh` itself behaved correctly in the sandbox (auto-detected
+`docker compose` v2 — Major-1 fix validated live); the build failure was the proxy,
+not the script.
+
+**Decision**: adopt the two-track workflow. Track A (web) = non-Docker work (M1);
+Track B (local / dev EC2) = the Docker stack and tests. The dev-EC2 backlog task is
+elevated to a real dependency for the Docker loop.
+
 ## Outcome
-PASS (after adversarial-review fixes)
+PASS (two-track scope; Docker-in-sandbox proven impractical and moved out of scope)

@@ -1,23 +1,30 @@
 ---
-description: How to develop this project safely from Claude Code on the web (and locally), without breaking the production demo. Branch → PR → merge → auto-deploy.
+description: How to develop this project safely without breaking the production demo — a two-track workflow (Claude Code on the web for non-Docker work; local/dev-EC2 for the Docker stack). Branch → PR → merge → auto-deploy.
 alwaysApply: false
 ---
 
 # Development Workflow
 
-This project can be developed entirely from **Claude Code on the web**
-([claude.ai/code](https://claude.ai/code)) — working directly against the GitHub
-repo, with no dependency on any single local machine — or from a local terminal.
-The same setup primitive (`scripts/dev-setup.sh`) works in all environments.
+This project uses a **two-track** development workflow:
+
+- **Track A — Claude Code on the web** ([claude.ai/code](https://claude.ai/code)):
+  non-Docker work — Python/ML (e.g. M1 offline training), code edits, docs, and
+  opening PRs. No local-machine dependency.
+- **Track B — local machine or the dedicated dev EC2**: the full Docker Compose
+  stack and the backend/integration/E2E tests, via `scripts/dev-setup.sh`.
+
+The split exists because the Claude Code web sandbox **cannot practically run the
+Docker stack** (see [§4](#4-why-the-web-sandbox-is-not-a-docker-host)). It runs
+language toolchains directly, which is all M1 needs.
 
 ## 1. The golden rule: production deploys from `main`
 
 A push to `main` auto-deploys to production (`https://elevator.dsaavedra.dev`) via
 GitHub Actions → OIDC → SSM. To protect the live demo:
 
-- **`main` is branch-protected**: pull request required, `enforce_admins` on, no
-  direct pushes, no force-push, no deletion. Even an admin (or an agent) cannot
-  push straight to `main`.
+- **`main` is branch-protected**: PR required, `enforce_admins` on, no direct
+  pushes, no force-push, no deletion. Even an admin or an agent cannot push
+  straight to `main`.
 - All work happens on `feature/*` branches and reaches production **only** through
   a reviewed PR merge.
 
@@ -25,40 +32,33 @@ In a Claude Code **web** session this is doubly enforced: the sandbox's GitHub p
 restricts every session to pushing **only its own working branch**, so a cloud
 session can never touch `main` directly.
 
-## 2. The flow
-
 ```
 feature branch  →  push  →  Pull Request  →  review + merge (you)  →  auto-deploy
 ```
 
-1. Create a `feature/<short-name>` branch.
-2. Implement (TDD per the standards). Run the stack and tests in Docker (§4).
-3. Push the branch and open a PR.
-4. **You review and merge** the PR on GitHub (the project owner merges; agents do
-   not merge).
-5. The merge to `main` triggers the production deploy. Verify the result.
+The project owner reviews and merges PRs; agents do not merge.
 
-## 3. Working from Claude Code on the web
+## 2. Track A — Claude Code on the web (non-Docker)
 
-### One-time: connect the repo and configure the environment
+Use the web sandbox for Python/ML work (M1), edits, docs, and PRs.
 
-1. In [claude.ai/code](https://claude.ai/code), connect your GitHub account and
-   select this repository.
-2. Configure the **cloud environment** (cloud icon → environment settings):
-   - **Network access**: **Trusted** is sufficient. It already allows GitHub, PyPI,
-     npm, and Docker Hub — everything `scripts/dev-setup.sh` needs.
-   - **Setup script**: set it to
-     ```bash
-     bash scripts/dev-setup.sh
-     ```
-     It runs once and the resulting filesystem (including pulled/built Docker
-     images) is **cached** in the environment snapshot, so later sessions start
-     fast and skip it.
-   - **Environment variables / secrets**: **do not** put AWS/Bedrock credentials
-     here. Claude Code web has no dedicated secrets store yet, and env vars are
-     visible to anyone who can edit the environment. Dev/test runs without AWS:
-     PostgreSQL is local to the Compose stack, and the briefing endpoint uses its
-     deterministic fallback when Bedrock is unreachable.
+1. In [claude.ai/code](https://claude.ai/code), connect your GitHub account and this
+   repository; start a session on a `feature/*` branch.
+2. **No special environment setup is required for non-Docker work.** Leave the
+   environment **Setup script empty** (a Docker-oriented setup script will fail —
+   see §4). Do **not** put AWS/Bedrock credentials in the environment (no secrets
+   store; env vars are visible to anyone who can edit the environment).
+3. For Python work, use a venv on the host (the sandbox's proxy CA is trusted on the
+   host, so `pip` works there):
+
+   ```bash
+   python3 -m venv .venv
+   .venv/bin/pip install --upgrade pip
+   .venv/bin/pip install <your-deps>     # e.g. xgboost scikit-learn pandas for M1
+   ```
+
+   Note: the sandbox ships Python 3.11 (the project targets 3.12) — fine for M1
+   offline work; keep version-sensitive code in mind.
 
 ### Moving sessions between web and terminal
 
@@ -68,39 +68,37 @@ feature branch  →  push  →  Pull Request  →  review + merge (you)  →  au
 ### Cost / quota note
 
 Cloud sessions have **no separate compute charge** for the VM, but they draw on the
-**shared Claude usage quota** of your account. On Pro, prefer **one task at a time**
-(parallel sessions consume quota proportionally). Sessions stop after inactivity and
-the environment is reclaimed, but the cached filesystem persists.
+**shared Claude usage quota** of your account. On Pro, prefer **one task at a time**.
 
-## 4. Running the stack and tests in Docker
+## 3. Track B — local or dev EC2 (full Docker stack + tests)
 
-Build and test **inside Docker**, not on the host. Use whichever Compose CLI your
-environment provides — the **`docker compose`** v2 plugin (e.g. the Claude Code web
-sandbox) or the **`docker-compose`** v1 binary (the production host convention).
-`scripts/dev-setup.sh` auto-detects this; the examples below select it explicitly:
+Run the Docker stack and tests on a local machine or the dedicated dev EC2 (see the
+"Provision a dedicated dev EC2 box" backlog task). Use whichever Compose CLI you
+have — `docker compose` (v2) or `docker-compose` (v1); `scripts/dev-setup.sh`
+auto-detects it.
 
-```bash
-# Prefer v2 plugin, fall back to v1:
-docker compose version >/dev/null 2>&1 && COMPOSE="docker compose" || COMPOSE="docker-compose"
-```
-
-Prepare images (idempotent; run once per environment, or after dependency changes):
+Prepare images (idempotent; run once per host, or after dependency changes):
 
 ```bash
 bash scripts/dev-setup.sh
 ```
 
+Pick the Compose CLI for the commands below:
+
+```bash
+docker compose version >/dev/null 2>&1 && COMPOSE="docker compose" || COMPOSE="docker-compose"
+```
+
 Start the stack:
 
 ```bash
-$COMPOSE up -d              # db → migrate → backend → frontend
+$COMPOSE up -d             # db → migrate → backend → frontend
 ```
 
 Run the backend unit suite against a dedicated test database. The production backend
-image ships without dev dependencies (pytest is installed ephemerally for the run —
-tracked as a backlog improvement to bake a dev image target). The Compose project
-name — used for the default network and image names — is the **lowercased**
-repository directory name:
+image ships without dev dependencies (pytest is installed ephemerally — tracked as a
+backlog improvement to bake a dev image target). The Compose project name — used for
+the default network and image names — is the **lowercased** repo directory name:
 
 ```bash
 PROJECT="$(basename "$PWD" | tr '[:upper:]' '[:lower:]')"
@@ -120,10 +118,30 @@ docker run --rm \
 E2E tests use the Playwright MCP against the running stack (see
 [frontend-standards.md](./frontend-standards.md)).
 
-## 5. Portability to a dedicated dev EC2 (future)
+## 4. Why the web sandbox is not a Docker host
 
-`scripts/dev-setup.sh` is intentionally host-agnostic. On a future dedicated dev EC2
-(separate from production — see the "Provision a dedicated dev EC2 box" backlog
-task), the same command bootstraps the dev stack with **no changes**. A dev box
-avoids consuming Claude usage quota and survives session inactivity, at the cost of
-an instance to maintain. The web sandbox and the dev box are interchangeable.
+Validated live in a real web session — the sandbox cannot practically run the Docker
+stack, for cumulative reasons:
+
+- **Daemon not auto-started** — `dockerd` must be launched per session (the cache
+  stores files, not processes).
+- **Setup script CWD is not the repo root** — relative paths fail (`exit 127`); an
+  absolute path is required.
+- **`Trusted` network blocks Docker Hub's CDN** — image pulls `403` from
+  `production.cloudfront.docker.com` (Trusted allows the `cloudflare` variant, not
+  `cloudfront`); needs **Full** or **Custom**.
+- **The wall — image builds fail TLS** — `pip`/`npm` inside `docker build` hit
+  `CERTIFICATE_VERIFY_FAILED` (self-signed cert in chain), because the sandbox's
+  security proxy does TLS interception with a CA that is trusted on the host but
+  **not inside build containers**.
+
+Working around the last point means hacking the production Dockerfiles or pushing
+pre-built images to a registry — not worth it. M1 needs none of it, so the Docker
+loop lives on **local / the dev EC2** instead.
+
+## 5. The dedicated dev EC2 (recommended next infra step)
+
+`scripts/dev-setup.sh` is host-agnostic, so the dev EC2 (separate from production)
+bootstraps the full Docker stack with the same command and **no changes**. Because
+the web sandbox can't run docker-in-docker, this box is the reliable home for the
+Docker loop — see the "Provision a dedicated dev EC2 box" backlog task.

@@ -40,10 +40,10 @@
 
 - [x] 5.1 Not applicable — no frontend change. Noted in the step-3 report.
 
-## 6. Cloud round-trip evidence (workflow validation)
+## 6. Cloud sandbox validation (live)
 
-- [ ] 6.1 After merge, start a real Claude Code web session for the repo with the documented environment; run `dev-setup.sh` + the backend suite in the sandbox; open a throwaway PR from the session to prove the branch-scoped push; record evidence in a report
-      (Depends on the user connecting the repo in claude.ai/code — manual step. Deferred to post-merge.)
+- [x] 6.1 Ran a real Claude Code web session on this branch and validated the sandbox empirically: Docker daemon not auto-started (startable as root); setup-script CWD is not the repo root (needs absolute path); `Trusted` network blocks Docker Hub's CDN (`production.cloudfront.docker.com` 403); **image builds fail TLS through the MITM proxy** (`pip`/`npm` `CERTIFICATE_VERIFY_FAILED`). Non-Docker work confirmed: host `pip install xgboost scikit-learn pandas` → `HOST-PIP-OK`. Findings recorded in the step-3 report and drove the two-track redesign (Track A non-Docker / Track B local+EC2).
+- [x] 6.2 `scripts/dev-setup.sh` exercised in the sandbox: detected `docker compose` (v2) correctly (Major-1 fix validated live); failure was the proxy, not the script.
 
 ## 7. Update Technical Documentation (MANDATORY)
 

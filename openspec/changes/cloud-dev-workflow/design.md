@@ -2,38 +2,39 @@
 
 ## Context
 
-Claude Code on the web runs each session in an Anthropic-managed cloud sandbox (Ubuntu 24.04) with `git`, `docker`, and `docker compose` pre-installed, cloned from the GitHub repo. Two mechanisms shape per-repo setup:
+Claude Code on the web runs each session in an Anthropic-managed cloud sandbox (Ubuntu, root) cloned from the GitHub repo at the selected branch. The intent was to run the project's Docker Compose dev/test stack there. **Live validation in a real web session disproved that assumption** — see "Validated sandbox findings". The result is a **two-track** workflow.
 
-- **Environment setup script** — attached to the cloud environment (configured in the web UI), runs once before Claude launches; its filesystem result is **snapshotted/cached** (~7 days) so later sessions skip it. Cloud-only.
-- **SessionStart hook** — committed to the repo's `.claude/settings.json`, runs every session (local + cloud).
+## Validated sandbox findings (live)
 
-Network access has levels None / **Trusted** / Full / Custom; Trusted already allows GitHub, npm/PyPI, and Docker Hub. The GitHub proxy restricts `git push` to the current working branch. There is **no secrets store yet** — environment variables are visible to anyone who can edit the environment.
+Tested empirically in a Claude Code web session on this repo's branch:
 
-## Goals
+1. **Docker daemon not auto-started.** `docker` works only after starting `dockerd` (we are root, so no real sudo needed). The cache stores files, not processes, so any daemon must be (re)started per session.
+2. **Setup script CWD is not the repo root.** `bash scripts/dev-setup.sh` as the environment setup script failed `exit 127` (file not found), while the same command run interactively worked (repo at `/home/user/<repo>`). Setup scripts must use an absolute path / `cd`.
+3. **`Trusted` network blocks Docker Hub's CDN.** `docker compose pull` of `postgres:16-alpine` got `403 Forbidden` from `production.cloudfront.docker.com`. The Trusted allowlist includes the `cloudflare` variant but not `cloudfront`. Needs **Full** (or Custom + that host).
+4. **The wall: image builds fail TLS through the MITM proxy.** With the daemon up and network Full, `docker compose build` failed: `pip install` inside the build container hit `CERTIFICATE_VERIFY_FAILED: self-signed certificate in certificate chain` against pypi.org. The sandbox's security proxy does TLS interception with a CA that is trusted on the host but **not inside `docker build` containers**. `npm ci` would hit the same wall.
+5. **Non-Docker work is fine.** On the host (CA trusted), `python3 -m venv … && pip install xgboost scikit-learn pandas` succeeds (`HOST-PIP-OK`). M1's offline ML needs no Docker, no DB, no stack.
 
-1. One setup primitive that works in the web sandbox, a future dev EC2, and locally (portability is an explicit project requirement).
-2. Zero new production risk; rely on existing `main` protection + the branch-scoped push.
-3. Keep cloud sessions cheap to start (use the cached environment, not per-session rebuilds).
+Conclusion: forcing docker-in-docker in the sandbox means hacking the production Dockerfiles (inject the proxy CA, `--trusted-host`, `--strict-ssl false`) or pushing pre-built images to a registry — not worth it for a portfolio project, especially when M1 needs none of it.
 
-## Key Decisions
+## Decisions
 
 ### D1. Portable `scripts/dev-setup.sh`, not UI-only setup
-The setup logic lives in the repo as `scripts/dev-setup.sh`. The cloud environment's setup script is a one-liner (`bash scripts/dev-setup.sh`). This makes the same setup reusable on the dev EC2 and locally with no rewrite — a drop-in for the "Provision dev EC2" Backlog task. **Alternative rejected**: pasting the full setup into the web UI setup script (not portable, not version-controlled).
+Setup logic lives in the repo as `scripts/dev-setup.sh`; a host calls it directly. This makes it reusable on the dev EC2 and locally with no rewrite — a drop-in for the "Provision dev EC2" backlog task.
 
-### D2. Setup script (cached), not a SessionStart hook
-Image build/pull goes through the environment setup script so it runs once and is captured in the environment snapshot; subsequent sessions start fast. A `SessionStart` hook would re-run every session and rebuild images needlessly. **Decision: no SessionStart hook** (also recorded in the enriched Notion task). The cache stores files, not running processes, so Claude still starts containers per session — `dev-setup.sh` only prepares images, it does not leave services running.
+### D2. Compose CLI: support both v2 and v1
+`scripts/dev-setup.sh` and the documented commands **detect** the Compose CLI (prefer `docker compose` v2, fall back to `docker-compose` v1). Verified: it selected v2 in the sandbox and v1 locally. The documented test command derives the Compose project name as the **lowercased** repo directory name (fixing a mis-cased network name caught in adversarial review).
 
-### D3. Network access = Trusted; no AWS creds in the cloud
-Trusted covers everything dev/test needs (GitHub, PyPI, Docker Hub). Because there is no secrets store and env vars are visible to environment editors, **no AWS/Bedrock credentials are placed in the cloud environment**. The backend's briefing endpoint already has a deterministic fallback, and tests mock Bedrock, so live AWS is unnecessary in cloud sessions. Exercising the live briefing endpoint from the cloud (Custom network + temporary creds) is out of scope.
+### D3. Two-track workflow (the core decision)
+**Track A — Claude Code on the web**: non-Docker work only (Python/ML for M1, edits, docs, PRs). **Track B — local or the dedicated dev EC2**: the full Docker stack and backend/integration/E2E tests via `scripts/dev-setup.sh`. Rationale: the validated findings above. This also makes the dev-EC2 backlog task a **real dependency** for the Docker loop, not a nice-to-have — its priority is raised and its rationale updated.
 
-### D4. Idempotency
-`dev-setup.sh` must be safe to re-run (the cache rebuilds on setup-script or allowed-host changes, ~weekly expiry, and humans will run it ad hoc). It only pulls/builds images and must not mutate running services or data.
+### D4. No Docker dependency for Track A
+M1 (and other Python work) runs in a plain venv on the sandbox host, where the proxy CA is trusted. No daemon start, no network widening, no Dockerfile hacks. The web environment needs no special setup script for Track A, and **no AWS credentials** (no secrets store; env vars are visible to environment editors).
 
-### D5. Compose CLI: support both v2 and v1
-The project convention (predating cloud sessions) is the `docker-compose` **v1** binary, which is what the production host and current laptops use. The Claude Code web sandbox, however, ships the `docker compose` **v2** plugin and may not have the v1 binary. Hard-coding either one breaks one of the target environments. **Decision**: `scripts/dev-setup.sh` and the documented commands **detect** the available CLI (prefer `docker compose` v2, fall back to `docker-compose` v1) and use it. This is the change that actually makes the workflow portable to the web sandbox. (Caught in adversarial review: the initial draft hard-required v1 and would have failed in the sandbox; the documented test command also mis-cased the Compose project name. Both fixed: the project name used for the default network/image is the **lowercased** repo directory name.)
+### D5. Idempotency
+`scripts/dev-setup.sh` is safe to re-run; it only pulls/builds images and never starts services or mutates data.
 
 ## Risks / Trade-offs
 
-- **Quota**: cloud sessions draw on the shared Claude usage quota (no separate VM compute charge). Mitigation: doc advises one task at a time on Pro.
-- **Docker base image**: the sandbox does not allow replacing its base image; we run our images as side-containers via `docker compose`, which fits this project. No mitigation needed.
-- **Cache staleness**: setup re-runs ~weekly or on config change; acceptable.
+- **Quota**: cloud sessions draw on the shared Claude usage quota (no separate VM charge). Doc advises one task at a time on Pro.
+- **Two environments to keep in sync**: mitigated by the single portable `scripts/dev-setup.sh` (same stack on local and EC2) and a documented workflow.
+- **Dev EC2 not yet provisioned**: until then, the Docker loop is local-only; acceptable for M1, which is non-Docker.
