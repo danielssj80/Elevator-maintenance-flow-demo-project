@@ -64,7 +64,7 @@
 
 ---
 
-### T4 — Run scripts, commit artifacts
+### T4 — Run scripts, commit artifacts ✅
 
 **What:** Execute `train.py` and `generate_predictions.py` locally, verify outputs, commit `model.joblib` and `predictions.json`.
 
@@ -78,7 +78,7 @@
 
 ---
 
-### T5 — Update seed.py to load from predictions.json
+### T5 — Update seed.py to load from predictions.json ✅
 
 **What:** Replace hardcoded `NL_EXPLANATIONS`, `FEATURE_SETS`, `high_risk_scores`, and all `rng.uniform()` risk-score calls in `_build_elevators()` with data loaded from `predictions.json`.
 
@@ -124,7 +124,7 @@
 
 ---
 
-### T8 — Update docs/data-model.md
+### T8 — Update docs/data-model.md ✅
 
 **What:** Add a note in the "Current Data Storage" section clarifying that `risk_score`, `nl_explanation`, `features`, and `trend` are sourced from `backend/ml/predictions.json` (pre-calculated by `generate_predictions.py` using a trained XGBoost model).
 

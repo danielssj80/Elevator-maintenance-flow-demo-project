@@ -158,3 +158,5 @@ The backend uses **PostgreSQL 16** (managed by SQLAlchemy 2.x async + Alembic mi
 | `visit_reports` | `VisitReport` (FK to `elevators.id`, JSONB for list fields) |
 
 `risk_level` is derived in the service layer from `risk_score` — not stored. `trend` is stored as individual rows and assembled into a sorted array by the service.
+
+**ML-derived fields:** `risk_score`, `nl_explanation`, `features`, and `trend` are pre-calculated offline by `backend/ml/generate_predictions.py` using a trained XGBoost model (AI4I 2020 dataset) and SHAP explanations. Results are committed to `backend/ml/predictions.json` and loaded at startup by `backend/app/seed.py`. No live inference endpoint exists.
