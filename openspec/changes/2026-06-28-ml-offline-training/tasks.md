@@ -4,7 +4,7 @@
 
 ## Task list
 
-### T1 — Add dependencies and ml/ directory scaffold
+### T1 — Add dependencies and ml/ directory scaffold ✅
 
 **What:** Add `xgboost` and `shap` to `backend/requirements.txt`. Create `backend/ml/` directory with a `.gitkeep` and `backend/ml/data/.gitignore` (to ignore the raw CSV but not the generated artifacts).
 
@@ -17,7 +17,7 @@
 
 ---
 
-### T2 — Write train.py
+### T2 — Write train.py ✅
 
 **What:** Offline training script. Loads `backend/ml/data/ai4i2020.csv`, engineers features, trains XGBClassifier, evaluates, and exports `backend/ml/model.joblib`.
 
@@ -36,7 +36,7 @@
 
 ---
 
-### T3 — Write generate_predictions.py
+### T3 — Write generate_predictions.py ✅
 
 **What:** Offline prediction generation script. Loads `model.joblib` and the elevator metadata from a standalone copy of the seed constants (building list, models, etc.), synthesises one feature vector per elevator, predicts `risk_score`, runs SHAP, assembles `features` and `nl_explanation`, generates `trend`, and writes `backend/ml/predictions.json`.
 
