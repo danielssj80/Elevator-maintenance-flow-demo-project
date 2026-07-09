@@ -1,10 +1,14 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.elevator import Elevator
 
 
 class VisitReport(Base):
@@ -20,4 +24,4 @@ class VisitReport(Base):
     notes: Mapped[str] = mapped_column(default="")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
-    elevator: Mapped["Elevator"] = relationship()  # type: ignore[name-defined]
+    elevator: Mapped["Elevator"] = relationship()

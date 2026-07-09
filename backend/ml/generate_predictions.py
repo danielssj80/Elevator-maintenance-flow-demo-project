@@ -17,7 +17,6 @@ Produces:
 from __future__ import annotations
 
 import json
-import math
 import pathlib
 import random
 import sys
@@ -367,9 +366,6 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
     print(f"Loading model from {model_path} …")
     model = joblib.load(model_path)
     col_names: list[str] = model.get_booster().feature_names
-
-    rng = random.Random(42)
-    np_rng = np.random.default_rng(42)
 
     print("Building fleet metadata …")
     fleet_meta = _build_fleet_meta(random.Random(42))  # separate RNG for meta
