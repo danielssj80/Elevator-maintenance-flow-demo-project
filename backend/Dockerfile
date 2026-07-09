@@ -15,6 +15,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+# Pre-computed model predictions consumed by app.seed at startup.
+# model.joblib is only needed offline (train/generate scripts), not at runtime.
+COPY ml/predictions.json ./ml/predictions.json
 
 USER appuser
 
