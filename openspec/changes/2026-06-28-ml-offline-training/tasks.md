@@ -96,7 +96,7 @@
 
 ---
 
-### T6 — Smoke test: docker-compose up --build
+### T6 — Smoke test: docker-compose up --build ✅
 
 **What:** Build and run the full stack; verify the seeded data reflects model outputs.
 
@@ -110,7 +110,7 @@
 
 ---
 
-### T7 — Backend test suite: confirm no regressions
+### T7 — Backend test suite: confirm no regressions ✅
 
 **What:** Run existing pytest suite to confirm the seed change does not break any existing tests.
 

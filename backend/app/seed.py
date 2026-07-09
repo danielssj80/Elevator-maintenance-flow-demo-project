@@ -33,24 +33,28 @@ def _build_elevators() -> list[Elevator]:
         raw_score = pred["risk_score"]
         in_scope = pred["in_model_scope"]
 
+        # Out-of-scope elevators are never run through the model: null risk fields and
+        # no trend history. Showing a flat 6-point trend of zeros would be misleading
+        # (absence of data, not data that happens to be zero), so we leave it empty.
         if raw_score is None:
             risk_score = 0.0
             risk_level = "low"
             nl_explanation = ""
-            features: list[ElevatorFeature] = []
             trend_points: list[ElevatorTrendPoint] = []
         else:
             risk_score = float(raw_score)
             risk_level = pred["risk_level"]
             nl_explanation = pred["nl_explanation"]
-            features = [
-                ElevatorFeature(name=f["name"], impact=f["impact"], value=f["value"])
-                for f in pred["features"]
-            ]
             trend_points = [
                 ElevatorTrendPoint(day_index=j, score=s)
                 for j, s in enumerate(pred["trend"])
             ]
+
+        # Out-of-scope entries provide features=[], so this naturally yields no rows.
+        features = [
+            ElevatorFeature(name=f["name"], impact=f["impact"], value=f["value"])
+            for f in pred["features"]
+        ]
 
         elevators.append(Elevator(
             id=eid,
