@@ -7,7 +7,6 @@ from fastapi import HTTPException
 from app.models.elevator import Elevator
 from app.repositories.elevator_repository import ElevatorRepository
 from app.schemas.briefing import BriefingSchema
-from app.services.bedrock_client import BedrockClient
 from app.services.elevator_service import _derive_risk_level
 
 logger = logging.getLogger(__name__)
