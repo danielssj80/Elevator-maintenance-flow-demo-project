@@ -6,12 +6,12 @@
 
 ### T0 — Setup: feature branch
 
-- [ ] 0.1 Work on branch `feature/motor-life-feature` (already created from `main`)
-- [ ] 0.2 Verify with `git branch --show-current`
+- [x] 0.1 Work on branch `feature/motor-life-feature` (already created from `main`)
+- [x] 0.2 Verify with `git branch --show-current`
 
 ---
 
-### T1 — Rework the operating-hours feature synthesis
+### T1 — Rework the operating-hours feature synthesis ✅
 
 **What:** Replace the saturating `days_since_service × trips × 1.5` clamp in
 `_synthesise_features` with the fraction-of-motor-life scaling from `design.md`.
@@ -32,7 +32,7 @@ spot-check that a young/light unit is low and an old/heavy unit is high.
 
 ---
 
-### T2 — Reframe the display as "Motor useful life remaining (%)"
+### T2 — Reframe the display as "Motor useful life remaining (%)" ✅
 
 **What:** Change the feature name and value formatting.
 
@@ -49,7 +49,7 @@ strings remain in `predictions.json`.
 
 ---
 
-### T3 — Regenerate predictions.json and verify distribution
+### T3 — Regenerate predictions.json and verify distribution ✅
 
 **What:** Run `python backend/ml/generate_predictions.py`; inspect output.
 
@@ -66,7 +66,22 @@ strings remain in `predictions.json`.
 
 ---
 
-### T4 — Add resync migration
+### T3b — Medium-risk guarantee (added mid-implementation) ✅
+
+**What:** Regenerating with the fixed motor-life feature revealed the trained XGBoost is
+confidently bimodal (~4% of inputs land medium), so the medium tier came out empty. Add a
+medium-risk guarantee that steers `MEDIUM_COUNT = 5` low-risk units into 0.50–0.80 by
+rejection-sampling only their external factors (temperature/speed/torque), preserving each
+unit's real motor-life and type. See `design.md`.
+
+**Files changed:** `backend/ml/generate_predictions.py`
+
+**Acceptance:** in-scope split is a stable 5 high / 5 medium / 60 low; medium units span a
+range of ages (not age-driven); output reproducible across runs.
+
+---
+
+### T4 — Add resync migration ✅
 
 **What:** New Alembic data migration mirroring `0aac4958720e` (in-place UPDATE by PK +
 full replace of features/trend_points), reading the regenerated `predictions.json`.
@@ -79,7 +94,7 @@ feature values reflecting the new remaining-% strings.
 
 ---
 
-### T5 — Update docs
+### T5 — Update docs ✅
 
 **What:** Update `docs/data-model.md` — the `Feature.value` example and/or the ML-derived
 fields note — to mention the "Motor useful life remaining (%)" framing.

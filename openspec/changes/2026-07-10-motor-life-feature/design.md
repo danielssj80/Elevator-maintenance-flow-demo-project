@@ -84,6 +84,36 @@ HIGH_RISK_TYPES = ["infrastructure", "commercial", "infrastructure"]
 This yields a realistic spread (≈ 2 critical < 20 %, a few mid-band, the majority
 healthy ≥ 80 %) driven by genuine age × usage, not a forced score.
 
+## ADR: external factors (torque, temperature, speed) stay independent of age
+
+**Decision:** only the motor-life feature is correlated with age/usage. Load torque,
+motor/ambient temperature, and rotational speed remain independent random factors.
+
+**Rationale:** if every feature scaled with age, "old ⇒ high risk" would be a rule that
+needs no model. The value of the ML model is precisely that it catches a **new** unit at
+risk because of an external factor (a motor built with excess torque, an intrinsically
+hostile/hot environment) and clears an **old** unit whose motor is worn but whose load and
+environment are nominal. These are genuinely age-independent causes, so we do **not**
+artificially correlate them. Consequence, verified in the fleet: high- and medium-risk
+units span all ages (6–25 yr), and the aged cohort's worn motors do not by themselves
+imply high risk.
+
+## Model is confidently bimodal → medium-risk guarantee
+
+The trained XGBoost (`scale_pos_weight` on well-separated AI4I data) is a confident
+classifier: sampling 20 000 random plausible inputs, ~87 % score at the extremes
+(< 0.1 or > 0.9) and only ~4 % land in the medium band (0.50–0.80). So a purely
+model-driven fleet reliably produces high-risk units but an **often-empty medium tier**
+(0 of 70 in one run) — the medium risk_level and its UI path would never appear.
+
+To keep all three tiers populated for the demo, a **medium-risk guarantee** (mirroring the
+existing high-risk one) steers `MEDIUM_COUNT = 5` low-risk units into 0.50–0.80 by
+**rejection-sampling only their external factors** (temperature/speed/torque), keeping each
+unit's real `Tool_wear` (motor life) and `Type`. This is honest — the steered units have an
+ambiguous external condition, independent of age — and reproducible (fixed
+`random.Random(1234)`). Result: a stable 5 high / 5 medium / 60 low split, high and medium
+both age-independent.
+
 `push_to_failure=True` (the high-risk guarantee path) sets `fraction_consumed` directly
 in the failure band, e.g. `Uniform(0.85, 0.97)` → `tool_wear ≈ 215..245`.
 

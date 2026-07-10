@@ -266,6 +266,43 @@ def _synthesise_features(
     }
 
 
+# ── Medium-risk guarantee ─────────────────────────────────────────────────────
+# The trained XGBoost is confidently bimodal (~4% of inputs land in the medium band),
+# so a random fleet can show an empty medium tier. We steer a few low-risk units into
+# 0.50–0.80 by resampling only their EXTERNAL factors (temperature/speed/torque) — an
+# ambiguous operating condition, independent of age. Their real Tool_wear (motor life)
+# and Type one-hot are preserved, so the motor-life story stays consistent.
+MEDIUM_COUNT = 5
+MEDIUM_BAND = (0.50, 0.80)
+
+
+def _resample_to_band(
+    model,
+    col_names: list[str],
+    base_fv: dict[str, float],
+    rng: random.Random,
+    lo: float,
+    hi: float,
+    tries: int = 4000,
+) -> dict[str, float] | None:
+    """Rejection-sample a feature vector scoring in [lo, hi] by varying external factors."""
+    candidates: list[dict[str, float]] = []
+    for _ in range(tries):
+        fv = dict(base_fv)
+        air = rng.uniform(295.0, 305.0)
+        fv["Air_temperature__K"] = round(air, 2)
+        fv["Process_temperature__K"] = round(air + rng.uniform(3.0, 16.0), 2)
+        fv["Rotational_speed__rpm"] = round(rng.uniform(1168.0, 2860.0), 2)
+        fv["Torque__Nm"] = round(rng.uniform(3.0, 80.0), 2)
+        candidates.append(fv)
+    matrix = np.array([[fv[c] for c in col_names] for fv in candidates])
+    scores = model.predict_proba(matrix)[:, 1]
+    for fv, s in zip(candidates, scores):
+        if lo <= s <= hi:
+            return fv
+    return None
+
+
 # ── Build fleet metadata ──────────────────────────────────────────────────────
 
 def _build_fleet_meta(rng: random.Random) -> list[dict]:
@@ -448,6 +485,23 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
 
     high_count = sum(1 for s in risk_scores if s > 0.80)
     print(f"  Predictions complete · max score={max(risk_scores):.3f} · {high_count} high-risk")
+
+    # ── Medium-risk guarantee ─────────────────────────────────────────────────
+    lo_b, hi_b = MEDIUM_BAND
+    med_rng = random.Random(1234)
+    low_idx = [i for i in range(len(in_scope)) if risk_scores[i] < lo_b]
+    step = max(1, len(low_idx) // MEDIUM_COUNT)
+    targets = low_idx[::step][:MEDIUM_COUNT]
+    steered = 0
+    for ci in targets:
+        fv = _resample_to_band(model, col_names, feature_vecs[ci], med_rng, lo_b, hi_b)
+        if fv is not None:
+            feature_vecs[ci] = fv
+            X[ci] = [fv[c] for c in col_names]
+            steered += 1
+    risk_scores = model.predict_proba(X)[:, 1].tolist()
+    med_count = sum(1 for s in risk_scores if lo_b <= s <= hi_b)
+    print(f"  Medium-risk guarantee: steered {steered} units · {med_count} now medium")
 
     # ── SHAP ──────────────────────────────────────────────────────────────────
     print("Computing SHAP values …")
