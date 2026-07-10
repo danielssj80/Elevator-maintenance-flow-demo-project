@@ -18,11 +18,15 @@ The system SHALL store all elevator data (scalar fields, the 3 risk features, an
 - **THEN** subsequent reads return the same data as before the restart, without re-seeding or duplication
 
 ### Requirement: Elevator detail preserves the existing contract
-The system SHALL return the full `ElevatorDetail` shape from the database, including exactly 3 `features` and a 6-element `trend` array whose last element equals `risk_score`.
+The system SHALL return the full `ElevatorDetail` shape from the database. For elevators where `in_model_scope` is `true`, this includes exactly 3 `features` and a 6-element `trend` array whose last element equals `risk_score`. For elevators where `in_model_scope` is `false` (no model prediction exists for that unit), `features` and `trend` SHALL both be empty arrays rather than fabricated placeholder values.
 
-#### Scenario: Fetching an existing elevator
-- **WHEN** `GET /api/elevators/{id}` is called with a seeded id (e.g. `ELV-001`)
+#### Scenario: Fetching an in-scope elevator
+- **WHEN** `GET /api/elevators/{id}` is called with a seeded, in-scope id (e.g. `ELV-001`)
 - **THEN** the response contains all detail fields, exactly 3 `features`, and a 6-element `trend` with `trend[5] == risk_score`
+
+#### Scenario: Fetching an out-of-scope elevator
+- **WHEN** `GET /api/elevators/{id}` is called with a seeded id where `in_model_scope` is `false`
+- **THEN** the response contains all detail fields with `features: []` and `trend: []`
 
 #### Scenario: Fetching an unknown elevator
 - **WHEN** `GET /api/elevators/{id}` is called with an id that does not exist

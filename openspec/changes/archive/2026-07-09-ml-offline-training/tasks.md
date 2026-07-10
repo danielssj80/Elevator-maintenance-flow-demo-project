@@ -15,6 +15,8 @@
 
 **Acceptance:** `pip install -r requirements.txt` succeeds; `backend/ml/` exists in git.
 
+**Post-adversarial-review correction:** `xgboost`/`shap`/`joblib` were moved out of `backend/requirements.txt` into a new offline-only `backend/requirements-ml.txt` — nothing under `backend/app/` imports them, so shipping them in the production image was pure bloat. Install both files (`pip install -r requirements.txt -r requirements-ml.txt`) to run `train.py` / `generate_predictions.py` locally.
+
 ---
 
 ### T2 — Write train.py ✅

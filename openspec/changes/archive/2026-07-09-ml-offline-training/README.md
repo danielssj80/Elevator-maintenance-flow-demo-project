@@ -2,11 +2,13 @@
 
 | Field | Value |
 |---|---|
-| **Status** | In progress |
+| **Status** | Archived |
 | **Milestone** | M1 — Dataset & Model |
 | **Notion task** | [Train ML model offline on selected dataset](https://app.notion.com/p/36c3ada00a958134bd9fd76634d7b806) |
-| **Branch** | `claude/dazzling-gates-eq35bx` |
+| **Branch** | `claude/dazzling-gates-eq35bx` (implementation, merged via PR #14) → `feature/archive-ml-offline-training` (archive) |
 | **Started** | 2026-06-28 |
+| **Merged to main** | 2026-07-09 (PR #14, squash) |
+| **Archived** | 2026-07-09 |
 
 ## Summary
 
