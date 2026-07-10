@@ -55,9 +55,9 @@ Represents a single risk factor contributing to the elevator's `risk_score`. Alw
 
 | Field | Type | Constraints | Description |
 |---|---|---|---|
-| `name` | `string` | required | Human-readable factor name (e.g. "Vibration anomaly") |
+| `name` | `string` | required | Human-readable factor name (e.g. "Motor useful life remaining", "Load torque") |
 | `impact` | `float` | 0.0 – 1.0 | Relative contribution to the risk score. Sum of all 3 impacts ≈ 1.0 |
-| `value` | `string` | required | Human-readable measured value (e.g. "2.4× baseline", "168 days") |
+| `value` | `string` | required | Human-readable measured value (e.g. "82% remaining", "58 Nm (+18 Nm above avg)") |
 
 **Known feature names (current model):**
 
@@ -160,5 +160,7 @@ The backend uses **PostgreSQL 16** (managed by SQLAlchemy 2.x async + Alembic mi
 `risk_level` is derived in the service layer from `risk_score` — not stored. `trend` is stored as individual rows and assembled into a sorted array by the service.
 
 **ML-derived fields:** `risk_score`, `nl_explanation`, `features`, and `trend` are pre-calculated offline by `backend/ml/generate_predictions.py` using a trained XGBoost model (AI4I 2020 dataset) and SHAP explanations. Results are committed to `backend/ml/predictions.json` and loaded at startup by `backend/app/seed.py`. No live inference endpoint exists.
+
+The AI4I feature space is mapped to elevator terms. The `Tool wear` input is presented as **"Motor useful life remaining" (%)**, derived from the unit's cumulative lifetime motor run-hours (age × per-type usage) against a rated ~40,000-hour motor life. The other factors (load torque, motor/ambient temperature, motor speed) are deliberately **independent of age** — they model external conditions (a motor built with excess torque, a hostile/hot environment) that can raise risk on a new unit or leave an old one low-risk, which is what makes the model more than an "age ⇒ risk" rule.
 
 **Out-of-scope elevators:** units where `in_model_scope` is `false` are never run through the model. `risk_score` is stored as `0.0`, `nl_explanation` is an empty string, and `features`/`trend` are empty arrays rather than fabricated placeholder values — this reflects genuine absence of a prediction, not a zero-risk result.
