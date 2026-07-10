@@ -40,11 +40,49 @@ fraction_consumed  = min(1.0, life_run_hours / MAX_MOTOR_HOURS)   # 0.0 .. 1.0
 tool_wear          = fraction_consumed * 253.0                    # AI4I domain
 ```
 
-Collapsing the constants: `life_run_hours ≈ age_years × hourly_trips_avg × 38.9`
-(where `38.9 = 16 × 0.4/60 × 365`). The constants `MOTOR_RUN_MIN_PER_TRIP`,
-`ACTIVE_HOURS_PER_DAY`, and `MAX_MOTOR_HOURS` are the tunable knobs; their product is
-chosen so a busy old unit approaches the failure region and a healthy fleet mostly sits
-low-to-mid — deliberately **not** clamped-flat like before.
+### Per-typology run intensity
+
+`MOTOR_RUN_MIN_PER_TRIP` and `ACTIVE_HOURS_PER_DAY` are **per building type**, so
+heavy-use buildings consume motor life faster (their risk correlates with usage,
+modulated by age). Our fleet already classifies every unit by `building_type`
+(residential/commercial/office/infrastructure); there is no separate "high-rise" type —
+`infrastructure` (metro/airport/hospital: intense traffic, long rides) is the heavy tier.
+
+| building_type | min/trip | active h/day | rationale |
+|---|---|---|---|
+| residential | 0.2 | 8 | short rides, low daytime traffic |
+| commercial | 0.4 | 10 | medium rides, business-hours traffic |
+| office | 0.4 | 10 | same tier as commercial |
+| infrastructure | 1.5 | 16 | long rides, near-continuous heavy traffic (the "high-rise"/heavy tier) |
+
+```python
+run_min_per_trip, active_hours = RUN_PARAMS[building_type]
+```
+
+### The in-scope age cap and the aged heavy cohort
+
+The in-scope fleet is capped at ~12 years old (the scope rule requires `brand == "own"`
+or `age ≤ 10/12`, and the "own" models are from 2017–2021). Against a 25-year / 40,000-h
+motor life, units that young barely dent their rated life even under heavy use — a naive
+apply leaves **66/70 units at ≥ 80 % remaining and 0 in the failure band** (the opposite
+over-correction from the old saturation).
+
+To get an organic high-risk band (rather than relying on the synthetic
+`push_to_failure`), the 3 high-risk-candidate slots (indices 0–2) become a deliberate
+**aged, heavy-use cohort**: old **own**-brand models (so they stay in-scope) in heavy-use
+buildings:
+
+```python
+OLD_HEAVY_MODELS = [
+    ("ThyssenKrupp Legacy TW", "own", 2001),
+    ("ThyssenKrupp Classic",   "own", 1999),
+    ("ThyssenKrupp Heritage",  "own", 2004),
+]
+HIGH_RISK_TYPES = ["infrastructure", "commercial", "infrastructure"]
+```
+
+This yields a realistic spread (≈ 2 critical < 20 %, a few mid-band, the majority
+healthy ≥ 80 %) driven by genuine age × usage, not a forced score.
 
 `push_to_failure=True` (the high-risk guarantee path) sets `fraction_consumed` directly
 in the failure band, e.g. `Uniform(0.85, 0.97)` → `tool_wear ≈ 215..245`.

@@ -79,6 +79,17 @@ ELEVATOR_MODELS = [
     ("Legacy Unit C", "third_party", 2008),
 ]
 
+# Aged, own-brand heavy-use units for the high-risk cohort. "own" keeps them in-scope
+# despite their age (the scope rule excludes old third-party units), and their age gives
+# them a genuinely high fraction of consumed motor life — organic high risk, not a forced
+# score. Paired with heavy-use building types below.
+OLD_HEAVY_MODELS = [
+    ("ThyssenKrupp Legacy TW", "own", 2001),
+    ("ThyssenKrupp Classic",   "own", 1999),
+    ("ThyssenKrupp Heritage",  "own", 2004),
+]
+HIGH_RISK_TYPES = ["infrastructure", "commercial", "infrastructure"]
+
 TECHNICIANS = [
     "Carlos Martínez", "Ana García", "Javier López", "María Sánchez",
     "Pedro Fernández", "Laura González", "Miguel Rodríguez", "Elena Martín",
@@ -99,20 +110,35 @@ FEATURE_NAME_MAP: dict[str, str] = {
     "Process_temperature__K":  "Motor temperature",
     "Rotational_speed__rpm":   "Motor speed",
     "Torque__Nm":              "Load torque",
-    "Tool_wear__min":          "Operating hours since service",
+    "Tool_wear__min":          "Motor useful life remaining",
     "Type_L":                  "Installation type (residential)",
     "Type_M":                  "Installation type (commercial)",
 }
 
-# Dataset means (approximate, from AI4I 2020 documentation)
+# Dataset means (approximate, from AI4I 2020 documentation). Tool_wear is intentionally
+# absent: its feature is displayed as remaining-life %, which needs no dataset mean.
 FEATURE_MEANS: dict[str, float] = {
     "Air_temperature__K":     300.0,
     "Process_temperature__K": 310.0,
     "Rotational_speed__rpm":  1538.8,
     "Torque__Nm":             39.99,
-    "Tool_wear__min":         107.95,
     "Type_L":                 0.6,
     "Type_M":                 0.3,
+}
+
+# ── Motor-life model ──────────────────────────────────────────────────────────
+# AI4I "Tool wear [min]" (0..253, high = worn → failure) is repurposed as a proxy for
+# how much of an elevator motor's rated life has been consumed. Anchored to a motor's
+# maximum run-hours before failure: ~4 h/day actual run × 365 × 25-year life ≈ 40,000 h.
+MAX_MOTOR_HOURS = 40_000.0
+
+# Per building type: (motor run-minutes per trip, active hours/day feeding hourly_trips_avg).
+# Heavy-use buildings (infrastructure = metro/airport/hospital) consume life faster.
+RUN_PARAMS: dict[str, tuple[float, int]] = {
+    "residential":    (0.2, 8),
+    "commercial":     (0.4, 10),
+    "office":         (0.4, 10),
+    "infrastructure": (1.5, 16),
 }
 
 RISK_ADJ = {"high": "High", "medium": "Moderate", "low": "Low"}
@@ -174,9 +200,9 @@ def _format_value(col: str, raw: float, shap_val: float) -> str:
         qualifier = "above avg" if direction else "within range"
         return f"{raw:.1f} Nm ({sign}{abs(delta):.1f} Nm, {qualifier})"
     if col == "Tool_wear__min":
-        hrs = raw / 60
-        qualifier = "high" if direction else "recent"
-        return f"{hrs:.0f} hrs ({qualifier})"
+        # raw is tool_wear in [0,253]; invert to remaining motor life as a percentage.
+        remaining = round((1.0 - raw / 253.0) * 100)
+        return f"{remaining}% remaining" + (" (critical)" if remaining < 20 else "")
     if col in ("Type_L", "Type_M"):
         return "yes" if raw > 0.5 else "no"
     return f"{raw:.2f}"
@@ -187,7 +213,7 @@ def _synthesise_features(
     building_type: str,
     floor_count: int,
     hourly_trips_avg: int,
-    days_since_service: int,
+    age_years: int,
     push_to_failure: bool = False,
 ) -> dict[str, float]:
     """Synthesise one feature vector in AI4I feature space."""
@@ -214,13 +240,15 @@ def _synthesise_features(
     rpm = (power / max(torque, 1.0)) * 9.549 + rng.gauss(0, 50)
     rpm = max(1168.0, min(2860.0, rpm))
 
-    # Tool wear — proxy for operating hours since last service
-    trip_duration_min = 1.5
-    tool_wear = days_since_service * hourly_trips_avg * trip_duration_min
-    tool_wear = max(0.0, min(253.0, tool_wear))
+    # Tool wear — proxy for fraction of the motor's rated life consumed.
+    # Cumulative lifetime run-hours (age × usage, scaled per building type) over the
+    # rated ~40,000 h before failure, mapped onto the AI4I [0, 253] domain.
+    run_min_per_trip, active_hours = RUN_PARAMS[building_type]
+    life_run_hours = hourly_trips_avg * active_hours * run_min_per_trip / 60.0 * 365 * age_years
+    fraction_consumed = min(1.0, life_run_hours / MAX_MOTOR_HOURS)
     if push_to_failure:
-        tool_wear = rng.gauss(220.0, 15.0)
-        tool_wear = max(180.0, min(253.0, tool_wear))
+        fraction_consumed = rng.uniform(0.85, 0.97)
+    tool_wear = fraction_consumed * 253.0
 
     # Type one-hot: drop_first on sorted H/L/M drops H (infrastructure = reference)
     # Type_L=1 for residential, Type_M=1 for commercial/office, both=0 for infrastructure
@@ -244,12 +272,13 @@ def _build_fleet_meta(rng: random.Random) -> list[dict]:
     """Reproduce the same elevator metadata as seed.py _build_elevators()."""
     fleet = []
 
-    # 3 high-risk candidates (indices 0-2) — same model picks as seed.py
+    # 3 high-risk candidates (indices 0-2) — aged, own-brand, heavy-use cohort so their
+    # high risk is driven by real age × usage (consumed motor life), not push_to_failure.
     for i in range(3):
-        model_name, brand, model_year = ELEVATOR_MODELS[rng.randint(0, 8)]
+        model_name, brand, model_year = OLD_HEAVY_MODELS[i]
         age = 2026 - model_year
-        btype = rng.choices(BUILDING_TYPES, BUILDING_TYPE_WEIGHTS)[0]
-        trips = rng.randint(18, 45)
+        btype = HIGH_RISK_TYPES[i]
+        trips = rng.randint(25, 45)
         days_svc = rng.randint(140, 210)
         fleet.append({
             "id": f"ELV-{i + 1:03d}",
@@ -383,7 +412,7 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
             building_type=e["building_type"],
             floor_count=e["floor_count"],
             hourly_trips_avg=e["hourly_trips_avg"],
-            days_since_service=e["days_since_service"],
+            age_years=e["age_years"],
         )
         feature_vecs.append(fv)
 
@@ -410,7 +439,7 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
                 building_type=in_scope[ci]["building_type"],
                 floor_count=in_scope[ci]["floor_count"],
                 hourly_trips_avg=in_scope[ci]["hourly_trips_avg"],
-                days_since_service=in_scope[ci]["days_since_service"],
+                age_years=in_scope[ci]["age_years"],
                 push_to_failure=True,
             )
             feature_vecs[ci] = fv
