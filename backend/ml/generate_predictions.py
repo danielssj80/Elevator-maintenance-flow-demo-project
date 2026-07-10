@@ -537,7 +537,7 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
             "risk_level": None,
             "nl_explanation": "",
             "features": [],
-            "trend": [0.0] * 6,
+            "trend": [],  # no model output → empty, matching seed.py and the DB/API contract
         })
 
     # ── Merge and sort by id ──────────────────────────────────────────────────

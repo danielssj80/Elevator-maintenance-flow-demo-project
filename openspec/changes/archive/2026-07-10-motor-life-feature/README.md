@@ -2,11 +2,13 @@
 
 | Field | Value |
 |---|---|
-| **Status** | In progress |
+| **Status** | Archived |
 | **Milestone** | M1 — Dataset & Model |
-| **Corrects** | [`ml-offline-training`](../archive/2026-07-09-ml-offline-training/) (archived 2026-07-09) |
-| **Branch** | `feature/motor-life-feature` |
+| **Corrects** | [`ml-offline-training`](../2026-07-09-ml-offline-training/) (archived 2026-07-09) |
+| **Branch** | `feature/motor-life-feature` (impl, merged via PR #18) → `feature/archive-motor-life-feature` (archive) |
 | **Started** | 2026-07-10 |
+| **Merged to main** | 2026-07-10 (PR #18) |
+| **Archived** | 2026-07-10 (adversarial review: PASS — see `reports/`) |
 
 ## Summary
 
