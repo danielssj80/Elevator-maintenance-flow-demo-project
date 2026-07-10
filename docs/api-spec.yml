@@ -262,9 +262,11 @@ components:
                 format: float
                 minimum: 0.0
                 maximum: 1.0
-              minItems: 6
+              minItems: 0
               maxItems: 6
-              description: Daily risk_score for the past 6 days. Index 0 = oldest, index 5 = today
+              description: >
+                Daily risk_score for the past 6 days. Index 0 = oldest, index 5 = today.
+                Empty for elevators where in_model_scope is false (no model prediction exists).
               example: [0.55, 0.62, 0.71, 0.78, 0.86, 0.91]
             last_visit_notes:
               type: string
@@ -279,9 +281,11 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/Feature"
-              minItems: 3
+              minItems: 0
               maxItems: 3
-              description: Top 3 risk factors contributing to the score
+              description: >
+                Top 3 risk factors contributing to the score. Empty for elevators where
+                in_model_scope is false (no model prediction exists).
             hourly_trips_avg:
               type: integer
               minimum: 0

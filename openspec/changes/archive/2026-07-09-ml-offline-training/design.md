@@ -106,17 +106,17 @@ for i, elevator in enumerate(fleet):
     ]
 ```
 
-**`FEATURE_NAME_MAP`** (AI4I column → elevator display name):
+**`FEATURE_NAME_MAP`** (sanitised column → elevator display name). Note: `pd.get_dummies(..., drop_first=True)` sorts categories alphabetically (H, L, M) and drops the *first* one, so `Type_H` (infrastructure) is the implicit reference category — it never exists as a column. The one-hot columns that actually exist are `Type_L` and `Type_M`:
 
-| AI4I column | Display name |
+| Sanitised column | Display name |
 |---|---|
-| `Air temperature [K]` | `Ambient temperature` |
-| `Process temperature [K]` | `Motor temperature` |
-| `Rotational speed [rpm]` | `Motor speed` |
-| `Torque [Nm]` | `Load torque` |
-| `Tool wear [min]` | `Operating hours since service` |
+| `Air_temperature__K` | `Ambient temperature` |
+| `Process_temperature__K` | `Motor temperature` |
+| `Rotational_speed__rpm` | `Motor speed` |
+| `Torque__Nm` | `Load torque` |
+| `Tool_wear__min` | `Operating hours since service` |
+| `Type_L` | `Installation type (residential)` |
 | `Type_M` | `Installation type (commercial)` |
-| `Type_H` | `Installation type (infrastructure)` |
 
 **`format_value(col, raw, shap_val, means)`** returns a human-readable string:
 - Positive SHAP (pushing toward failure): `"318 K (+8 K above avg)"`, `"4 200 hrs (high)"`
@@ -156,27 +156,27 @@ nl_explanation = (
 
 ## seed.py integration
 
+`generate_predictions.py` already synthesises the *full* elevator record — building metadata (name, type, floors, model, brand, age, technician, zone, etc.) as well as the ML-derived fields — and writes all of it to `predictions.json`, keyed by elevator id. This avoids running two independent `random.Random(42)` sequences (one in `generate_predictions.py`, one in `seed.py`) that would have to stay in perfect lockstep to keep building metadata and risk scores consistently paired.
+
+`seed.py` is therefore a pure pass-through loader, not a hybrid generator:
+
 ```python
 import json, pathlib
 
-_ML_DIR = pathlib.Path(__file__).parent.parent / "ml"
-_PREDICTIONS: dict[str, dict] = {
-    p["id"]: p
-    for p in json.loads((_ML_DIR / "predictions.json").read_text())
-}
+_PREDICTIONS_PATH = pathlib.Path(__file__).parent.parent / "ml" / "predictions.json"
+_PREDICTIONS: dict[str, dict] = {}
+
+def _load_predictions() -> None:
+    global _PREDICTIONS
+    if _PREDICTIONS:
+        return
+    with open(_PREDICTIONS_PATH, encoding="utf-8") as f:
+        _PREDICTIONS = {item["id"]: item for item in json.load(f)}
 ```
 
-In `_build_elevators()`, each elevator now reads:
-```python
-pred = _PREDICTIONS[eid]
-risk_score    = pred["risk_score"]
-risk_level    = pred["risk_level"]
-nl_explanation = pred["nl_explanation"]
-features      = [ElevatorFeature(**f) for f in pred["features"]]
-trend_points  = [ElevatorTrendPoint(day_index=j, score=s) for j, s in enumerate(pred["trend"])]
-```
+In `_build_elevators()`, every field of each `Elevator` — including `building_name`, `building_type`, `model`, `brand`, `zone`, etc. — is read directly from `_PREDICTIONS[eid]`.
 
-The out-of-scope elevators (`in_model_scope=False`) keep placeholder values — they are not run through the model. The script marks them as `risk_score=null` / `risk_level=null` and `seed.py` handles them with a sentinel branch (same as today).
+Out-of-scope elevators (`in_model_scope=False`) are never run through the model: `generate_predictions.py` marks them with `risk_score=null`, `risk_level=null`, `nl_explanation=""`, `features=[]`, `trend=[]`. `seed.py` maps `risk_score=null` to a stored `0.0` (so sorting by risk still works) and `risk_level` to `"low"`, but leaves `features` and `trend` as **empty arrays** — not fabricated placeholder values — since a flat/fake trend would misrepresent genuine absence of a prediction. See `openspec/specs/elevator-persistence/spec.md` for the resulting API contract (empty arrays, not exactly-3/exactly-6, for this case).
 
 ## Dependencies added to requirements.txt
 

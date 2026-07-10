@@ -160,3 +160,5 @@ The backend uses **PostgreSQL 16** (managed by SQLAlchemy 2.x async + Alembic mi
 `risk_level` is derived in the service layer from `risk_score` — not stored. `trend` is stored as individual rows and assembled into a sorted array by the service.
 
 **ML-derived fields:** `risk_score`, `nl_explanation`, `features`, and `trend` are pre-calculated offline by `backend/ml/generate_predictions.py` using a trained XGBoost model (AI4I 2020 dataset) and SHAP explanations. Results are committed to `backend/ml/predictions.json` and loaded at startup by `backend/app/seed.py`. No live inference endpoint exists.
+
+**Out-of-scope elevators:** units where `in_model_scope` is `false` are never run through the model. `risk_score` is stored as `0.0`, `nl_explanation` is an empty string, and `features`/`trend` are empty arrays rather than fabricated placeholder values — this reflects genuine absence of a prediction, not a zero-risk result.
