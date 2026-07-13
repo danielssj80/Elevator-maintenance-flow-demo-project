@@ -21,17 +21,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.526,
-        "value": "0% remaining (critical)"
+        "value": "0% remaining (critical)",
+        "direction": "increases"
       },
       {
         "name": "Load torque",
         "impact": 0.303,
-        "value": "9.5 Nm (−30.5 Nm, above avg)"
+        "value": "9.5 Nm (−30.5 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Installation type (residential)",
         "impact": 0.171,
-        "value": "no"
+        "value": "no",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -65,17 +68,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.415,
-        "value": "300 K (−0.3 K, within range)"
+        "value": "300 K (−0.3 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.306,
-        "value": "47% remaining"
+        "value": "47% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.279,
-        "value": "45.7 Nm (+5.7 Nm, within range)"
+        "value": "45.7 Nm (+5.7 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -109,17 +115,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.569,
-        "value": "0% remaining (critical)"
+        "value": "0% remaining (critical)",
+        "direction": "increases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.231,
-        "value": "302 K (+1.6 K, within range)"
+        "value": "302 K (+1.6 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.2,
-        "value": "48.9 Nm (+8.9 Nm, within range)"
+        "value": "48.9 Nm (+8.9 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -153,17 +162,20 @@
       {
         "name": "Load torque",
         "impact": 0.392,
-        "value": "38.3 Nm (−1.7 Nm, within range)"
+        "value": "38.3 Nm (−1.7 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.313,
-        "value": "301 K (+1.3 K, within range)"
+        "value": "301 K (+1.3 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.295,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -197,17 +209,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.428,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.319,
-        "value": "300 K (+0.5 K, within range)"
+        "value": "300 K (+0.5 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.253,
-        "value": "46.4 Nm (+6.4 Nm, within range)"
+        "value": "46.4 Nm (+6.4 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -262,17 +277,20 @@
       {
         "name": "Load torque",
         "impact": 0.359,
-        "value": "40.8 Nm (+0.8 Nm, within range)"
+        "value": "40.8 Nm (+0.8 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.354,
-        "value": "301 K (+1.1 K, within range)"
+        "value": "301 K (+1.1 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.288,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -327,17 +345,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.36,
-        "value": "312 K (+1.5 K, within range)"
+        "value": "312 K (+1.5 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.331,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.309,
-        "value": "49.8 Nm (+9.8 Nm, within range)"
+        "value": "49.8 Nm (+9.8 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -371,17 +392,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.456,
-        "value": "302 K (+1.6 K, within range)"
+        "value": "302 K (+1.6 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.285,
-        "value": "46.9 Nm (+6.9 Nm, within range)"
+        "value": "46.9 Nm (+6.9 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.259,
-        "value": "82% remaining"
+        "value": "82% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -415,17 +439,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.408,
-        "value": "295 K (−5.2 K, within range)"
+        "value": "295 K (−5.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.33,
-        "value": "81% remaining"
+        "value": "81% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.261,
-        "value": "35.3 Nm (−4.6 Nm, within range)"
+        "value": "35.3 Nm (−4.6 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -501,17 +528,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.424,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.409,
-        "value": "301 K (+1.3 K, within range)"
+        "value": "301 K (+1.3 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor temperature",
         "impact": 0.167,
-        "value": "310 K (+0.1 K, above avg)"
+        "value": "310 K (+0.1 K, above avg)",
+        "direction": "increases"
       }
     ],
     "trend": [
@@ -545,17 +575,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.462,
-        "value": "300 K (−0.2 K, within range)"
+        "value": "300 K (−0.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.323,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.215,
-        "value": "45.0 Nm (+5.0 Nm, within range)"
+        "value": "45.0 Nm (+5.0 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -589,17 +622,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.387,
-        "value": "301 K (+1.3 K, within range)"
+        "value": "301 K (+1.3 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.347,
-        "value": "95% remaining"
+        "value": "95% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.266,
-        "value": "48.0 Nm (+8.0 Nm, within range)"
+        "value": "48.0 Nm (+8.0 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -654,17 +690,20 @@
       {
         "name": "Load torque",
         "impact": 0.337,
-        "value": "37.1 Nm (−2.9 Nm, within range)"
+        "value": "37.1 Nm (−2.9 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.335,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.329,
-        "value": "299 K (−1.2 K, within range)"
+        "value": "299 K (−1.2 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -719,17 +758,20 @@
       {
         "name": "Load torque",
         "impact": 0.561,
-        "value": "13.5 Nm (−26.5 Nm, above avg)"
+        "value": "13.5 Nm (−26.5 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.252,
-        "value": "99% remaining"
+        "value": "99% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Motor temperature",
         "impact": 0.187,
-        "value": "314 K (+4.1 K, within range)"
+        "value": "314 K (+4.1 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -784,17 +826,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.43,
-        "value": "313 K (+3.0 K, within range)"
+        "value": "313 K (+3.0 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.319,
-        "value": "85% remaining"
+        "value": "85% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.251,
-        "value": "302 K (+1.5 K, within range)"
+        "value": "302 K (+1.5 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -849,17 +894,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.581,
-        "value": "313 K (+2.8 K, within range)"
+        "value": "313 K (+2.8 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.217,
-        "value": "29.7 Nm (−10.3 Nm, within range)"
+        "value": "29.7 Nm (−10.3 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.202,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -893,17 +941,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.42,
-        "value": "310 K (+0.5 K, above avg)"
+        "value": "310 K (+0.5 K, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor speed",
         "impact": 0.353,
-        "value": "1168 rpm (high RPM)"
+        "value": "1168 rpm (high RPM)",
+        "direction": "increases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.227,
-        "value": "302 K (+1.9 K, above avg)"
+        "value": "302 K (+1.9 K, above avg)",
+        "direction": "increases"
       }
     ],
     "trend": [
@@ -958,17 +1009,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.377,
-        "value": "301 K (+1.4 K, within range)"
+        "value": "301 K (+1.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.323,
-        "value": "49.1 Nm (+9.1 Nm, within range)"
+        "value": "49.1 Nm (+9.1 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.301,
-        "value": "56% remaining"
+        "value": "56% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1002,17 +1056,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.361,
-        "value": "301 K (+1.2 K, within range)"
+        "value": "301 K (+1.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.353,
-        "value": "35.9 Nm (−4.1 Nm, within range)"
+        "value": "35.9 Nm (−4.1 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.286,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1046,17 +1103,20 @@
       {
         "name": "Load torque",
         "impact": 0.42,
-        "value": "43.2 Nm (+3.2 Nm, within range)"
+        "value": "43.2 Nm (+3.2 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor temperature",
         "impact": 0.343,
-        "value": "311 K (+1.3 K, within range)"
+        "value": "311 K (+1.3 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.237,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1090,17 +1150,20 @@
       {
         "name": "Load torque",
         "impact": 0.406,
-        "value": "22.8 Nm (−17.2 Nm, within range)"
+        "value": "22.8 Nm (−17.2 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.363,
-        "value": "301 K (+0.6 K, within range)"
+        "value": "301 K (+0.6 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.231,
-        "value": "31% remaining"
+        "value": "31% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1134,17 +1197,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.435,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.381,
-        "value": "299 K (−1.1 K, within range)"
+        "value": "299 K (−1.1 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.184,
-        "value": "54.3 Nm (+14.3 Nm, within range)"
+        "value": "54.3 Nm (+14.3 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1178,17 +1244,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.381,
-        "value": "301 K (+0.5 K, within range)"
+        "value": "301 K (+0.5 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.348,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.271,
-        "value": "53.2 Nm (+13.3 Nm, within range)"
+        "value": "53.2 Nm (+13.3 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1222,17 +1291,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.422,
-        "value": "301 K (+0.6 K, within range)"
+        "value": "301 K (+0.6 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.332,
-        "value": "50.5 Nm (+10.5 Nm, within range)"
+        "value": "50.5 Nm (+10.5 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.246,
-        "value": "87% remaining"
+        "value": "87% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1266,17 +1338,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.495,
-        "value": "312 K (+2.4 K, within range)"
+        "value": "312 K (+2.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.402,
-        "value": "95% remaining"
+        "value": "95% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.104,
-        "value": "61.0 Nm (+21.0 Nm, above avg)"
+        "value": "61.0 Nm (+21.0 Nm, above avg)",
+        "direction": "increases"
       }
     ],
     "trend": [
@@ -1310,17 +1385,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.444,
-        "value": "313 K (+3.3 K, within range)"
+        "value": "313 K (+3.3 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.3,
-        "value": "36.3 Nm (−3.6 Nm, within range)"
+        "value": "36.3 Nm (−3.6 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.256,
-        "value": "303 K (+3.2 K, above avg)"
+        "value": "303 K (+3.2 K, above avg)",
+        "direction": "increases"
       }
     ],
     "trend": [
@@ -1354,17 +1432,20 @@
       {
         "name": "Load torque",
         "impact": 0.374,
-        "value": "49.7 Nm (+9.7 Nm, within range)"
+        "value": "49.7 Nm (+9.7 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.352,
-        "value": "300 K (−0.3 K, within range)"
+        "value": "300 K (−0.3 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.274,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1440,17 +1521,20 @@
       {
         "name": "Load torque",
         "impact": 0.515,
-        "value": "14.5 Nm (−25.5 Nm, above avg)"
+        "value": "14.5 Nm (−25.5 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.299,
-        "value": "92% remaining"
+        "value": "92% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.186,
-        "value": "296 K (−4.2 K, within range)"
+        "value": "296 K (−4.2 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1526,17 +1610,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.534,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.402,
-        "value": "299 K (−1.2 K, within range)"
+        "value": "299 K (−1.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor temperature",
         "impact": 0.064,
-        "value": "309 K (−1.3 K, above avg)"
+        "value": "309 K (−1.3 K, above avg)",
+        "direction": "increases"
       }
     ],
     "trend": [
@@ -1570,17 +1657,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.4,
-        "value": "299 K (−0.9 K, within range)"
+        "value": "299 K (−0.9 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.341,
-        "value": "39.7 Nm (−0.2 Nm, within range)"
+        "value": "39.7 Nm (−0.2 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.259,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1614,17 +1704,20 @@
       {
         "name": "Load torque",
         "impact": 0.376,
-        "value": "43.1 Nm (+3.1 Nm, within range)"
+        "value": "43.1 Nm (+3.1 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.366,
-        "value": "300 K (+0.2 K, within range)"
+        "value": "300 K (+0.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.258,
-        "value": "95% remaining"
+        "value": "95% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1658,17 +1751,20 @@
       {
         "name": "Load torque",
         "impact": 0.584,
-        "value": "67.3 Nm (+27.3 Nm, above avg)"
+        "value": "67.3 Nm (+27.3 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.215,
-        "value": "302 K (+1.8 K, within range)"
+        "value": "302 K (+1.8 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.2,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1702,17 +1798,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.441,
-        "value": "303 K (+2.7 K, above avg)"
+        "value": "303 K (+2.7 K, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor speed",
         "impact": 0.348,
-        "value": "1168 rpm (high RPM)"
+        "value": "1168 rpm (high RPM)",
+        "direction": "increases"
       },
       {
         "name": "Load torque",
         "impact": 0.211,
-        "value": "40.6 Nm (+0.6 Nm, within range)"
+        "value": "40.6 Nm (+0.6 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1746,17 +1845,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.524,
-        "value": "303 K (+3.5 K, above avg)"
+        "value": "303 K (+3.5 K, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor speed",
         "impact": 0.27,
-        "value": "1168 rpm (high RPM)"
+        "value": "1168 rpm (high RPM)",
+        "direction": "increases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.206,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1790,17 +1892,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.412,
-        "value": "314 K (+3.8 K, within range)"
+        "value": "314 K (+3.8 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.328,
-        "value": "43.8 Nm (+3.8 Nm, within range)"
+        "value": "43.8 Nm (+3.8 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.26,
-        "value": "303 K (+3.1 K, above avg)"
+        "value": "303 K (+3.1 K, above avg)",
+        "direction": "increases"
       }
     ],
     "trend": [
@@ -1834,17 +1939,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.449,
-        "value": "298 K (−2.5 K, within range)"
+        "value": "298 K (−2.5 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.28,
-        "value": "41.4 Nm (+1.4 Nm, within range)"
+        "value": "41.4 Nm (+1.4 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.271,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1878,17 +1986,20 @@
       {
         "name": "Load torque",
         "impact": 0.39,
-        "value": "24.9 Nm (−15.1 Nm, within range)"
+        "value": "24.9 Nm (−15.1 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.348,
-        "value": "301 K (+0.8 K, within range)"
+        "value": "301 K (+0.8 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.262,
-        "value": "56% remaining"
+        "value": "56% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1922,17 +2033,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.411,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.318,
-        "value": "301 K (+0.5 K, within range)"
+        "value": "301 K (+0.5 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.271,
-        "value": "55.4 Nm (+15.4 Nm, within range)"
+        "value": "55.4 Nm (+15.4 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -1987,17 +2101,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.518,
-        "value": "298 K (−2.2 K, within range)"
+        "value": "298 K (−2.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.247,
-        "value": "48.5 Nm (+8.5 Nm, within range)"
+        "value": "48.5 Nm (+8.5 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.234,
-        "value": "93% remaining"
+        "value": "93% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2031,17 +2148,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.406,
-        "value": "299 K (−1.4 K, within range)"
+        "value": "299 K (−1.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.374,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.22,
-        "value": "44.5 Nm (+4.5 Nm, within range)"
+        "value": "44.5 Nm (+4.5 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2075,17 +2195,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.556,
-        "value": "313 K (+3.2 K, within range)"
+        "value": "313 K (+3.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.239,
-        "value": "44.7 Nm (+4.7 Nm, within range)"
+        "value": "44.7 Nm (+4.7 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.205,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2119,17 +2242,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.429,
-        "value": "312 K (+2.2 K, within range)"
+        "value": "312 K (+2.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.358,
-        "value": "43.8 Nm (+3.8 Nm, within range)"
+        "value": "43.8 Nm (+3.8 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.213,
-        "value": "78% remaining"
+        "value": "78% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2184,17 +2310,20 @@
       {
         "name": "Load torque",
         "impact": 0.584,
-        "value": "3.5 Nm (−36.5 Nm, above avg)"
+        "value": "3.5 Nm (−36.5 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.212,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Motor temperature",
         "impact": 0.204,
-        "value": "316 K (+6.0 K, within range)"
+        "value": "316 K (+6.0 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2228,17 +2357,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.377,
-        "value": "297 K (−3.4 K, within range)"
+        "value": "297 K (−3.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.344,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.278,
-        "value": "45.6 Nm (+5.6 Nm, within range)"
+        "value": "45.6 Nm (+5.6 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2272,17 +2404,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.376,
-        "value": "312 K (+2.4 K, within range)"
+        "value": "312 K (+2.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.337,
-        "value": "91% remaining"
+        "value": "91% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.287,
-        "value": "33.6 Nm (−6.3 Nm, within range)"
+        "value": "33.6 Nm (−6.3 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2316,17 +2451,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.375,
-        "value": "300 K (−0.4 K, within range)"
+        "value": "300 K (−0.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.355,
-        "value": "99% remaining"
+        "value": "99% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.27,
-        "value": "45.7 Nm (+5.7 Nm, within range)"
+        "value": "45.7 Nm (+5.7 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2360,17 +2498,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.447,
-        "value": "299 K (−1.5 K, within range)"
+        "value": "299 K (−1.5 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.278,
-        "value": "48.5 Nm (+8.5 Nm, within range)"
+        "value": "48.5 Nm (+8.5 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.276,
-        "value": "93% remaining"
+        "value": "93% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2404,17 +2545,20 @@
       {
         "name": "Load torque",
         "impact": 0.386,
-        "value": "36.5 Nm (−3.5 Nm, within range)"
+        "value": "36.5 Nm (−3.5 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.312,
-        "value": "301 K (+0.8 K, within range)"
+        "value": "301 K (+0.8 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.302,
-        "value": "99% remaining"
+        "value": "99% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2448,17 +2592,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.374,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.346,
-        "value": "25.0 Nm (−15.0 Nm, within range)"
+        "value": "25.0 Nm (−15.0 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor temperature",
         "impact": 0.28,
-        "value": "312 K (+2.3 K, within range)"
+        "value": "312 K (+2.3 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2492,17 +2639,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.414,
-        "value": "299 K (−0.6 K, within range)"
+        "value": "299 K (−0.6 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.316,
-        "value": "62.0 Nm (+22.0 Nm, above avg)"
+        "value": "62.0 Nm (+22.0 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.269,
-        "value": "94% remaining"
+        "value": "94% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2536,17 +2686,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.385,
-        "value": "314 K (+4.0 K, within range)"
+        "value": "314 K (+4.0 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.313,
-        "value": "304 K (+4.5 K, above avg)"
+        "value": "304 K (+4.5 K, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Load torque",
         "impact": 0.302,
-        "value": "44.1 Nm (+4.1 Nm, within range)"
+        "value": "44.1 Nm (+4.1 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2601,17 +2754,20 @@
       {
         "name": "Load torque",
         "impact": 0.357,
-        "value": "38.7 Nm (−1.3 Nm, within range)"
+        "value": "38.7 Nm (−1.3 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.348,
-        "value": "299 K (−1.4 K, within range)"
+        "value": "299 K (−1.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.295,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2666,17 +2822,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.419,
-        "value": "296 K (−4.2 K, within range)"
+        "value": "296 K (−4.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.295,
-        "value": "38.9 Nm (−1.1 Nm, within range)"
+        "value": "38.9 Nm (−1.1 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.285,
-        "value": "94% remaining"
+        "value": "94% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2752,17 +2911,20 @@
       {
         "name": "Load torque",
         "impact": 0.722,
-        "value": "72.2 Nm (+32.3 Nm, above avg)"
+        "value": "72.2 Nm (+32.3 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.143,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.135,
-        "value": "298 K (−2.0 K, within range)"
+        "value": "298 K (−2.0 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2838,17 +3000,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.371,
-        "value": "297 K (−3.0 K, within range)"
+        "value": "297 K (−3.0 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.355,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.274,
-        "value": "45.6 Nm (+5.6 Nm, within range)"
+        "value": "45.6 Nm (+5.6 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2903,17 +3068,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.486,
-        "value": "312 K (+2.3 K, within range)"
+        "value": "312 K (+2.3 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.314,
-        "value": "25.8 Nm (−14.2 Nm, within range)"
+        "value": "25.8 Nm (−14.2 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.2,
-        "value": "95% remaining"
+        "value": "95% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -2968,17 +3136,20 @@
       {
         "name": "Load torque",
         "impact": 0.636,
-        "value": "11.9 Nm (−28.0 Nm, above avg)"
+        "value": "11.9 Nm (−28.0 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.23,
-        "value": "300 K (+0.4 K, within range)"
+        "value": "300 K (+0.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.134,
-        "value": "94% remaining"
+        "value": "94% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3033,17 +3204,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.545,
-        "value": "315 K (+4.9 K, within range)"
+        "value": "315 K (+4.9 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.23,
-        "value": "46.8 Nm (+6.8 Nm, within range)"
+        "value": "46.8 Nm (+6.8 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.225,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3098,17 +3272,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.387,
-        "value": "298 K (−2.5 K, within range)"
+        "value": "298 K (−2.5 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.365,
-        "value": "42.3 Nm (+2.3 Nm, within range)"
+        "value": "42.3 Nm (+2.3 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.248,
-        "value": "99% remaining"
+        "value": "99% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3163,17 +3340,20 @@
       {
         "name": "Load torque",
         "impact": 0.428,
-        "value": "31.2 Nm (−8.8 Nm, within range)"
+        "value": "31.2 Nm (−8.8 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.325,
-        "value": "301 K (+1.2 K, within range)"
+        "value": "301 K (+1.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.246,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3228,17 +3408,20 @@
       {
         "name": "Motor useful life remaining",
         "impact": 0.394,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.328,
-        "value": "18.4 Nm (−21.6 Nm, within range)"
+        "value": "18.4 Nm (−21.6 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.278,
-        "value": "298 K (−2.3 K, within range)"
+        "value": "298 K (−2.3 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3272,17 +3455,20 @@
       {
         "name": "Load torque",
         "impact": 0.44,
-        "value": "44.0 Nm (+4.0 Nm, within range)"
+        "value": "44.0 Nm (+4.0 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor temperature",
         "impact": 0.29,
-        "value": "312 K (+2.4 K, within range)"
+        "value": "312 K (+2.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.27,
-        "value": "99% remaining"
+        "value": "99% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3316,17 +3502,20 @@
       {
         "name": "Load torque",
         "impact": 0.375,
-        "value": "34.8 Nm (−5.2 Nm, within range)"
+        "value": "34.8 Nm (−5.2 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.332,
-        "value": "299 K (−0.8 K, within range)"
+        "value": "299 K (−0.8 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.293,
-        "value": "93% remaining"
+        "value": "93% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3360,17 +3549,20 @@
       {
         "name": "Load torque",
         "impact": 0.583,
-        "value": "77.2 Nm (+37.2 Nm, above avg)"
+        "value": "77.2 Nm (+37.2 Nm, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.209,
-        "value": "98% remaining"
+        "value": "98% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Motor temperature",
         "impact": 0.208,
-        "value": "312 K (+2.5 K, within range)"
+        "value": "312 K (+2.5 K, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3404,17 +3596,20 @@
       {
         "name": "Load torque",
         "impact": 0.467,
-        "value": "42.0 Nm (+2.0 Nm, within range)"
+        "value": "42.0 Nm (+2.0 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.327,
-        "value": "301 K (+1.2 K, within range)"
+        "value": "301 K (+1.2 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.206,
-        "value": "94% remaining"
+        "value": "94% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3448,17 +3643,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.434,
-        "value": "303 K (+3.0 K, above avg)"
+        "value": "303 K (+3.0 K, above avg)",
+        "direction": "increases"
       },
       {
         "name": "Motor speed",
         "impact": 0.343,
-        "value": "1168 rpm (high RPM)"
+        "value": "1168 rpm (high RPM)",
+        "direction": "increases"
       },
       {
         "name": "Load torque",
         "impact": 0.223,
-        "value": "38.7 Nm (−1.3 Nm, within range)"
+        "value": "38.7 Nm (−1.3 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3492,17 +3690,20 @@
       {
         "name": "Load torque",
         "impact": 0.428,
-        "value": "19.5 Nm (−20.5 Nm, within range)"
+        "value": "19.5 Nm (−20.5 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Ambient temperature",
         "impact": 0.362,
-        "value": "302 K (+1.6 K, within range)"
+        "value": "302 K (+1.6 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.21,
-        "value": "85% remaining"
+        "value": "85% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3557,17 +3758,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.511,
-        "value": "300 K (−0.1 K, within range)"
+        "value": "300 K (−0.1 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.287,
-        "value": "86% remaining"
+        "value": "86% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.202,
-        "value": "45.2 Nm (+5.3 Nm, within range)"
+        "value": "45.2 Nm (+5.3 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3622,17 +3826,20 @@
       {
         "name": "Ambient temperature",
         "impact": 0.441,
-        "value": "298 K (−2.4 K, within range)"
+        "value": "298 K (−2.4 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.312,
-        "value": "97% remaining"
+        "value": "97% remaining",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.247,
-        "value": "45.1 Nm (+5.1 Nm, within range)"
+        "value": "45.1 Nm (+5.1 Nm, within range)",
+        "direction": "decreases"
       }
     ],
     "trend": [
@@ -3666,17 +3873,20 @@
       {
         "name": "Motor temperature",
         "impact": 0.47,
-        "value": "313 K (+2.8 K, within range)"
+        "value": "313 K (+2.8 K, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Load torque",
         "impact": 0.276,
-        "value": "39.3 Nm (−0.7 Nm, within range)"
+        "value": "39.3 Nm (−0.7 Nm, within range)",
+        "direction": "decreases"
       },
       {
         "name": "Motor useful life remaining",
         "impact": 0.254,
-        "value": "96% remaining"
+        "value": "96% remaining",
+        "direction": "decreases"
       }
     ],
     "trend": [

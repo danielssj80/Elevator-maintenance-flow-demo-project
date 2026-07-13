@@ -56,8 +56,9 @@ Represents a single risk factor contributing to the elevator's `risk_score`. Alw
 | Field | Type | Constraints | Description |
 |---|---|---|---|
 | `name` | `string` | required | Human-readable factor name (e.g. "Motor useful life remaining", "Load torque") |
-| `impact` | `float` | 0.0 – 1.0 | Relative contribution to the risk score. Sum of all 3 impacts ≈ 1.0 |
+| `impact` | `float` | 0.0 – 1.0 | Relative contribution (magnitude) to the risk score. Sum of all 3 impacts ≈ 1.0 |
 | `value` | `string` | required | Human-readable measured value (e.g. "82% remaining", "58 Nm (+18 Nm above avg)") |
+| `direction` | `enum` | `increases`, `decreases` | Whether the factor pushes risk up or down, from the sign of its SHAP value (`impact` is magnitude only) |
 
 **Known feature names (current model):**
 

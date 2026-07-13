@@ -407,6 +407,8 @@ def _shap_features(
             "name": FEATURE_NAME_MAP.get(col_names[j], col_names[j]),
             "impact": round(float(impacts[k]), 3),
             "value": _format_value(col_names[j], float(raw_arr[j]), float(shap_vals[j])),
+            # Sign of the SHAP value: does this factor push the risk score up or down?
+            "direction": "increases" if shap_vals[j] > 0 else "decreases",
         }
         for k, j in enumerate(top3_idx)
     ]

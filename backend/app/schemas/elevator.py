@@ -9,6 +9,7 @@ class FeatureSchema(BaseModel):
     name: str
     impact: float
     value: str
+    direction: str
 
 
 class ElevatorSummarySchema(BaseModel):

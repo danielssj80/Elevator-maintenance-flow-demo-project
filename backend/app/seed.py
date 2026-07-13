@@ -52,7 +52,9 @@ def _build_elevators() -> list[Elevator]:
 
         # Out-of-scope entries provide features=[], so this naturally yields no rows.
         features = [
-            ElevatorFeature(name=f["name"], impact=f["impact"], value=f["value"])
+            ElevatorFeature(
+                name=f["name"], impact=f["impact"], value=f["value"], direction=f["direction"]
+            )
             for f in pred["features"]
         ]
 

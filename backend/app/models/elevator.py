@@ -12,6 +12,8 @@ class ElevatorFeature(Base):
     name: Mapped[str]
     impact: Mapped[float]
     value: Mapped[str]
+    # SHAP sign: "increases" (raises risk) or "decreases" (protective)
+    direction: Mapped[str]
 
     elevator: Mapped["Elevator"] = relationship(back_populates="features")
 
