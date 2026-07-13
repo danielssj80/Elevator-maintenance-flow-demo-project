@@ -76,3 +76,16 @@
 - Track B (local/prod): `docker compose up --build`; `curl /api/elevators/ELV-073` shows
   `direction` per feature and the UI renders arrows/colours. Adversarial review before
   archive.
+
+---
+
+### T7 — Hover overlay explaining the arrow ✅ (post-deploy follow-up)
+
+**Files:** `frontend/src/components/FeatureBar.tsx`
+
+Replace the native `title` tooltip on the ↑/↓ icon with a proper hover overlay (Tailwind
+named-group `group/dir` + `group-hover/dir:block`) that states whether the factor
+increases or decreases the failure risk and why. Keeps the `aria-label` for screen readers.
+
+**Acceptance:** hovering the arrow shows a styled overlay ("Increases risk — …" /
+"Decreases risk — …"); no change to backend/data.
