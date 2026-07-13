@@ -33,9 +33,9 @@ def _make_orm_elevator(
         zone="Madrid",
     )
     e.features = [
-        ElevatorFeature(name="Vibration", impact=0.5, value="1x"),
-        ElevatorFeature(name="Temperature", impact=0.3, value="normal"),
-        ElevatorFeature(name="Motor", impact=0.2, value="ok"),
+        ElevatorFeature(name="Vibration", impact=0.5, value="1x", direction="increases"),
+        ElevatorFeature(name="Temperature", impact=0.3, value="normal", direction="increases"),
+        ElevatorFeature(name="Motor", impact=0.2, value="ok", direction="increases"),
     ]
     e.trend_points = [ElevatorTrendPoint(day_index=i, score=risk_score) for i in range(6)]
     return e

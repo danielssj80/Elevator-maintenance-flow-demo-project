@@ -4,6 +4,7 @@ export interface Feature {
   name: string
   impact: number
   value: string
+  direction: 'increases' | 'decreases'
 }
 
 export interface ElevatorSummary {

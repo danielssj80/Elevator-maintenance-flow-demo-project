@@ -156,23 +156,30 @@ components:
 
     Feature:
       type: object
-      required: [name, impact, value]
+      required: [name, impact, value, direction]
       properties:
         name:
           type: string
           description: Human-readable risk factor name
-          example: Vibration anomaly
+          example: Load torque
         impact:
           type: number
           format: float
           minimum: 0.0
           maximum: 1.0
-          description: Proportional contribution to the risk score. Sum of all features ≈ 1.0
+          description: Proportional contribution (magnitude) to the risk score. Sum of all features ≈ 1.0
           example: 0.45
         value:
           type: string
           description: Human-readable measured value
-          example: "2.4× baseline"
+          example: "72 Nm (+32 Nm, above avg)"
+        direction:
+          type: string
+          enum: [increases, decreases]
+          description: >
+            Whether the factor pushes the risk score up (increases) or down (decreases),
+            from the sign of its SHAP value. impact carries the magnitude; direction the sign.
+          example: increases
 
     ElevatorSummary:
       type: object
