@@ -10,10 +10,13 @@ instead of K (e.g. "25°C (−2.0°C, within range)"). Since seed_database() onl
 empty table, environments whose Postgres volume persists (production, dev EC2) keep the
 old K strings until re-applied here.
 
-Same in-place, PK-preserving pattern as the previous feature resyncs: delete + reinsert
-each elevator's feature rows from predictions.json (name/impact/value/direction), so the
-visit_reports ON DELETE CASCADE never fires. Safe on an empty table (matches nothing;
-seed_database() fills it on startup).
+The °C strings appear in two places: each feature's `value` AND the elevator's
+`nl_explanation` (which embeds the same values). Both are resynced here.
+
+Same in-place, PK-preserving pattern as the previous feature resyncs: UPDATE each
+elevator's nl_explanation and delete + reinsert its feature rows from predictions.json
+(name/impact/value/direction), so the visit_reports ON DELETE CASCADE never fires. Safe on
+an empty table (matches nothing; seed_database() fills it on startup).
 """
 from __future__ import annotations
 
@@ -34,6 +37,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 _PREDICTIONS_PATH = pathlib.Path(__file__).resolve().parents[2] / "ml" / "predictions.json"
 
+elevators_t = table(
+    "elevators",
+    column("id", sa.String),
+    column("nl_explanation", sa.String),
+)
+
 features_t = table(
     "elevator_features",
     column("elevator_id", sa.String),
@@ -53,6 +62,11 @@ def upgrade() -> None:
     bind = op.get_bind()
     for pred in predictions:
         eid = pred["id"]
+        # nl_explanation embeds the °C values; empty for out-of-scope (raw_score is None).
+        nl = pred["nl_explanation"] if pred["risk_score"] is not None else ""
+        bind.execute(
+            elevators_t.update().where(elevators_t.c.id == eid).values(nl_explanation=nl)
+        )
         bind.execute(features_t.delete().where(features_t.c.elevator_id == eid))
         if pred["features"]:
             bind.execute(
