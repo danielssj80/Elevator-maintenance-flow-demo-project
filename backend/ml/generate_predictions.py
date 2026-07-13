@@ -184,14 +184,12 @@ def _format_value(col: str, raw: float, shap_val: float) -> str:
     delta = raw - mean
     direction = shap_val > 0  # True = pushes toward failure
 
-    if col == "Air_temperature__K":
+    if col in ("Air_temperature__K", "Process_temperature__K"):
+        # Convert absolute temperature K -> °C for display. A delta is a difference, so its
+        # magnitude is identical in K and °C — only the absolute reading is offset by 273.15.
         sign = "+" if delta >= 0 else "−"
         qualifier = "above avg" if direction else "within range"
-        return f"{raw:.0f} K ({sign}{abs(delta):.1f} K, {qualifier})"
-    if col == "Process_temperature__K":
-        sign = "+" if delta >= 0 else "−"
-        qualifier = "above avg" if direction else "within range"
-        return f"{raw:.0f} K ({sign}{abs(delta):.1f} K, {qualifier})"
+        return f"{raw - 273.15:.0f}°C ({sign}{abs(delta):.1f}°C, {qualifier})"
     if col == "Rotational_speed__rpm":
         qualifier = "high RPM" if direction else "normal"
         return f"{raw:.0f} rpm ({qualifier})"
