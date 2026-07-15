@@ -56,10 +56,12 @@ retrained. `predictions.json` is unchanged.
 
 ### Modified Capabilities
 
-- `database-infrastructure`: the "Clean stack startup" requirement is reinforced with an explicit
-  scenario that data migrations resyncing derived rows MUST be safe (no-op) against an empty
-  database, so `alembic upgrade head` always succeeds from a clean state and seeding remains the
-  backend-startup responsibility.
+- `database-infrastructure`: the "Seeding is deterministic and idempotent" requirement is
+  reinforced — seeding is exclusively `seed_database()`'s responsibility, data migrations SHALL NOT
+  insert `elevators` rows, and any migration resyncing elevator-derived rows MUST only touch rows
+  whose parent already exists (a no-op against an empty database). A new scenario, "Resync
+  migrations are a no-op on an empty database," captures this, so `alembic upgrade head` always
+  succeeds from a clean state (satisfying the existing "Clean stack startup" scenario).
 
 ## Impact
 

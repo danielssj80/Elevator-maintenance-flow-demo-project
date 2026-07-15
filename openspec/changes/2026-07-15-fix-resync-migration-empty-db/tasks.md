@@ -116,6 +116,16 @@
 
 - [x] 8.1 Ran `/adversarial-review` (same session — see caveat). Verdict: **PASS WITH GAPS**.
       Resolved the one Major (verified `rowcount` reliability empirically: matched=1,
-      unmatched=0, persisted-volume resync path sound). Remaining minors tracked as
-      follow-ups (positive-resync test case; `conftest.py` still uses `create_all`).
-      Recommend an independent-session re-run before archive to satisfy the skill strictly.
+      unmatched=0, persisted-volume resync path sound).
+- [x] 8.2 Re-ran `/adversarial-review` in an **independent agent session** (satisfies the skill).
+      Verdict again **PASS WITH GAPS**, archiving advisable; the independent reviewer also
+      verified the populated-volume path live (stale rows resynced, `visit_report` preserved).
+- [x] 8.3 Addressed adversarial finding #1 (highest value): added
+      `test_resync_updates_existing_rows_and_preserves_visit_reports` — plants a stale
+      elevator + a `visit_report`, upgrades to head, asserts the resync overwrote derived rows
+      and preserved the report. Suite: **41 passed**.
+- [x] 8.4 Addressed adversarial finding #2: corrected `proposal.md` §Capabilities to reference
+      the "Seeding is deterministic and idempotent" requirement (not "Clean stack startup").
+- [ ] 8.5 Follow-ups left as separate backlog items (not blockers): #3 migrate `conftest.py`
+      off `Base.metadata.create_all` onto an Alembic-built schema; #4 confirm `elevator_test_db`
+      provisioning in the dev/CI bootstrap (doc note).
