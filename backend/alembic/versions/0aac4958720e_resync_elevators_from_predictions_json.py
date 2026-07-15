@@ -19,9 +19,12 @@ any post-visit report a (public, unauthenticated) visitor already
 submitted. Only `elevator_features` and `elevator_trend_points` are fully
 replaced per elevator; they hold no independent user data.
 
-Safe to run against an empty `elevators` table too: every UPDATE simply
-matches zero rows, and the normal seed_database() path fills it in on the
-next backend startup, same as always.
+Safe to run against an empty `elevators` table too: each elevator's UPDATE
+matches zero rows, and we then skip its `elevator_features` /
+`elevator_trend_points` replacement (guarded on the UPDATE rowcount) — those
+child INSERTs would otherwise violate the foreign key with no parent row.
+The normal seed_database() path fills the whole fleet in on the next backend
+startup, same as always.
 """
 from __future__ import annotations
 
@@ -102,7 +105,7 @@ def upgrade() -> None:
             nl_explanation = pred["nl_explanation"]
             trend = pred["trend"]
 
-        bind.execute(
+        result = bind.execute(
             elevators_t.update().where(elevators_t.c.id == eid).values(
                 building_name=pred["building_name"],
                 building_type=pred["building_type"],
@@ -121,6 +124,14 @@ def upgrade() -> None:
                 zone=pred["zone"],
             )
         )
+
+        # On a fresh/empty database the elevator row does not exist yet, so the UPDATE
+        # matches zero rows. Its features/trend points must NOT be inserted — there is no
+        # parent `elevators` row, so the FK would be violated. seed_database() populates the
+        # whole fleet (elevators + features + trend points) from this same predictions.json
+        # at backend startup, so skipping here is correct, not a data loss.
+        if result.rowcount == 0:
+            continue
 
         # Full replace: features/trend_points hold only model-derived rows, never
         # user data, so it's safe to drop and reinsert rather than diff them.
