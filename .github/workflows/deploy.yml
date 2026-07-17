@@ -42,6 +42,7 @@ jobs:
                 "cd /opt/elevator",
                 "git fetch origin main",
                 "git reset --hard origin/main",
+                "export IMAGE_TAG=${{ github.event.workflow_run.head_sha }}",
                 "CF=\"-f docker-compose.prod.yml\"",
                 "if [ -f /opt/portfolio/docker-compose.portfolio.yml ]; then",
                 "  CF=\"$CF -f /opt/portfolio/docker-compose.portfolio.yml\"",
