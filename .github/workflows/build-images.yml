@@ -8,6 +8,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: build-images
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/elevator-backend

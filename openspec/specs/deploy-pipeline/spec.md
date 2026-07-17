@@ -25,6 +25,14 @@ The system SHALL retain only the `latest` tag and the most recent 10 commit-SHA-
 - **WHEN** the build workflow publishes a new image version
 - **THEN** a cleanup step removes GHCR versions beyond the retained `latest` + 10 most recent SHA tags for that package
 
+### Requirement: Concurrent builds are serialized
+The build workflow SHALL run under a `concurrency` group so that two pushes to `main` cannot build and push images in parallel. This prevents the `latest` tag from being left pointing at an inconsistent pairing of backend/frontend images from different commits.
+
+#### Scenario: Two pushes to main in quick succession
+- **WHEN** a second commit is pushed to `main` while a build for an earlier commit is still running
+- **THEN** the second build waits for the first to finish before starting
+- **AND** at no point does `latest` reflect a backend image from one commit paired with a frontend image from another
+
 ### Requirement: Deployment only runs after images are published
 The deploy workflow SHALL trigger only after the image build workflow completes successfully for the same commit, ensuring the instance never pulls a partially published or stale image set.
 
@@ -60,12 +68,12 @@ The workflow SHALL authenticate to AWS by assuming an IAM role through GitHub's 
 - **THEN** AWS STS denies the AssumeRoleWithWebIdentity request
 
 ### Requirement: Deployment executes via SSM Run Command
-The workflow SHALL deploy by sending an SSM `AWS-RunShellScript` command to the production EC2 instance. The command SHALL update the working copy to the latest `main` and recreate the stack with `docker compose pull` followed by `docker compose up -d`. The instance SHALL NOT build any Docker image during deployment. The Compose file list SHALL always include `docker-compose.prod.yml` and SHALL additionally include the portfolio override `/opt/portfolio/docker-compose.portfolio.yml` **only when that file exists**, so a co-located static site sharing the nginx container is preserved across Elevator deploys and the Elevator deploy still works unchanged when the portfolio is absent. When the override is included, the workflow SHALL validate the merged nginx configuration (`nginx -t` in a throwaway container) **before** recreating the shared nginx, and SHALL fall back to deploying Elevator alone (override dropped) if the merged configuration is invalid, so a broken co-located config cannot take Elevator down. Port 22 SHALL remain closed.
+The workflow SHALL deploy by sending an SSM `AWS-RunShellScript` command to the production EC2 instance. The command SHALL update the working copy to the latest `main`, SHALL export `IMAGE_TAG` as the commit SHA of the build that triggered this deploy (`workflow_run.head_sha`), and SHALL recreate the stack with `docker compose pull` followed by `docker compose up -d`, so the images pulled are pinned to that specific commit's tag rather than to the shared mutable `latest` tag. The instance SHALL NOT build any Docker image during deployment. The Compose file list SHALL always include `docker-compose.prod.yml` and SHALL additionally include the portfolio override `/opt/portfolio/docker-compose.portfolio.yml` **only when that file exists**, so a co-located static site sharing the nginx container is preserved across Elevator deploys and the Elevator deploy still works unchanged when the portfolio is absent. When the override is included, the workflow SHALL validate the merged nginx configuration (`nginx -t` in a throwaway container) **before** recreating the shared nginx, and SHALL fall back to deploying Elevator alone (override dropped) if the merged configuration is invalid, so a broken co-located config cannot take Elevator down. Port 22 SHALL remain closed.
 
 #### Scenario: Successful remote deployment
 - **WHEN** the SSM command runs on the instance
 - **THEN** the project working copy is updated to the pushed commit
-- **AND** the `backend` and `frontend` images are pulled from GHCR rather than built locally
+- **AND** the `backend` and `frontend` images are pulled from GHCR, tagged with the exact commit SHA that triggered the deploy, rather than built locally
 - **AND** all services in `docker-compose.prod.yml` are recreated and restarted with the pulled images
 - **AND** Alembic migrations run via the existing `migrate` service using the pulled backend image
 
@@ -73,6 +81,11 @@ The workflow SHALL deploy by sending an SSM `AWS-RunShellScript` command to the 
 - **WHEN** the deployment runs
 - **THEN** no `docker compose build` or `--build` step executes on the EC2 instance
 - **AND** the instance's available memory is not consumed by a `vite build` or Python dependency build during deploy
+
+#### Scenario: Deploy is pinned to the triggering commit's images, not to a moving `latest`
+- **WHEN** a build for a later commit publishes a new `latest` while an earlier commit's deploy is in flight
+- **THEN** the in-flight deploy still pulls the image pair tagged with its own commit SHA
+- **AND** the deployed backend and frontend images are always the pair built together for the same commit
 
 #### Scenario: Portfolio override included when present
 - **WHEN** `/opt/portfolio/docker-compose.portfolio.yml` exists at deploy time

@@ -63,3 +63,15 @@
 
 - [x] 8.1 Update `docs/deployment.md` (or equivalent): describe the build → GHCR → pull deploy flow, replacing the old "builds on the instance" description
 - [x] 8.2 `docs/api-spec.yml` and `docs/data-model.md`: no updates required (no API or entity changes)
+
+## 9. Adversarial Review Fix: Pin Deploy to Commit SHA (post-merge)
+
+> Found by `/adversarial-review` after the initial merge (PR #27): `build-images.yml` had no `concurrency` group, and deploy always pulled the mutable `:latest` tag. Two rapid pushes to `main` could interleave `:latest` pushes across builds, and a deploy gated only on "its own build succeeded" could still pull a `latest` overwritten by a different commit's partial build — mixing a backend from one commit with a frontend from another.
+
+- [x] 9.1 Add `concurrency: group: build-images` to `.github/workflows/build-images.yml` so builds triggered by rapid consecutive pushes to `main` fully serialize
+- [x] 9.2 `docker-compose.prod.yml`: `migrate`/`backend`/`frontend` images use `${IMAGE_TAG:-latest}` instead of a hardcoded `:latest`
+- [x] 9.3 `.github/workflows/deploy.yml`: export `IMAGE_TAG=${{ github.event.workflow_run.head_sha }}` in the SSM command before `docker compose pull`/`up -d`, so the deploy always resolves to the exact commit's image pair
+- [x] 9.4 Update `design.md` (D3, D4, D5, Risks) and both spec deltas (`specs/deploy-pipeline/spec.md` here and `openspec/specs/deploy-pipeline/spec.md`) to document the concurrency guard and SHA pinning
+- [ ] 9.5 Validate workflow syntax for `build-images.yml` and `deploy.yml` (actionlint via Docker — exit 0, no findings) — covers pending 1.6/3.5 as well. **Blocked in this sandbox**: no Docker daemon available (`docker version` connects but `docker run` fails — no `/var/run/docker.sock`) and no network access to fetch the actionlint binary outside the scoped GitHub repo. Substituted `python3 -c "import yaml; yaml.safe_load(...)"` on both files — both parse as valid YAML — but this does not check GitHub Actions-specific semantics (expression syntax, context/type checking) the way actionlint does. Needs a real actionlint run in an environment with Docker or direct internet access before this can be marked `[x]`.
+- [ ] 9.6 Re-verify end-to-end on a real push to `main` (AGENT MUST EXECUTE): confirm `build-images.yml` still succeeds with the new `concurrency` block, confirm the SSM deploy log shows the pulled image tag matching the commit SHA (not `latest`), confirm smoke check passes with no outage
+- [ ] 9.7 Create report `openspec/changes/2026-07-17-docker-images-to-ghcr/reports/<date>-step-9-blocker-fix-verification.md`

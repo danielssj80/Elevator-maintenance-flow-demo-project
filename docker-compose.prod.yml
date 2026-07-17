@@ -12,7 +12,7 @@ services:
       retries: 5
 
   migrate:
-    image: ghcr.io/danielssj80/elevator-backend:latest
+    image: ghcr.io/danielssj80/elevator-backend:${IMAGE_TAG:-latest}
     command: alembic upgrade head
     env_file: /etc/elevator/.env
     depends_on:
@@ -21,7 +21,7 @@ services:
     restart: on-failure
 
   backend:
-    image: ghcr.io/danielssj80/elevator-backend:latest
+    image: ghcr.io/danielssj80/elevator-backend:${IMAGE_TAG:-latest}
     env_file: /etc/elevator/.env
     # Bedrock env vars — add to /etc/elevator/.env on the EC2 instance:
     #   BEDROCK_REGION=eu-north-1
@@ -43,7 +43,7 @@ services:
       retries: 3
 
   frontend:
-    image: ghcr.io/danielssj80/elevator-frontend:latest
+    image: ghcr.io/danielssj80/elevator-frontend:${IMAGE_TAG:-latest}
     depends_on:
       backend:
         condition: service_healthy
