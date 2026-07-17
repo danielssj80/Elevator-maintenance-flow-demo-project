@@ -32,15 +32,35 @@ No key pair or VPN required — IAM permissions govern access.
 
 ## Deploying a New Version (CI/CD)
 
-Deployment is automated. **Pushing to `main` deploys to production** — no manual step required.
+Deployment is automated and split into two chained workflows so **no image is ever built on
+the production instance** (`t3.micro`, ~916 MB RAM — a `vite build` running in place there
+used to starve/OOM-kill the running containers, taking the site down for the duration of
+every deploy; see [Why deploys used to cause an outage](#why-deploys-used-to-cause-an-outage)).
 
-The GitHub Actions workflow `.github/workflows/deploy.yml`:
-
-1. Authenticates to AWS via OIDC (assumes the `github-actions-deploy` IAM role — no stored AWS or SSH credentials).
-2. Sends an SSM `AWS-RunShellScript` command to the instance that runs:
-   `cd /opt/elevator && git fetch origin main && git reset --hard origin/main` and then recreates the stack with `docker compose up --build -d`. The Compose file list always includes `docker-compose.prod.yml` and **additionally** includes `/opt/portfolio/docker-compose.portfolio.yml` when that file exists (see [Co-located sites](#co-located-sites-shared-nginx)). When the override is included, the merged nginx config is validated with `nginx -t` in a throwaway container first, falling back to an Elevator-only deploy if it is invalid; the `up` is wrapped in `flock -w 600 /opt/deploy.lock`.
-3. Polls the command, streams its stdout/stderr into the Actions log, and fails the job if the remote command does not finish with status `Success`.
-4. Runs a smoke check against `https://elevator.dsaavedra.dev/health`.
+1. **`.github/workflows/build-images.yml`** — triggers on push to `main`. Builds
+   `elevator-backend` (from `./backend`, also used by the `migrate` service) and
+   `elevator-frontend` (from `./frontend`) and pushes both to GHCR
+   (`ghcr.io/danielssj80/elevator-backend`, `.../elevator-frontend`), tagged `latest` and
+   the commit SHA. Both packages are public, so the EC2 instance needs no registry
+   credentials to pull them. A cleanup step retains `latest` plus the 10 most recent
+   SHA-tagged versions per image.
+2. **`.github/workflows/deploy.yml`** — triggers via `workflow_run` once `build-images.yml`
+   completes, and only runs its deploy steps `if: ... conclusion == 'success'` (a failed
+   build never deploys). It:
+   1. Authenticates to AWS via OIDC (assumes the `github-actions-deploy` IAM role — no
+      stored AWS or SSH credentials).
+   2. Sends an SSM `AWS-RunShellScript` command to the instance that runs:
+      `cd /opt/elevator && git fetch origin main && git reset --hard origin/main` and then
+      recreates the stack with `docker compose pull && docker compose up -d` — **no
+      `--build`**. The Compose file list always includes `docker-compose.prod.yml` and
+      **additionally** includes `/opt/portfolio/docker-compose.portfolio.yml` when that
+      file exists (see [Co-located sites](#co-located-sites-shared-nginx)). When the
+      override is included, the merged nginx config is validated with `nginx -t` in a
+      throwaway container first, falling back to an Elevator-only deploy if it is invalid;
+      the `pull && up` is wrapped in `flock -w 600 /opt/deploy.lock`.
+   3. Polls the command, streams its stdout/stderr into the Actions log, and fails the job
+      if the remote command does not finish with status `Success`.
+   4. Runs a smoke check against `https://elevator.dsaavedra.dev/health`.
 
 Watch a run:
 
@@ -77,10 +97,11 @@ cd /opt/elevator
 git fetch origin main
 git reset --hard origin/main        # or: git reset --hard <previous-sha> to roll back
 
-# 3. Rebuild and restart
-#    Include the portfolio override only if it exists, validate the merged nginx
-#    config (falling back to Elevator-only on failure), and serialize with the lock,
-#    mirroring the CI/CD command (see "Co-located sites" below).
+# 3. Pull the latest images and restart — NEVER add --build here (see
+#    "Why deploys used to cause an outage" below). Include the portfolio override only
+#    if it exists, validate the merged nginx config (falling back to Elevator-only on
+#    failure), and serialize with the lock, mirroring the CI/CD command
+#    (see "Co-located sites" below).
 CF="-f docker-compose.prod.yml"
 if [ -f /opt/portfolio/docker-compose.portfolio.yml ]; then
   CF="$CF -f /opt/portfolio/docker-compose.portfolio.yml"
@@ -89,7 +110,12 @@ if [ -f /opt/portfolio/docker-compose.portfolio.yml ]; then
     CF="-f docker-compose.prod.yml"
   fi
 fi
-flock -w 600 /opt/deploy.lock docker compose $CF up -d --build
+flock -w 600 /opt/deploy.lock sh -c "docker compose $CF pull && docker compose $CF up -d"
+
+# To roll back to a specific previous image (rather than whatever is currently :latest
+# in GHCR), pull it explicitly by SHA tag before `up -d`, e.g.:
+#   docker pull ghcr.io/danielssj80/elevator-backend:<previous-sha>
+#   docker tag ghcr.io/danielssj80/elevator-backend:<previous-sha> ghcr.io/danielssj80/elevator-backend:latest
 ```
 
 ---
@@ -118,6 +144,25 @@ break each other:
 - **Host-level lock** — both deploys wrap `docker compose ... up` in
   `flock -w 600 /opt/deploy.lock` (GitHub `concurrency` groups are per-repo and cannot
   coordinate across repositories); the bounded wait fails the deploy rather than hanging.
+
+---
+
+## Why deploys used to cause an outage
+
+Before this change, `deploy.yml` ran `docker compose up --build -d` directly on the
+production instance. Building the frontend image (`vite build`) is memory-hungry; on a
+`t3.micro` (~916 MB RAM, no swap at the time), it starved the running containers and the
+OOM killer took down `elevator.dsaavedra.dev` **and** the co-located `dsaavedra.dev` for
+the duration of every deploy build, self-recovering once the build finished. Confirmed live
+on the instance (`free -h` showed ~67 Mi free; `dmesg` showed OOM kills).
+
+The fix has two parts:
+- **Root fix (this change)**: images are built in GitHub Actions and pushed to GHCR; the
+  instance only ever runs `docker compose pull && up -d` — no build, no OOM risk,
+  regardless of available memory.
+- **Standing safety margin**: a 2 GB swapfile was added to the instance
+  (`/swapfile`, `vm.swappiness=10`) so any future memory-hungry process degrades instead of
+  triggering an OOM kill. It is no longer load-bearing for deploys after this change.
 
 ---
 
