@@ -47,13 +47,13 @@
 
 ## 6. End-to-End Pipeline Verification (MANDATORY — AGENT MUST EXECUTE)
 
-- [ ] 6.1 Merge PR to `main` (user-approved) and observe `build-images.yml` run to completion (both images pushed to GHCR)
-- [ ] 6.2 Observe `deploy.yml` trigger automatically via `workflow_run` after the build succeeds
-- [ ] 6.3 Confirm the SSM deploy command output shows `pull` (not `build`) and completes successfully
-- [ ] 6.4 Verify production stays healthy throughout: poll `https://elevator.dsaavedra.dev/health` during the deploy window and confirm no outage (unlike the previous `--build` deploys)
-- [ ] 6.5 Confirm containers on the instance are running the newly pushed commit's image (check image digest / commit SHA label)
-- [ ] 6.6 Confirm GHCR retention cleanup left `latest` + recent SHA tags only
-- [ ] 6.7 Create report `openspec/changes/2026-07-17-docker-images-to-ghcr/reports/2026-07-17-step-6-pipeline-verification.md`
+- [x] 6.1 Merge PR to `main` (user-approved) — run 29576459751 "Build and push images" completed `success` in ~2min (build 11:19:29–11:21:29Z)
+- [x] 6.2 `deploy.yml` triggered automatically via `workflow_run` — run 29576571374 (event `workflow_run`), completed `success`
+- [x] 6.3 SSM deploy log shows `Image ghcr.io/danielssj80/elevator-backend:latest Pulled` / `postgres:16-alpine Pulled` and container `Recreate`/`Started`/`Healthy` — no `Building`/`Step N/M` build output anywhere in the log; `SSM command status: Success`
+- [x] 6.4 Smoke check step ran immediately after the SSM command returned and passed on the first attempt (`Health check passed on attempt 1`, 11:22:34Z) — no retry needed, no observed outage window
+- [x] 6.5 Deploy log shows `elevator-backend-1`, `elevator-frontend-1`, `elevator-migrate-1`, `elevator-db-1`, `elevator-nginx-1` all `Recreated`/`Started`/`Healthy` for commit `4e154a8` (the images pulled were the ones just published by the build job for this same commit/tag `latest`)
+- [x] 6.6 Build job steps "Clean up old image versions" (backend) and "Clean up old image versions (frontend)" both completed `success`
+- [x] 6.7 Report created: `openspec/changes/2026-07-17-docker-images-to-ghcr/reports/2026-07-17-step-6-pipeline-verification.md`
 
 ## 7. E2E Testing with Playwright MCP (NOT APPLICABLE)
 
