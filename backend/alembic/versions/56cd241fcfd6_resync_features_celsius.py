@@ -43,6 +43,11 @@ features_t = table(
     column("direction", sa.String),
 )
 
+elevators_t = table(
+    "elevators",
+    column("id", sa.String),
+)
+
 
 def upgrade() -> None:
     if not _PREDICTIONS_PATH.exists():
@@ -51,8 +56,14 @@ def upgrade() -> None:
 
     predictions: list[dict] = json.loads(_PREDICTIONS_PATH.read_text(encoding="utf-8"))
     bind = op.get_bind()
+    # Only resync features for elevators that already exist. On a fresh/empty database there
+    # are none yet, so this is a no-op and seed_database() inserts features at backend
+    # startup; touching them here would violate the FK with no parent elevator row.
+    existing_ids = {row[0] for row in bind.execute(sa.select(elevators_t.c.id)).fetchall()}
     for pred in predictions:
         eid = pred["id"]
+        if eid not in existing_ids:
+            continue
         bind.execute(features_t.delete().where(features_t.c.elevator_id == eid))
         if pred["features"]:
             bind.execute(

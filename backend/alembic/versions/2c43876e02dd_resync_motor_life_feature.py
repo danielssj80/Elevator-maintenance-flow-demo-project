@@ -96,7 +96,7 @@ def upgrade() -> None:
             nl_explanation = pred["nl_explanation"]
             trend = pred["trend"]
 
-        bind.execute(
+        result = bind.execute(
             elevators_t.update().where(elevators_t.c.id == eid).values(
                 building_name=pred["building_name"],
                 building_type=pred["building_type"],
@@ -115,6 +115,13 @@ def upgrade() -> None:
                 zone=pred["zone"],
             )
         )
+
+        # On a fresh/empty database the elevator row does not exist yet (the UPDATE matches
+        # zero rows). Its features/trend points must NOT be inserted — there is no parent
+        # `elevators` row, so the FK would be violated. seed_database() populates the whole
+        # fleet from predictions.json at backend startup, so skipping here is correct.
+        if result.rowcount == 0:
+            continue
 
         # Full replace: features/trend_points hold only model-derived rows, never user data.
         bind.execute(features_t.delete().where(features_t.c.elevator_id == eid))
