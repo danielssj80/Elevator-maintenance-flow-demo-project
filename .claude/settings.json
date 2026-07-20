@@ -42,6 +42,8 @@
       "Bash(gh pr *)",
       "Bash(gh auth status)",
 
+      "Bash(git --no-pager diff *)",
+
       "mcp__claude_ai_Notion__notion-search",
       "mcp__claude_ai_Notion__notion-fetch",
       "mcp__claude_ai_Notion__notion-update-page",
