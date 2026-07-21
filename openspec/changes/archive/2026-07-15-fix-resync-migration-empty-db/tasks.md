@@ -126,6 +126,9 @@
       and preserved the report. Suite: **41 passed**.
 - [x] 8.4 Addressed adversarial finding #2: corrected `proposal.md` §Capabilities to reference
       the "Seeding is deterministic and idempotent" requirement (not "Clean stack startup").
-- [ ] 8.5 Follow-ups left as separate backlog items (not blockers): #3 migrate `conftest.py`
-      off `Base.metadata.create_all` onto an Alembic-built schema; #4 confirm `elevator_test_db`
-      provisioning in the dev/CI bootstrap (doc note).
+- [x] 8.5 Follow-ups left as separate backlog items (not blockers), both registered in Notion
+      under the "Backlog improvements" milestone: #3 migrate `conftest.py` off
+      `Base.metadata.create_all` onto an Alembic-built schema
+      (https://app.notion.com/p/39e3ada00a9581d9b1e7c62cfb4307ce); #4 confirm `elevator_test_db`
+      provisioning in the dev/CI bootstrap
+      (https://app.notion.com/p/39e3ada00a95815eaa86c6c42981d2c2).
