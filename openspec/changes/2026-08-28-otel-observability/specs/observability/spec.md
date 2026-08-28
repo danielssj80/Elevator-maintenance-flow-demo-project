@@ -48,13 +48,14 @@ The system SHALL use W3C trace-context propagation and SHALL make a server span 
 - **AND** a new root span is started instead of failing the request
 
 ### Requirement: Bedrock briefing calls are traced without recording prompt content
-The system SHALL wrap the briefing path in a domain span carrying the elevator identifier, risk level, briefing source and cache outcome, and SHALL record GenAI attributes for the model call including request model, token usage and finish reason. Because the GenAI semantic conventions remain in Development status, the system SHALL emit both `gen_ai.provider.name` and the deprecated `gen_ai.system`. The system SHALL NOT record prompt or completion content on any span, as briefing prompts contain fleet risk data, technician names and visit notes.
+The system SHALL wrap the briefing path in a domain span carrying the elevator identifier, risk level, briefing source, cache outcome and the configured model. Token usage and finish reason are emitted by the botocore instrumentation on its own child span and SHALL NOT be duplicated onto the domain span, so that model attributes have a single source of truth. Because the GenAI semantic conventions remain in Development status and the provider attribute has already been renamed once, the system SHALL emit both `gen_ai.provider.name` and the deprecated `gen_ai.system` on the domain span, so dashboards keep working across the rename. The system SHALL NOT record prompt or completion content on any span it creates, as briefing prompts contain fleet risk data, technician names and visit notes.
 
-#### Scenario: Successful briefing records token usage but no message content
+#### Scenario: Successful briefing records provider identity but no message content
 - **WHEN** a briefing is generated through Bedrock
-- **THEN** the span records `gen_ai.request.model`, `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`
-- **AND** the span records `briefing.source` as `bedrock`
-- **AND** no attribute contains prompt or completion text
+- **THEN** the domain span records `briefing.source` as `bedrock`
+- **AND** it records both `gen_ai.provider.name` and `gen_ai.system` as `aws.bedrock`
+- **AND** it records `gen_ai.request.model` as the configured model id
+- **AND** no attribute on it contains prompt or completion text
 
 #### Scenario: Bedrock failure is visible as a fallback rather than as success
 - **WHEN** the Bedrock call raises and the deterministic fallback is returned
