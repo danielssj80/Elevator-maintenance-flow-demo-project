@@ -5,3 +5,23 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.0
 boto3==1.38.29
+
+# --- OpenTelemetry (M5 · otel-observability) -------------------------------
+# Core SDK and instrumentation ship as a lockstep pair: 1.44.0 / 0.65b0.
+# HTTP exporter, not gRPC: avoids the grpcio C-extension wheel, matches the
+# Collector on :4318, and matches Grafana Cloud's HTTP-only OTLP gateway.
+# Deliberately NOT included:
+#   - opentelemetry-distro: only powers the `opentelemetry-instrument` CLI
+#     wrapper, which we do not use; it would add a competing auto-config path.
+#   - opentelemetry-instrumentation-asyncpg: would nest a duplicate span inside
+#     every SQLAlchemy span for no extra information.
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-semantic-conventions==0.65b0
+opentelemetry-exporter-otlp-proto-http==1.44.0
+opentelemetry-instrumentation==0.65b0
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-instrumentation-sqlalchemy==0.65b0
+opentelemetry-instrumentation-httpx==0.65b0
+opentelemetry-instrumentation-botocore==0.65b0
+opentelemetry-instrumentation-logging==0.65b0
