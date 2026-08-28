@@ -38,18 +38,18 @@
 
 ## 5. Observability Stack (docker-compose)
 
-- [ ] 5.1 Create `observability/otel-collector-config.yaml`: OTLP receiver, `memory_limiter` / `batch` / `resource` processors, local exporter only at this stage
-- [ ] 5.2 Add `otel-collector` and `lgtm` services to `docker-compose.yml` with pinned image tags and explicit `mem_limit`
-- [ ] 5.3 Publish Grafana as `3001:3000` (host `3000` belongs to `frontend`); only the Collector publishes `4317`/`4318`
-- [ ] 5.4 Wire the backend service's OTel environment variables, using the **base** endpoint URL (see the base-vs-full trap in design.md)
-- [ ] 5.5 Bring the stack up and confirm all services are healthy
+- [x] 5.1 Create `observability/otel-collector-config.yaml`: OTLP receiver, `memory_limiter` / `batch` / `resource` processors, local exporter only at this stage
+- [x] 5.2 Add `otel-collector` and `lgtm` services to `docker-compose.yml` with pinned image tags and explicit `mem_limit`
+- [x] 5.3 Publish Grafana as `3001:3000` (host `3000` belongs to `frontend`); only the Collector publishes `4317`/`4318`
+- [x] 5.4 Wire the backend service's OTel environment variables, using the **base** endpoint URL (see the base-vs-full trap in design.md)
+- [x] 5.5 Bring the stack up and confirm all services are healthy
 
 ## 6. Verify Real Telemetry Reaches the Collector
 
-- [ ] 6.1 Call `GET /api/elevators` against the running stack
-- [ ] 6.2 Confirm in Tempo that the trace exists with an HTTP server span
-- [ ] 6.3 Confirm the same trace contains database spans — if absent, the SQLAlchemy binding is wrong (D3)
-- [ ] 6.4 Confirm HTTP metrics appear in Prometheus labelled by route template, not raw path
+- [x] 6.1 Call `GET /api/elevators` against the running stack
+- [x] 6.2 Confirm in Tempo that the trace exists with an HTTP server span
+- [x] 6.3 Confirm the same trace contains database spans — if absent, the SQLAlchemy binding is wrong (D3)
+- [x] 6.4 Confirm HTTP metrics appear in Prometheus labelled by route template, not raw path
 
 ## 7. Fleet Health Metrics (TDD)
 

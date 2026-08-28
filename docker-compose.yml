@@ -30,11 +30,18 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://user:password@db:5432/elevator_db
+      OTEL_ENABLED: "true"
+      # BASE url — the app appends /v1/traces and /v1/metrics itself.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: elevator-backend
+      DEPLOYMENT_ENVIRONMENT: local
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -49,5 +56,52 @@ services:
       backend:
         condition: service_healthy
 
+  # --- Observability (M5) --------------------------------------------------
+  # Local only. docker-compose.prod.yml is deliberately untouched: production
+  # exposes no Collector and no Grafana.
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.159.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      # Only this Collector publishes OTLP to the host; lgtm's own receiver
+      # stays reachable only as lgtm:4318 on the compose network.
+      - "4317:4317"
+      - "4318:4318"
+      - "13133:13133"
+      # Collector self-telemetry: otelcol_exporter_send_failed_* lives here.
+      - "8888:8888"
+    env_file:
+      - path: .env
+        required: false
+    mem_limit: 256m
+    depends_on:
+      lgtm:
+        condition: service_started
+
+  lgtm:
+    # Grafana + Prometheus + Tempo + Loki in one container. Pinned: `latest`
+    # would silently change the dashboard provisioning path between runs.
+    image: grafana/otel-lgtm:0.32.0
+    ports:
+      # 3001 because the frontend service already owns host port 3000.
+      - "3001:3000"
+      # Tempo's API, published so trace delivery can be verified from the host
+      # without shelling into the container (the image has no wget or curl).
+      - "3200:3200"
+      # Prometheus, published for the same reason.
+      - "9090:9090"
+    volumes:
+      - ./observability/grafana/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards:ro
+      - lgtm_data:/data
+    mem_limit: 1500m
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+
 volumes:
   postgres_data:
+  lgtm_data:

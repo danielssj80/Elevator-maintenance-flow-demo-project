@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+from importlib.util import find_spec
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import metrics, trace
@@ -165,7 +166,12 @@ def configure_telemetry(
     _instrumented_app = app
 
     _instrument_sqlalchemy(db_engine)
-    HTTPXClientInstrumentor().instrument(tracer_provider=_tracer_provider)
+    # httpx is not a runtime dependency yet — it arrives with the inference
+    # client in the next change. Instrumenting it unconditionally logs a
+    # confusing "DependencyConflict: requested httpx >= 0.18.0 but found None"
+    # on every start, so guard it and let it switch on by itself later.
+    if find_spec("httpx") is not None:
+        HTTPXClientInstrumentor().instrument(tracer_provider=_tracer_provider)
     BotocoreInstrumentor().instrument(tracer_provider=_tracer_provider)
     LoggingInstrumentor().instrument(set_logging_format=True)
 
