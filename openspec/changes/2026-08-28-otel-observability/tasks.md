@@ -63,14 +63,14 @@
 
 ## 8. GenAI Instrumentation and Event-Loop Fix (TDD)
 
-- [ ] 8.1 Write failing test: `briefing.generate` span records `briefing.source` `bedrock` on success and `fallback` when Bedrock raises
-- [ ] 8.2 Write failing test: no span attribute contains prompt or completion text
-- [ ] 8.3 Write failing test: a cache hit records `briefing.cache_hit` true and produces no model span
-- [ ] 8.4 Implement `backend/app/services/genai_attributes.py` emitting both `gen_ai.provider.name` and the deprecated `gen_ai.system` (D4)
-- [ ] 8.5 Add the `briefing.generate` domain span in `briefing_service.py`
-- [ ] 8.6 Move the blocking `BedrockClient.generate()` call onto a worker thread with `anyio.to_thread.run_sync` (D6)
-- [ ] 8.7 Write failing test: the botocore model span is a child of `briefing.generate` after the thread offload
-- [ ] 8.8 All tests pass
+- [x] 8.1 Write failing test: `briefing.generate` span records `briefing.source` `bedrock` on success and `fallback` when Bedrock raises
+- [x] 8.2 Write failing test: no span attribute contains prompt or completion text
+- [x] 8.3 Write failing test: a cache hit records `briefing.cache_hit` true and produces no model span
+- [x] 8.4 Implement `backend/app/services/genai_attributes.py` emitting both `gen_ai.provider.name` and the deprecated `gen_ai.system` (D4)
+- [x] 8.5 Add the `briefing.generate` domain span in `briefing_service.py`
+- [x] 8.6 Move the blocking `BedrockClient.generate()` call onto a worker thread with `anyio.to_thread.run_sync` (D6)
+- [x] 8.7 Write failing test: the botocore model span is a child of `briefing.generate` after the thread offload
+- [x] 8.8 All tests pass
 
 ## 9. Grafana Cloud Export
 

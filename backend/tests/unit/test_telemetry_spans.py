@@ -178,3 +178,145 @@ class TestTraceContextPropagation:
         ]
         assert server_spans, "request should still be traced as a new root"
         assert server_spans[-1].parent is None
+
+
+class TestBriefingSpans:
+    """The briefing path is where a silent failure is most costly: Bedrock can
+    be down and the endpoint still returns HTTP 200 with a plausible briefing.
+    """
+
+    @staticmethod
+    def _service(*, raises: Exception | None = None, text: str = "Generated briefing."):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from tests.unit.test_briefing_service import _make_orm_elevator
+
+        from app.services.briefing_service import BriefingService
+
+        repo = AsyncMock()
+        repo.get_by_id.return_value = _make_orm_elevator()
+
+        client = MagicMock()
+        if raises is not None:
+            client.generate.side_effect = raises
+        else:
+            client.generate.return_value = text
+        return BriefingService(elevator_repository=repo, bedrock_client=client)
+
+    @staticmethod
+    def _briefing_span(span_exporter):
+        spans = [
+            s
+            for s in span_exporter.get_finished_spans()
+            if s.name == "briefing.generate"
+        ]
+        assert spans, "no briefing.generate span was recorded"
+        return spans[-1]
+
+    async def test_successful_briefing_records_bedrock_as_the_source(
+        self, span_exporter
+    ) -> None:
+        await self._service().get_briefing("ELV-001")
+
+        span = self._briefing_span(span_exporter)
+        assert span.attributes["briefing.source"] == "bedrock"
+        assert span.attributes["briefing.cache_hit"] is False
+        assert span.attributes["elevator.id"] == "ELV-001"
+        assert span.attributes["elevator.risk_level"] == "high"
+
+    async def test_provider_is_recorded_under_both_attribute_generations(
+        self, span_exporter
+    ) -> None:
+        """`gen_ai.system` was renamed to `gen_ai.provider.name`; emit both so a
+        dashboard written against either keeps working."""
+        await self._service().get_briefing("ELV-001")
+
+        span = self._briefing_span(span_exporter)
+        assert span.attributes["gen_ai.provider.name"] == "aws.bedrock"
+        assert span.attributes["gen_ai.system"] == "aws.bedrock"
+        assert span.attributes["gen_ai.request.model"] == settings.bedrock_model_id
+
+    async def test_bedrock_failure_is_visible_as_a_fallback_not_a_success(
+        self, span_exporter
+    ) -> None:
+        result = await self._service(
+            raises=RuntimeError("bedrock unavailable")
+        ).get_briefing("ELV-001")
+
+        assert result.source == "fallback"
+        span = self._briefing_span(span_exporter)
+        assert span.attributes["briefing.source"] == "fallback"
+        assert any(e.name == "exception" for e in span.events), (
+            "the swallowed exception must be recorded on the span"
+        )
+
+    async def test_cache_hit_is_distinguishable_and_skips_the_model(
+        self, span_exporter
+    ) -> None:
+        service = self._service()
+        await service.get_briefing("ELV-001")
+        span_exporter.clear()
+        await service.get_briefing("ELV-001")
+
+        span = self._briefing_span(span_exporter)
+        assert span.attributes["briefing.cache_hit"] is True
+        assert "gen_ai.request.model" not in span.attributes, (
+            "a cache hit never reaches the model, so it must not claim to"
+        )
+
+    async def test_no_span_attribute_carries_prompt_or_completion_text(
+        self, span_exporter
+    ) -> None:
+        """Briefing prompts embed technician names and free-text visit notes."""
+        secret = "Vibration noted"  # appears in the elevator's last_visit_notes
+        await self._service(text="Generated briefing.").get_briefing("ELV-001")
+
+        for span in span_exporter.get_finished_spans():
+            for key, value in span.attributes.items():
+                assert "gen_ai.input.messages" not in key
+                assert "gen_ai.output.messages" not in key
+                if isinstance(value, str):
+                    assert secret not in value, f"visit notes leaked into {key}"
+                    assert "Generated briefing." not in value, (
+                        f"completion text leaked into {key}"
+                    )
+
+    async def test_tracing_context_survives_the_worker_thread_offload(
+        self, span_exporter
+    ) -> None:
+        """The boto3 call runs via anyio.to_thread so it cannot stall the event
+        loop. anyio copies contextvars into that thread, which is what keeps the
+        model span nested under briefing.generate instead of becoming a
+        detached root. Assert that directly, since the real botocore span is
+        not available with a mocked client.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from tests.unit.test_briefing_service import _make_orm_elevator
+
+        from app.services.briefing_service import BriefingService
+
+        def _generate_in_thread(**kwargs):
+            with telemetry_module.get_tracer("test").start_as_current_span(
+                "fake.model.call"
+            ):
+                pass
+            return "Generated briefing."
+
+        repo = AsyncMock()
+        repo.get_by_id.return_value = _make_orm_elevator()
+        client = MagicMock()
+        client.generate.side_effect = _generate_in_thread
+
+        await BriefingService(
+            elevator_repository=repo, bedrock_client=client
+        ).get_briefing("ELV-001")
+
+        spans = {s.name: s for s in span_exporter.get_finished_spans()}
+        assert "fake.model.call" in spans, "no span was created inside the thread"
+        model_span = spans["fake.model.call"]
+        briefing = spans["briefing.generate"]
+
+        assert model_span.parent is not None, "span in the worker thread is detached"
+        assert model_span.parent.span_id == briefing.context.span_id
+        assert model_span.context.trace_id == briefing.context.trace_id

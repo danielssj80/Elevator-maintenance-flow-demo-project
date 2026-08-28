@@ -2,14 +2,25 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+import anyio.to_thread
 from fastapi import HTTPException
 
+from app.core.config import settings
+from app.core.metrics import record_briefing_request
+from app.core.telemetry import get_tracer
 from app.models.elevator import Elevator
 from app.repositories.elevator_repository import ElevatorRepository
 from app.schemas.briefing import BriefingSchema
 from app.services.elevator_service import _derive_risk_level
+from app.services.genai_attributes import (
+    ELEVATOR_ID,
+    ELEVATOR_RISK_LEVEL,
+    set_briefing_outcome,
+    set_model_identity,
+)
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
 
 _SYSTEM_PROMPT = (
     "You are a field-service assistant. Write a concise spoken pre-visit briefing of 4-8 sentences "
@@ -113,36 +124,60 @@ class BriefingService:
         if elevator is None:
             raise HTTPException(status_code=404, detail="Elevator not found")
 
-        cache_key = (elevator_id, elevator.risk_score)
-        if cache_key in _CACHE:
+        with tracer.start_as_current_span("briefing.generate") as span:
+            span.set_attribute(ELEVATOR_ID, elevator_id)
+            span.set_attribute(
+                ELEVATOR_RISK_LEVEL, _derive_risk_level(elevator.risk_score)
+            )
+
+            cache_key = (elevator_id, elevator.risk_score)
+            if cache_key in _CACHE:
+                set_briefing_outcome(span, source="bedrock", cache_hit=True)
+                record_briefing_request(source="bedrock", cache_hit=True)
+                return BriefingSchema(
+                    elevator_id=elevator_id,
+                    text=_CACHE[cache_key],
+                    source="bedrock",
+                    generated_at=datetime.now(timezone.utc),
+                )
+
+            set_model_identity(span, model_id=settings.bedrock_model_id)
+
+            try:
+                # boto3 is synchronous and has a multi-second timeout. Called
+                # directly it stalls the event loop for every concurrent
+                # request. anyio copies contextvars into the worker thread, so
+                # the OpenTelemetry context travels with it and the botocore
+                # span still nests under this one.
+                text = await anyio.to_thread.run_sync(
+                    lambda: self._client.generate(
+                        system_prompt=_SYSTEM_PROMPT,
+                        user_message=_build_prompt_message(elevator),
+                    )
+                )
+                if not text or not text.strip():
+                    raise ValueError("Bedrock returned empty briefing text")
+                _CACHE[cache_key] = text
+                source = "bedrock"
+            except Exception as exc:
+                logger.warning(
+                    "Bedrock briefing generation failed for %s; using deterministic fallback",
+                    elevator_id,
+                    exc_info=True,
+                )
+                # Recorded on the span because the endpoint still returns 200
+                # with a plausible briefing: without this a Bedrock outage is
+                # invisible to everything except the fallback-rate panel.
+                span.record_exception(exc)
+                text = _build_fallback_briefing(elevator)
+                source = "fallback"
+
+            set_briefing_outcome(span, source=source, cache_hit=False)
+            record_briefing_request(source=source, cache_hit=False)
+
             return BriefingSchema(
                 elevator_id=elevator_id,
-                text=_CACHE[cache_key],
-                source="bedrock",
+                text=text,
+                source=source,
                 generated_at=datetime.now(timezone.utc),
             )
-
-        try:
-            text = self._client.generate(
-                system_prompt=_SYSTEM_PROMPT,
-                user_message=_build_prompt_message(elevator),
-            )
-            if not text or not text.strip():
-                raise ValueError("Bedrock returned empty briefing text")
-            _CACHE[cache_key] = text
-            source = "bedrock"
-        except Exception:
-            logger.warning(
-                "Bedrock briefing generation failed for %s; using deterministic fallback",
-                elevator_id,
-                exc_info=True,
-            )
-            text = _build_fallback_briefing(elevator)
-            source = "fallback"
-
-        return BriefingSchema(
-            elevator_id=elevator_id,
-            text=text,
-            source=source,
-            generated_at=datetime.now(timezone.utc),
-        )

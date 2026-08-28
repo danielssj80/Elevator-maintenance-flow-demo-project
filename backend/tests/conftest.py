@@ -39,6 +39,22 @@ async def db_session(setup_test_db) -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
 
 
+@pytest.fixture(autouse=True)
+def _clear_briefing_cache():
+    """Reset the process-local briefing cache between tests.
+
+    `briefing_service._CACHE` is a module-level dict, so it leaks across test
+    modules, not just across tests in one file. Living here rather than in
+    test_briefing_service.py means a new test file cannot silently inherit a
+    cached briefing and assert against the wrong source.
+    """
+    from app.services import briefing_service
+
+    briefing_service._CACHE.clear()
+    yield
+    briefing_service._CACHE.clear()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _telemetry_session():
     """Configure telemetry once per session with in-memory exporters.

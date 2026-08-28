@@ -7,16 +7,6 @@ from app.models.elevator import Elevator, ElevatorFeature, ElevatorTrendPoint
 from app.schemas.briefing import BriefingSchema
 
 
-@pytest.fixture(autouse=True)
-def _clear_briefing_cache():
-    """Reset the process-local briefing cache so tests do not couple through it."""
-    from app.services import briefing_service
-
-    briefing_service._CACHE.clear()
-    yield
-    briefing_service._CACHE.clear()
-
-
 def _make_orm_elevator(
     id: str = "ELV-001",
     risk_score: float = 0.85,
