@@ -53,13 +53,13 @@
 
 ## 7. Fleet Health Metrics (TDD)
 
-- [ ] 7.1 Write failing tests for `FleetHealthService.compute_snapshot()`: counts by risk level, inference run age, stale-telemetry count
-- [ ] 7.2 Implement `backend/app/services/fleet_health_service.py`
-- [ ] 7.3 Implement `backend/app/core/metrics.py`: frozen `FleetHealthSnapshot`, module singleton, instruments and observable-gauge callbacks that only read the snapshot (D5)
-- [ ] 7.4 Write failing test: the refresh task starts on startup and is cancelled cleanly on shutdown
-- [ ] 7.5 Add the refresh task to `lifespan` with `asyncio.create_task` and graceful cancellation
-- [ ] 7.6 Write failing test: a refresh failure leaves the previous snapshot intact and does not raise
-- [ ] 7.7 All tests pass; confirm no metric carries `elevator.id` as an attribute
+- [x] 7.1 Write failing tests for `FleetHealthService.compute_snapshot()`: counts by risk level, inference run age, stale-telemetry count
+- [x] 7.2 Implement `backend/app/services/fleet_health_service.py`
+- [x] 7.3 Implement `backend/app/core/metrics.py`: frozen `FleetHealthSnapshot`, module singleton, instruments and observable-gauge callbacks that only read the snapshot (D5)
+- [x] 7.4 Write failing test: the refresh task starts on startup and is cancelled cleanly on shutdown
+- [x] 7.5 Add the refresh task to `lifespan` with `asyncio.create_task` and graceful cancellation
+- [x] 7.6 Write failing test: a refresh failure leaves the previous snapshot intact and does not raise
+- [x] 7.7 All tests pass; confirm no metric carries `elevator.id` as an attribute
 
 ## 8. GenAI Instrumentation and Event-Loop Fix (TDD)
 
