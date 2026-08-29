@@ -51,15 +51,28 @@ def _unconfigured_telemetry():
     after which it silently records nothing and every later span assertion
     fails for the wrong reason.
     """
-    saved_tracer = telemetry_module._tracer_provider
-    saved_meter = telemetry_module._meter_provider
+    saved = (
+        telemetry_module._tracer_provider,
+        telemetry_module._meter_provider,
+        telemetry_module._logger_provider,
+        telemetry_module._log_handler,
+    )
+    # ALL of them, not just tracer and meter: shutdown_telemetry() detaches the
+    # log handler from the root logger, and leaving that out silently removed
+    # the session's handler for every later test.
     telemetry_module._tracer_provider = None
     telemetry_module._meter_provider = None
+    telemetry_module._logger_provider = None
+    telemetry_module._log_handler = None
     try:
         yield
     finally:
-        telemetry_module._tracer_provider = saved_tracer
-        telemetry_module._meter_provider = saved_meter
+        (
+            telemetry_module._tracer_provider,
+            telemetry_module._meter_provider,
+            telemetry_module._logger_provider,
+            telemetry_module._log_handler,
+        ) = saved
 
 
 class TestTelemetryIsOptIn:
@@ -111,19 +124,23 @@ class TestHttpSpans:
     ) -> None:
         """Guards the silent SQLAlchemy failure.
 
-        ``SQLAlchemyInstrumentor().instrument()`` without ``engine=`` patches
-        ``create_engine`` and therefore misses an engine that was already
-        constructed at import time, emitting zero database spans and raising
-        nothing. Without this test that regression is invisible.
+        Must assert on ``db.statement``, not ``db.system``. Without ``engine=``
+        the instrumentation still patches ``Engine.connect`` class-wide, so a
+        ``connect`` span carrying ``db.system`` still arrives and an assertion
+        on that attribute passes while per-statement visibility is gone. The
+        first version of this test did exactly that and survived the mutation.
         """
         await traced_client.get("/api/elevators")
 
-        client_spans = [
+        statement_spans = [
             s
             for s in span_exporter.get_finished_spans()
-            if s.kind is SpanKind.CLIENT and s.attributes.get("db.system")
+            if s.kind is SpanKind.CLIENT and s.attributes.get("db.statement")
         ]
-        assert client_spans, "no database spans recorded — is the engine bound?"
+        assert statement_spans, (
+            "no per-statement database spans — is the engine bound with "
+            "engine=engine.sync_engine? connect spans alone are not enough"
+        )
 
     async def test_unknown_elevator_is_a_handled_404_not_an_error(
         self, traced_client, span_exporter
@@ -336,7 +353,7 @@ class TestBriefingSpans:
 
         from app.services.briefing_service import BriefingService
 
-        call_delay = 0.3
+        call_delay = 0.5
 
         def _slow_generate(**kwargs):
             time.sleep(call_delay)
@@ -356,9 +373,10 @@ class TestBriefingSpans:
         )
         elapsed = time.perf_counter() - started
 
-        # Serialised would be ~2x call_delay. Allow generous headroom for a
-        # loaded CI machine while still failing if the loop is blocked.
-        assert elapsed < call_delay * 1.8, (
+        # Serialised would be ~2x call_delay (1.0s); concurrent ~1x (0.5s).
+        # 1.5x leaves 250ms of headroom on a loaded machine and still fails
+        # decisively if the loop is blocked.
+        assert elapsed < call_delay * 1.5, (
             f"two briefings took {elapsed:.2f}s for a {call_delay}s call each — "
             "the event loop is being blocked"
         )
@@ -387,6 +405,23 @@ class TestLogExport:
         from opentelemetry.instrumentation.logging.handler import LoggingHandler
 
         handlers = logging.getLogger().handlers
-        assert any(isinstance(h, LoggingHandler) for h in handlers), (
-            "no OTel handler on the root logger — nothing is exported"
+        otel = [h for h in handlers if isinstance(h, LoggingHandler)]
+        assert otel, "no OTel handler on the root logger — nothing is exported"
+        assert len(otel) == 1, (
+            f"{len(otel)} OTel handlers on root — every record would be "
+            "exported once per handler, doubling volume and any log-derived rate"
+        )
+
+    def test_console_logging_survives_instrumentation(self) -> None:
+        """Attaching the OTLP handler before basicConfig makes basicConfig a
+        no-op, leaving the root logger with no StreamHandler. Application logs
+        then exist ONLY inside the OTLP pipeline — invisible exactly when that
+        pipeline is what broke.
+        """
+        import logging
+
+        handlers = logging.getLogger().handlers
+        assert any(type(h) is logging.StreamHandler for h in handlers), (
+            "no StreamHandler on root — console logging was destroyed, so an "
+            "export failure would be silent"
         )

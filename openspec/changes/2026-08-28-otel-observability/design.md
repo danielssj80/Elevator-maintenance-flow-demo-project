@@ -30,13 +30,20 @@ HTTP avoids the `grpcio` C-extension wheel, matches the Collector's `:4318`, and
 
 Enabling both instrumentations nests an `asyncpg` span inside every SQLAlchemy span, doubling trace volume for no extra information.
 
-The engine in `app/database.py` is created by `create_async_engine` **at module import time**, before `configure_telemetry()` runs. `SQLAlchemyInstrumentor().instrument()` with no arguments patches `create_engine` and therefore misses it entirely, producing **zero database spans with no error raised**. The instrumentation must be bound explicitly:
+The engine in `app/database.py` is created by `create_async_engine` **at module import time**, before `configure_telemetry()` runs. It must be bound explicitly:
 
 ```python
 SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
 ```
 
-A test asserting that a `SELECT` span exists after `GET /api/elevators` is mandatory, because this failure is silent.
+> **Correction, made during adversarial review.** An earlier draft of this decision claimed the unbound call produces *zero* database spans. That is wrong: `_instrument` also patches `Engine.connect` class-wide, so a pre-built engine still emits `connect` spans. Measured on 0.65b0 for a single query:
+>
+> | | spans | with `db.statement` |
+> |---|---|---|
+> | with `engine=` | `connect`, `SELECT` | 1 |
+> | without | `connect` | 0 |
+>
+> The real failure mode is losing **per-statement** spans — no visibility into which query ran or how long it took — while `connect` spans keep arriving and the instrumentation looks healthy. Quieter than the original claim, and the reason the guarding test must assert on `db.statement` rather than on `db.system`, which the `connect` span also carries. The first version of that test passed with the binding removed.
 
 ### D4 — GenAI attributes: supplement, do not hand-roll
 
@@ -63,7 +70,7 @@ This loop is a scheduler. Naming it as such is preferable to pretending the appl
 
 ### D7 — Run our own Collector alongside `grafana/otel-lgtm`
 
-The LGTM image bundles a Collector, but it is an ingest endpoint for its own backends. Ours owns routing: the Grafana Cloud fan-out, batching, memory limiting, redaction, and later the n8n Prometheus scrape. Only our Collector publishes `4317`/`4318` to the host; LGTM's Grafana is published as `3001:3000` because the `frontend` service already owns host port `3000`.
+The LGTM image bundles a Collector, but it is an ingest endpoint for its own backends. Ours owns routing: the Grafana Cloud fan-out, batching, memory limiting, and later the n8n Prometheus scrape. (An earlier draft also claimed redaction; no redaction processor exists, and none is needed while prompt content is never recorded at the source.) Only our Collector publishes `4317`/`4318` to the host; LGTM's Grafana is published as `3001:3000` because the `frontend` service already owns host port `3000`.
 
 Cardinality and volume are actively managed: `elevator.id` is never a metric attribute, HTTP metrics are labelled by route template, and explicit `mem_limit` values prevent a runaway container from taking down the host.
 

@@ -31,9 +31,13 @@ processors:
 
   resource/env:
     attributes:
+      # `insert`, not `upsert`: upsert overwrites the value the application
+      # already set from DEPLOYMENT_ENVIRONMENT, making that setting and the
+      # Resource attribute dead. This only fills in a default for senders that
+      # do not declare one.
       - key: deployment.environment.name
         value: local
-        action: upsert
+        action: insert
 
 exporters:
   otlp_http/local:

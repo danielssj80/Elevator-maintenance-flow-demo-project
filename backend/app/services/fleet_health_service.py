@@ -11,8 +11,15 @@ class FleetHealthService:
     """Aggregates fleet state for metric reporting.
 
     Risk level is derived here rather than read from the database, reusing the
-    same rule the API uses, so the dashboard and the technician's list can
-    never disagree about what "high risk" means.
+    API's own `_derive_risk_level` so the thresholds cannot drift apart.
+
+    The two do NOT report identical totals, deliberately: this snapshot counts
+    out-of-scope units in their own bucket, while the API derives `low` from
+    their placeholder score of 0.0. That divergence is what surfaced the
+    contradiction between `docs/data-model.md` (a 0.0 score is "genuine absence
+    of a prediction, not a zero-risk result") and the `elevator-persistence`
+    spec (every elevator gets a level derived from its score). Tracked as a
+    backlog task; not resolved here, because it changes a response contract.
     """
 
     def __init__(self, elevator_repository: ElevatorRepository) -> None:

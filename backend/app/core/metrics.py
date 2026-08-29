@@ -22,12 +22,15 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from opentelemetry import metrics as otel_metrics
-from opentelemetry.metrics import CallbackOptions, Observation
+from opentelemetry import trace
+from opentelemetry.metrics import CallbackOptions, Counter, Histogram, Observation
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
     from app.services.fleet_health_service import FleetHealthService
 
 logger = logging.getLogger(__name__)
@@ -95,9 +98,9 @@ def _observe_stale_telemetry(options: CallbackOptions | None) -> Iterable[Observ
 # --- instruments -----------------------------------------------------------
 
 _instruments_registered = False
-briefing_requests: Any = None
-inference_runs: Any = None
-inference_duration: Any = None
+briefing_requests: Counter | None = None
+inference_runs: Counter | None = None
+inference_duration: Histogram | None = None
 
 
 def register_instruments() -> None:
@@ -173,7 +176,7 @@ async def refresh_snapshot_once(service: FleetHealthService) -> None:
 
 
 async def refresh_snapshot_periodically(
-    session_factory: Any, interval_seconds: int
+    session_factory: async_sessionmaker[AsyncSession], interval_seconds: float
 ) -> None:
     """Refresh forever until cancelled. Owned by the application lifespan.
 
@@ -183,10 +186,18 @@ async def refresh_snapshot_periodically(
     from app.repositories.elevator_repository import ElevatorRepository
     from app.services.fleet_health_service import FleetHealthService
 
+    tracer = trace.get_tracer(__name__)
+
     while True:
         try:
-            async with session_factory() as session:
-                await refresh_snapshot_once(FleetHealthService(ElevatorRepository(session)))
+            # Wrapped so the cycle's query does not surface as an unparented
+            # root `SELECT` trace once a minute, forever, fanned out to every
+            # configured exporter.
+            with tracer.start_as_current_span("fleet.refresh"):
+                async with session_factory() as session:
+                    await refresh_snapshot_once(
+                        FleetHealthService(ElevatorRepository(session))
+                    )
         except asyncio.CancelledError:
             raise
         except Exception:

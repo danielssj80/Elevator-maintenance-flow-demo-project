@@ -304,3 +304,158 @@ class TestRefreshLoopResilience:
                 await task
         finally:
             metrics_module.set_snapshot(original)
+
+
+def _collect(reader, metric_name):
+    """Pull metrics through the real reader and return matching data points."""
+    data = reader.get_metrics_data()
+    points = []
+    for rm in data.resource_metrics:
+        for sm in rm.scope_metrics:
+            for metric in sm.metrics:
+                if metric.name == metric_name:
+                    points.extend(metric.data.data_points)
+    return points
+
+
+class TestMetricsAreActuallyWired:
+    """Collects through the reader instead of calling callbacks directly.
+
+    Calling `_observe_fleet_count(None)` proves the function works; it proves
+    nothing about whether the instrument was ever registered against a
+    provider. Removing `callbacks=[...]`, removing `register_instruments()`
+    from the lifespan, or deleting the `record_briefing_request` calls all left
+    the previous tests green.
+    """
+
+    def test_fleet_count_is_emitted_through_the_reader(self, metric_reader) -> None:
+        metrics_module.register_instruments()
+        original = metrics_module.get_snapshot()
+        try:
+            metrics_module.set_snapshot(
+                replace(
+                    original,
+                    counts_by_risk_level={
+                        "high": 3, "medium": 5, "low": 90, "out_of_scope": 2
+                    },
+                )
+            )
+            points = _collect(metric_reader, "elevator.fleet.count")
+
+            assert points, "elevator.fleet.count emitted nothing — is the gauge registered?"
+            by_level = {p.attributes["risk_level"]: p.value for p in points}
+            assert by_level == {"high": 3, "medium": 5, "low": 90, "out_of_scope": 2}
+        finally:
+            metrics_module.set_snapshot(original)
+
+    def test_no_emitted_metric_carries_an_elevator_id(self, metric_reader) -> None:
+        metrics_module.register_instruments()
+        data = metric_reader.get_metrics_data()
+        for rm in data.resource_metrics:
+            for sm in rm.scope_metrics:
+                for metric in sm.metrics:
+                    for point in metric.data.data_points:
+                        keys = set(point.attributes or {})
+                        assert not keys & {"elevator.id", "elevator_id"}, (
+                            f"{metric.name} carries an elevator id — "
+                            "100 elevators would explode the series count"
+                        )
+
+    async def test_serving_a_briefing_increments_the_counter(
+        self, metric_reader
+    ) -> None:
+        """Goes through the SERVICE, not through record_briefing_request.
+
+        Calling the recorder directly still passes when the service stops
+        calling it, which is the mutation that matters: the genai dashboard's
+        fallback rate and cache-hit ratio would both go permanently empty.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from tests.unit.test_briefing_service import _make_orm_elevator
+
+        from app.services.briefing_service import BriefingService
+
+        metrics_module.register_instruments()
+
+        def _count(points):
+            return sum(
+                p.value for p in points
+                if p.attributes.get("source") == "fallback"
+            )
+
+        before = _count(_collect(metric_reader, "elevator.briefing.requests"))
+
+        repo = AsyncMock()
+        repo.get_by_id.return_value = _make_orm_elevator(id="ELV-901")
+        client = MagicMock()
+        client.generate.side_effect = RuntimeError("bedrock down")
+        await BriefingService(
+            elevator_repository=repo, bedrock_client=client
+        ).get_briefing("ELV-901")
+
+        after = _count(_collect(metric_reader, "elevator.briefing.requests"))
+        assert after == before + 1, (
+            "serving a fallback briefing did not increment "
+            "elevator.briefing.requests — the service is not recording it"
+        )
+
+
+class TestLifespanWiring:
+    async def test_lifespan_registers_instruments_and_manages_the_refresh_task(
+        self, monkeypatch, metric_reader
+    ) -> None:
+        """Drives the real lifespan.
+
+        The refresh task was previously only tested against a task the test
+        built itself, so removing `refresh_task.cancel()` from the lifespan —
+        or `register_instruments()` — went undetected.
+        """
+        import asyncio
+
+        from app.core.config import settings as app_settings
+        from app.main import app, lifespan
+        from tests.conftest import TestSessionLocal
+
+        monkeypatch.setattr(app_settings, "otel_enabled", True)
+        monkeypatch.setattr(app_settings, "fleet_metrics_refresh_seconds", 60)
+        monkeypatch.setattr("app.main.AsyncSessionLocal", TestSessionLocal)
+        # The lifespan calls shutdown_telemetry() on exit, which would tear down
+        # the session-scoped providers and detach the log handler for every
+        # later test. Shutdown has its own test; here we only exercise the
+        # refresh task's lifecycle.
+        monkeypatch.setattr("app.main.shutdown_telemetry", lambda: None)
+
+        # Spy rather than checking for emitted metrics: instrument registration
+        # is process-global and idempotent, so another test having registered
+        # them already would mask the lifespan skipping it entirely.
+        registered = False
+        real_register = metrics_module.register_instruments
+
+        def _spy() -> None:
+            nonlocal registered
+            registered = True
+            real_register()
+
+        monkeypatch.setattr("app.main.register_instruments", _spy)
+
+        before = {t for t in asyncio.all_tasks()}
+        # Bounded: if the lifespan ever stops cancelling the task, `await
+        # refresh_task` on exit never returns and the whole suite hangs. A
+        # timeout turns that into a fast, readable failure.
+        async with asyncio.timeout(10), lifespan(app):
+            await asyncio.sleep(0.15)
+            created = {t for t in asyncio.all_tasks()} - before
+            assert created, "lifespan started no refresh task"
+            refresh_task = created.pop()
+            assert not refresh_task.done()
+
+            assert registered, (
+                "the lifespan did not register instruments — production would "
+                "emit no fleet-health metrics while looking fully configured"
+            )
+
+        await asyncio.sleep(0.05)
+        assert refresh_task.done(), (
+            "the refresh task outlived the lifespan — it was never cancelled"
+        )

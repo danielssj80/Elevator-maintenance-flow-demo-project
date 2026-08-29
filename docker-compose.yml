@@ -35,6 +35,11 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: elevator-backend
       DEPLOYMENT_ENVIRONMENT: local
+      # Pinned off, not left to the default: the botocore instrumentation emits
+      # GenAI LOG RECORDS alongside its span, and this is what keeps their
+      # bodies empty. Briefing prompts carry fleet risk data, technician names
+      # and visit notes.
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "false"
     depends_on:
       db:
         condition: service_healthy

@@ -95,6 +95,17 @@ def _telemetry_session():
 
 
 @pytest.fixture
+def metric_reader(_telemetry_session):
+    """The in-memory metric reader, for collecting real instrument output.
+
+    Asserting on callback functions directly proves nothing about whether the
+    instruments are wired to a provider at all.
+    """
+    _, reader = _telemetry_session
+    return reader
+
+
+@pytest.fixture
 def span_exporter(_telemetry_session):
     """A cleared in-memory span exporter for a single test."""
     exporter, _ = _telemetry_session

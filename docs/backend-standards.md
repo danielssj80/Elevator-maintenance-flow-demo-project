@@ -455,13 +455,15 @@ OpenTelemetry is configured programmatically in `app/core/telemetry.py`, called 
 
 `OTEL_ENABLED` defaults to `false`. CI and the test suite must never require a Collector.
 
-**Bind SQLAlchemy to the existing engine.** `SQLAlchemyInstrumentor().instrument()` with no arguments patches `create_engine`, which misses an engine already built at import time — as ours is. It emits **zero database spans and raises nothing**:
+**Bind SQLAlchemy to the existing engine.**
 
 ```python
 SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
 ```
 
-A test asserting that a `SELECT` span exists after a request is mandatory, because this failure is silent.
+The unbound call also patches `Engine.connect` class-wide, so an engine built at import time — as ours is — still emits `connect` spans. What it loses is **per-statement** spans: those come from event listeners the `engine=` argument registers on that specific engine. Measured on 0.65b0, one query yields `['connect', 'SELECT']` bound versus `['connect']` unbound.
+
+The failure is therefore not "no database spans" but "no idea which query ran or how long it took", while connection spans keep arriving and everything looks instrumented. A guarding test must assert on a span carrying **`db.statement`** — asserting on `db.system` passes on the `connect` span alone and catches nothing.
 
 **OTLP endpoints are base URLs.** `settings.otel_exporter_otlp_endpoint` holds a base; the signal path is appended explicitly. Passing a base URL as an exporter's `endpoint=` makes the SDK treat it as the full URL, and the resulting 404 is only logged at DEBUG. The same ambiguity appears in the Collector config and in n8n's OTel variables.
 

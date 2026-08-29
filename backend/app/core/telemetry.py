@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import os
 from importlib.util import find_spec
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from opentelemetry import metrics, trace
 from opentelemetry._logs import set_logger_provider
@@ -54,7 +54,9 @@ logger = logging.getLogger(__name__)
 
 # Health checks fire every 10s from the container healthcheck. Excluding them
 # keeps the trace store readable and the free-tier budget intact.
-_EXCLUDED_URLS = "health"
+# Anchored: the value is a regex matched against the URL, so a bare "health"
+# would also silently drop tracing for a future /api/fleet-health.
+_EXCLUDED_URLS = r"^/health$"
 
 # "http" = emit stable HTTP semantic conventions only. "http/dup" would emit
 # both old and new names, doubling attribute volume for a migration we do not
@@ -66,6 +68,12 @@ _meter_provider: MeterProvider | None = None
 _logger_provider: LoggerProvider | None = None
 _log_handler: LoggingHandler | None = None
 _instrumented_app: FastAPI | None = None
+
+# The global tracer provider can only be set once per process, so a second
+# configure after a shutdown would be silently ineffective. Tracked separately
+# from `_tracer_provider`, which shutdown resets to None.
+_has_been_configured = False
+_reconfiguration_allowed = False
 
 
 def _build_resource() -> Resource:
@@ -95,11 +103,21 @@ def _signal_endpoint(signal_path: str) -> str:
 def _instrument_sqlalchemy(db_engine: AsyncEngine) -> None:
     """Bind SQLAlchemy instrumentation to the already-constructed engine.
 
-    ``SQLAlchemyInstrumentor().instrument()`` with no arguments patches
-    ``create_engine``. Our engine is built by ``create_async_engine`` at
-    ``app.database`` import time, which happens before this function runs, so
-    the unbound call would miss it entirely and emit ZERO database spans with
-    no error raised. The async engine's sync facade is the object the
+    The unbound ``SQLAlchemyInstrumentor().instrument()`` also patches
+    ``Engine.connect`` class-wide, so an engine built before instrumentation —
+    as ours is, at ``app.database`` import time — still produces ``connect``
+    spans. What it does NOT produce is per-statement spans: those come from
+    event listeners registered on a specific engine, which only the ``engine=``
+    argument installs.
+
+    Measured on opentelemetry-instrumentation-sqlalchemy 0.65b0, one query:
+
+        with    engine=  ->  ['connect', 'SELECT'], 1 span with db.statement
+        without engine=  ->  ['connect'],           0 spans with db.statement
+
+    So the failure mode is not "no database spans" but "no visibility into
+    which query ran or how long it took" — quieter, and easy to mistake for
+    working instrumentation. The async engine's sync facade is the object the
     instrumentation understands.
     """
     SQLAlchemyInstrumentor().instrument(
@@ -124,7 +142,7 @@ def configure_telemetry(
     the application's.
     """
     global _tracer_provider, _meter_provider, _logger_provider, _log_handler
-    global _instrumented_app
+    global _instrumented_app, _has_been_configured
 
     if enabled is None:
         enabled = settings.otel_enabled
@@ -134,6 +152,20 @@ def configure_telemetry(
     if _tracer_provider is not None:
         logger.debug("Telemetry already configured; skipping")
         return
+
+    if _has_been_configured and not _reconfiguration_allowed:
+        # `trace.set_tracer_provider` only takes effect once per process. After
+        # a shutdown, a second configure builds a new provider that the global
+        # API will refuse to adopt, so every `get_tracer()` keeps writing into
+        # the provider that was just shut down and domain spans vanish with no
+        # error anywhere. Reachable via `uvicorn --reload` or any host that
+        # runs the lifespan twice.
+        raise RuntimeError(
+            "OpenTelemetry cannot be reconfigured after shutdown in the same "
+            "process: the global tracer provider can only be set once, so the "
+            "new provider would be ignored and all spans silently discarded. "
+            "Start a fresh process instead."
+        )
 
     resource = _build_resource()
 
@@ -152,20 +184,26 @@ def configure_telemetry(
     _meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(_meter_provider)
 
+    # Console logging FIRST. `LoggingInstrumentor(set_logging_format=True)`
+    # calls `logging.basicConfig`, which is a no-op once the root logger has any
+    # handler. Attaching the OTLP handler before that point leaves the root
+    # logger with no StreamHandler at all, so application logs stop reaching
+    # stdout and exist only inside the OTLP pipeline — invisible precisely when
+    # that pipeline is what broke.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        force=True,
+    )
+
     # LoggingInstrumentor alone only injects trace ids into the log FORMAT; it
-    # does not ship anything. Without an explicit LoggerProvider and handler the
-    # Collector's logs pipeline receives nothing at all, silently. The handler
-    # comes from the instrumentation package: the SDK's own LoggingHandler is
-    # deprecated in favour of it.
+    # does not ship anything. Without an explicit LoggerProvider the Collector's
+    # logs pipeline receives nothing at all, silently.
     _logger_provider = LoggerProvider(resource=resource)
     _logger_provider.add_log_record_processor(
         BatchLogRecordProcessor(OTLPLogExporter(endpoint=_signal_endpoint("/v1/logs")))
     )
     set_logger_provider(_logger_provider)
-    _log_handler = LoggingHandler(
-        level=logging.INFO, logger_provider=_logger_provider
-    )
-    logging.getLogger().addHandler(_log_handler)
 
     # Opt into the STABLE HTTP semantic conventions before any instrumentor
     # initialises its stability singleton. Without this the instrumentation
@@ -196,7 +234,16 @@ def configure_telemetry(
     if find_spec("httpx") is not None:
         HTTPXClientInstrumentor().instrument(tracer_provider=_tracer_provider)
     BotocoreInstrumentor().instrument(tracer_provider=_tracer_provider)
+    # This attaches the OTLP log handler to the root logger itself. Adding
+    # another one here would export every record twice, doubling log volume and
+    # making any log-derived rate read 2x.
     LoggingInstrumentor().instrument(set_logging_format=True)
+    _log_handler = next(
+        (h for h in logging.getLogger().handlers if isinstance(h, LoggingHandler)),
+        None,
+    )
+
+    _has_been_configured = True
 
     logger.info(
         "OpenTelemetry configured: service=%s environment=%s endpoint=%s",
@@ -232,6 +279,12 @@ def shutdown_telemetry() -> None:
     _instrumented_app = None
 
 
+def _allow_reconfiguration_for_tests(allowed: bool) -> None:
+    """Let a test reconfigure after shutdown, which production forbids."""
+    global _reconfiguration_allowed
+    _reconfiguration_allowed = allowed
+
+
 def _uninstrument_for_tests(app: FastAPI | None = None) -> None:
     """Undo instrumentation so a test can reconfigure from a clean slate.
 
@@ -259,6 +312,6 @@ def _uninstrument_for_tests(app: FastAPI | None = None) -> None:
     shutdown_telemetry()
 
 
-def _current_providers() -> tuple[Any, Any]:
+def _current_providers() -> tuple[TracerProvider | None, MeterProvider | None]:
     """Expose provider state for assertions in tests."""
     return _tracer_provider, _meter_provider

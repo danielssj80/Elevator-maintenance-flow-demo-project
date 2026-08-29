@@ -5,6 +5,9 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.0
 boto3==1.38.29
+# Used directly by briefing_service for the Bedrock thread offload; it would
+# otherwise be present only transitively via Starlette.
+anyio==4.14.2
 
 # --- OpenTelemetry (M5 · otel-observability) -------------------------------
 # Core SDK and instrumentation ship as a lockstep pair: 1.44.0 / 0.65b0.
