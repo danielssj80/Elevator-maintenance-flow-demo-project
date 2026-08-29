@@ -74,19 +74,19 @@
 
 ## 9. Grafana Cloud Export
 
-- [ ] 9.1 Add `basicauth` extension and the `otlphttp/grafana_cloud` exporter to the Collector config, using the **base** gateway URL
-- [ ] 9.2 Create `observability/.env.example`; confirm `.env` is git-ignored and add it if not
-- [ ] 9.3 Enable Collector self-telemetry so `otelcol_exporter_send_failed_spans` is observable
-- [ ] 9.4 Verify a trace reaches BOTH local Tempo and Grafana Cloud
-- [ ] 9.5 Verify `otelcol_exporter_send_failed_spans` for the cloud exporter is 0
+- [x] 9.1 Add `basicauth` extension and the `otlphttp/grafana_cloud` exporter to the Collector config, using the **base** gateway URL
+- [x] 9.2 Create `observability/.env.example`; confirm `.env` is git-ignored and add it if not
+- [x] 9.3 Enable Collector self-telemetry so `otelcol_exporter_send_failed_spans` is observable
+- [ ] 9.4 Verify a trace reaches BOTH local Tempo and Grafana Cloud — **BLOCKED**: needs a Grafana Cloud account (endpoint, instance ID, API token). Config is written and validated; the merged Collector config starts cleanly with dummy credentials.
+- [ ] 9.5 Verify `otelcol_exporter_send_failed_spans` for the cloud exporter is 0 — **BLOCKED**: same credentials dependency.
 
 ## 10. Dashboards
 
-- [ ] 10.1 Build `fleet-health.json`: counts by risk level, inference last-run age, stale-telemetry count
-- [ ] 10.2 Build `api-red.json`: rate, errors and duration by route and status code
-- [ ] 10.3 Build `genai.json`: bedrock vs fallback split, fallback rate, token usage, latency, cache hit ratio
-- [ ] 10.4 Build `orchestration.json` skeleton — panels for the n8n change to fill
-- [ ] 10.5 Export dashboard JSON into `observability/grafana/dashboards/` and verify the provisioning mount path works on a fresh start
+- [x] 10.1 Build `fleet-health.json`: counts by risk level, inference last-run age, stale-telemetry count
+- [x] 10.2 Build `api-red.json`: rate, errors and duration by route and status code
+- [x] 10.3 Build `genai.json`: bedrock vs fallback split, fallback rate, token usage, latency, cache hit ratio
+- [x] 10.4 Build `orchestration.json` skeleton — panels for the n8n change to fill
+- [x] 10.5 Export dashboard JSON into `observability/grafana/dashboards/` and verify the provisioning mount path works on a fresh start
 
 ## 11. Review and Update Existing Tests (MANDATORY)
 

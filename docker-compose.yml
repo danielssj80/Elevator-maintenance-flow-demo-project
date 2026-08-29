@@ -94,7 +94,11 @@ services:
       # Prometheus, published for the same reason.
       - "9090:9090"
     volumes:
-      - ./observability/grafana/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards:ro
+      # Dashboards go in their own directory with their own provider file.
+      # Mounting over the image's provisioning directory would mask its
+      # grafana-dashboards.yaml and delete the built-in RED/JVM dashboards.
+      - ./observability/grafana/dashboards:/otel-lgtm/elevator-dashboards:ro
+      - ./observability/grafana/provisioning/elevator-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/elevator-dashboards.yaml:ro
       - lgtm_data:/data
     mem_limit: 1500m
     environment:

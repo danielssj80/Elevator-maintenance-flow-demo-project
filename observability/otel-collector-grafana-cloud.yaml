@@ -1,0 +1,50 @@
+# Grafana Cloud overlay — merged on top of otel-collector-config.yaml.
+#
+# Kept separate because the Collector refuses to start when an ${env:...}
+# reference is unset. Baking the cloud exporter into the base config would mean
+# the entire local stack fails for anyone without Grafana Cloud credentials.
+#
+# Enable with:
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+#
+# Note on merge semantics: lists are REPLACED, not appended, so each pipeline
+# below must restate its full exporter list.
+
+extensions:
+  basicauth/grafana_cloud:
+    # client_auth, not server_auth: this Collector is the client here. Using
+    # server_auth silently produces a 401 that only shows up as a rising
+    # otelcol_exporter_send_failed_spans counter.
+    client_auth:
+      username: ${env:GRAFANA_CLOUD_INSTANCE_ID}
+      password: ${env:GRAFANA_CLOUD_API_TOKEN}
+
+exporters:
+  otlp_http/grafana_cloud:
+    # BASE url — the Collector appends /v1/traces and /v1/metrics.
+    endpoint: ${env:GRAFANA_CLOUD_OTLP_ENDPOINT}
+    auth:
+      authenticator: basicauth/grafana_cloud
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+
+service:
+  extensions: [health_check, basicauth/grafana_cloud]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/env, batch]
+      exporters: [otlp_http/local, otlp_http/grafana_cloud]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/env, batch]
+      exporters: [otlp_http/local, otlp_http/grafana_cloud]
+    logs:
+      # Logs stay local: the free tier's 50 GB is better spent on traces, and
+      # nothing in the dashboards queries logs yet.
+      receivers: [otlp]
+      processors: [memory_limiter, resource/env, batch]
+      exporters: [otlp_http/local]
