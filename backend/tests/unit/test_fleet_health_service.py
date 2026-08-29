@@ -247,3 +247,60 @@ class TestLifespanRefreshTask:
             assert task.cancelled() or task.done()
         finally:
             metrics_module.set_snapshot(original)
+
+
+class TestInstrumentRegistration:
+    def test_registering_instruments_creates_the_counters(self) -> None:
+        metrics_module.register_instruments()
+
+        assert metrics_module.briefing_requests is not None
+        assert metrics_module.inference_runs is not None
+        assert metrics_module.inference_duration is not None
+
+    def test_registering_twice_is_a_no_op(self) -> None:
+        """Repeated application startups in one process must not duplicate."""
+        metrics_module.register_instruments()
+        first = metrics_module.briefing_requests
+
+        metrics_module.register_instruments()
+
+        assert metrics_module.briefing_requests is first
+
+    def test_recording_a_briefing_before_registration_is_silent(self) -> None:
+        """Telemetry is opt-in, so service code must not blow up when it is off."""
+        saved = metrics_module.briefing_requests
+        try:
+            metrics_module.briefing_requests = None
+            metrics_module.record_briefing_request(source="bedrock", cache_hit=False)
+        finally:
+            metrics_module.briefing_requests = saved
+
+    def test_recording_a_briefing_after_registration_does_not_raise(self) -> None:
+        metrics_module.register_instruments()
+        metrics_module.record_briefing_request(source="fallback", cache_hit=True)
+
+
+class TestRefreshLoopResilience:
+    async def test_loop_survives_a_failing_session_factory(self) -> None:
+        """A broken database connection must not kill the only scheduler."""
+        import asyncio
+        import contextlib
+
+        original = metrics_module.get_snapshot()
+        try:
+            def _broken_factory():
+                raise RuntimeError("connection pool exhausted")
+
+            task = asyncio.create_task(
+                metrics_module.refresh_snapshot_periodically(_broken_factory, 0.05)
+            )
+            await asyncio.sleep(0.2)
+
+            assert not task.done(), "the refresh loop died on a database error"
+            assert metrics_module.get_snapshot() is original
+
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        finally:
+            metrics_module.set_snapshot(original)

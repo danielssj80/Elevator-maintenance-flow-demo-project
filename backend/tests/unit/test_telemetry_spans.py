@@ -320,3 +320,45 @@ class TestBriefingSpans:
         assert model_span.parent is not None, "span in the worker thread is detached"
         assert model_span.parent.span_id == briefing.context.span_id
         assert model_span.context.trace_id == briefing.context.trace_id
+
+    async def test_concurrent_briefings_are_not_serialised(self) -> None:
+        """The whole point of the thread offload.
+
+        boto3 is synchronous with a multi-second timeout. Awaited directly from
+        an async handler it stalls the event loop, so two concurrent briefings
+        take twice as long as one. Run on a worker thread they overlap.
+        """
+        import asyncio
+        import time
+        from unittest.mock import AsyncMock, MagicMock
+
+        from tests.unit.test_briefing_service import _make_orm_elevator
+
+        from app.services.briefing_service import BriefingService
+
+        call_delay = 0.3
+
+        def _slow_generate(**kwargs):
+            time.sleep(call_delay)
+            return "Generated briefing."
+
+        def _service_for(elevator_id: str) -> BriefingService:
+            repo = AsyncMock()
+            repo.get_by_id.return_value = _make_orm_elevator(id=elevator_id)
+            client = MagicMock()
+            client.generate.side_effect = _slow_generate
+            return BriefingService(elevator_repository=repo, bedrock_client=client)
+
+        started = time.perf_counter()
+        await asyncio.gather(
+            _service_for("ELV-101").get_briefing("ELV-101"),
+            _service_for("ELV-102").get_briefing("ELV-102"),
+        )
+        elapsed = time.perf_counter() - started
+
+        # Serialised would be ~2x call_delay. Allow generous headroom for a
+        # loaded CI machine while still failing if the loop is blocked.
+        assert elapsed < call_delay * 1.8, (
+            f"two briefings took {elapsed:.2f}s for a {call_delay}s call each — "
+            "the event loop is being blocked"
+        )

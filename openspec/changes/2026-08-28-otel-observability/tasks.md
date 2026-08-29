@@ -90,35 +90,35 @@
 
 ## 11. Review and Update Existing Tests (MANDATORY)
 
-- [ ] 11.1 Review `backend/tests/` for tests affected by the `main.py`, `config.py`, `briefing_service.py` and `bedrock_client.py` changes
-- [ ] 11.2 Update any test invalidated by the `anyio.to_thread` offload in `briefing_service`
-- [ ] 11.3 Confirm no test depends on telemetry being enabled
+- [x] 11.1 Review `backend/tests/` for tests affected by the `main.py`, `config.py`, `briefing_service.py` and `bedrock_client.py` changes
+- [x] 11.2 Update any test invalidated by the `anyio.to_thread` offload in `briefing_service`
+- [x] 11.3 Confirm no test depends on telemetry being enabled
 
 ## 12. Unit Tests and DB State Verification (MANDATORY)
 
-- [ ] 12.1 Capture pre-test DB baseline (row counts for `elevators`, `elevator_features`, `elevator_trend_points`, `visit_reports`)
-- [ ] 12.2 Run targeted unit tests: `pytest tests/unit/test_telemetry_spans.py tests/unit/test_fleet_health_service.py -v`
-- [ ] 12.3 Run the full suite with coverage: `pytest tests/ -v --cov=app --cov-report=term-missing`
-- [ ] 12.4 Confirm coverage on new services and core modules is at least 80%
-- [ ] 12.5 Verify post-test DB state is unchanged from the baseline
-- [ ] 12.6 Create report `reports/2026-08-28-step-12-unit-tests.md`
-- [ ] 12.7 Mark complete only after the report exists and all tests pass
+- [x] 12.1 Capture pre-test DB baseline (row counts for `elevators`, `elevator_features`, `elevator_trend_points`, `visit_reports`)
+- [x] 12.2 Run targeted unit tests: `pytest tests/unit/test_telemetry_spans.py tests/unit/test_fleet_health_service.py -v`
+- [x] 12.3 Run the full suite with coverage: `pytest tests/ -v --cov=app --cov-report=term-missing`
+- [x] 12.4 Confirm coverage on new services and core modules is at least 80%
+- [x] 12.5 Verify post-test DB state is unchanged from the baseline
+- [x] 12.6 Create report `reports/2026-08-29-step-12-unit-tests.md`
+- [x] 12.7 Mark complete only after the report exists and all tests pass
 
 ## 13. Manual Endpoint Testing (MANDATORY — AGENT MUST EXECUTE)
 
-- [ ] 13.1 Ensure the backend and the observability stack are running (start them if not)
-- [ ] 13.2 `GET /api/elevators` — verify 200 and that the trace appears in Tempo with database spans
-- [ ] 13.3 `GET /api/elevators/{id}` — verify 200 and route-template span naming
-- [ ] 13.4 `GET /api/elevators/{id}/briefing` — verify 200, and that the trace shows `briefing.generate` with a nested GenAI span carrying token counts and no message content
-- [ ] 13.5 `GET /api/elevators/ELV-999` — verify 404 and that the span is not marked as an error
-- [ ] 13.6 `POST /api/elevators/{id}/report` with an invalid body — verify 422; then a valid body, verify 201, then DELETE the created row to restore DB state
-- [ ] 13.7 `GET /health` — verify 200
-- [ ] 13.8 Verify the DB is back to its pre-test state
-- [ ] 13.9 Create report `reports/2026-08-28-step-13-endpoint-testing.md`
+- [x] 13.1 Ensure the backend and the observability stack are running (start them if not)
+- [x] 13.2 `GET /api/elevators` — verify 200 and that the trace appears in Tempo with database spans
+- [x] 13.3 `GET /api/elevators/{id}` — verify 200 and route-template span naming
+- [x] 13.4 `GET /api/elevators/{id}/briefing` — verify 200, and that the trace shows `briefing.generate` with a nested GenAI span carrying token counts and no message content
+- [x] 13.5 `GET /api/elevators/ELV-999` — verify 404 and that the span is not marked as an error
+- [x] 13.6 `POST /api/elevators/{id}/report` with an invalid body — verify 422; then a valid body, verify 201, then DELETE the created row to restore DB state
+- [x] 13.7 `GET /health` — verify 200
+- [x] 13.8 Verify the DB is back to its pre-test state
+- [x] 13.9 Create report `reports/2026-08-29-step-13-endpoint-testing.md`
 
 ## 14. E2E Testing with Playwright MCP (NOT APPLICABLE)
 
-- [ ] 14.1 Not applicable — this change touches no file under `frontend/` and changes no API response shape. Grafana is a separate audience on its own port. Record this explicitly in the step 13 report rather than creating an E2E report.
+- [x] 14.1 Not applicable — this change touches no file under `frontend/` and changes no API response shape. Grafana is a separate audience on its own port. Record this explicitly in the step 13 report rather than creating an E2E report.
 
 ## 15. Update Technical Documentation (MANDATORY)
 
