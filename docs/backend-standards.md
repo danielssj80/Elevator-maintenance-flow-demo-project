@@ -293,6 +293,9 @@ POSTGRES_PASSWORD=password
 POSTGRES_DB=elevator_db
 ```
 
+
+`Settings` evaluates `os.getenv` in class-level attributes at import time, and `settings` is a module singleton. Consequently `monkeypatch.setenv` followed by a re-import does **not** change these values in tests. Either patch the singleton directly with `monkeypatch.setattr(settings, "flag", True)`, or give the function an explicit override argument — the approach `configure_telemetry(app, enabled=True)` takes, which leaves the singleton untouched so assertions about defaults stay meaningful.
+
 ## Testing Standards
 
 ### Tools
@@ -445,6 +448,28 @@ Alembic migrations run as a separate step before the app starts:
       db:
         condition: service_healthy
 ```
+
+## Observability
+
+OpenTelemetry is configured programmatically in `app/core/telemetry.py`, called from `main.py` before middleware and routers. The `opentelemetry-instrument` CLI wrapper is deliberately not used: it offers no hook to register observable-gauge callbacks, cannot express the SQLAlchemy engine binding below, and would also instrument the one-shot `migrate` container, which reuses the same image.
+
+`OTEL_ENABLED` defaults to `false`. CI and the test suite must never require a Collector.
+
+**Bind SQLAlchemy to the existing engine.** `SQLAlchemyInstrumentor().instrument()` with no arguments patches `create_engine`, which misses an engine already built at import time — as ours is. It emits **zero database spans and raises nothing**:
+
+```python
+SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
+```
+
+A test asserting that a `SELECT` span exists after a request is mandatory, because this failure is silent.
+
+**OTLP endpoints are base URLs.** `settings.otel_exporter_otlp_endpoint` holds a base; the signal path is appended explicitly. Passing a base URL as an exporter's `endpoint=` makes the SDK treat it as the full URL, and the resulting 404 is only logged at DEBUG. The same ambiguity appears in the Collector config and in n8n's OTel variables.
+
+**Instrument the service layer, not repositories or routers.** Domain spans belong where the business meaning is: `BriefingService` owns `briefing.generate` because only it knows whether a result came from Bedrock or the fallback. Repository and router spans come free from instrumentation.
+
+**Never record prompt or completion content.** `gen_ai.input.messages` and `gen_ai.output.messages` are not set. Briefing prompts embed fleet risk data, technician names and free-text visit notes. This is a decision, not an omission to be "completed" later.
+
+**Metric attributes must be bounded.** `elevator.id` is never a metric attribute: 100 elevators across 4 risk levels is 400 series against a 10,000-series budget. HTTP metrics are labelled by route template, not raw path.
 
 ## Security Basics
 

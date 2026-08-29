@@ -122,8 +122,8 @@
 
 ## 15. Update Technical Documentation (MANDATORY)
 
-- [ ] 15.1 Add an observability section to `docs/backend-standards.md`: the OTel setup pattern, the `sync_engine` binding requirement, the base-vs-full endpoint rule, and the no-prompt-content policy
-- [ ] 15.2 Document in `docs/backend-standards.md` that configuration-dependent tests must patch `settings` attributes directly, because `Settings` is evaluated at import time
-- [ ] 15.3 `docs/api-spec.yml` — no update required (no endpoint or schema change); state this explicitly
-- [ ] 15.4 `docs/data-model.md` — no update required (no entity or field change); state this explicitly
-- [ ] 15.5 Propose exact wording for each `docs/` edit and wait for explicit approval before writing (per `docs/documentation-standards.md`)
+- [x] 15.1 Add an observability section to `docs/backend-standards.md`: the OTel setup pattern, the `sync_engine` binding requirement, the base-vs-full endpoint rule, and the no-prompt-content policy
+- [x] 15.2 Document in `docs/backend-standards.md` that configuration-dependent tests must patch `settings` attributes directly, because `Settings` is evaluated at import time
+- [x] 15.3 `docs/api-spec.yml` — no update required (no endpoint or schema change); state this explicitly
+- [x] 15.4 `docs/data-model.md` — no update required (no entity or field change); state this explicitly
+- [x] 15.5 Propose exact wording for each `docs/` edit and wait for explicit approval before writing (per `docs/documentation-standards.md`)
