@@ -362,3 +362,31 @@ class TestBriefingSpans:
             f"two briefings took {elapsed:.2f}s for a {call_delay}s call each — "
             "the event loop is being blocked"
         )
+
+
+class TestLogExport:
+    """Guards a regression that shipped silently once already.
+
+    `LoggingInstrumentor` only injects trace ids into the log *format*. Without
+    an explicit LoggerProvider and handler the Collector's logs pipeline
+    receives nothing at all, and nothing anywhere reports an error — the
+    dashboards simply have no logs.
+    """
+
+    def test_a_logger_provider_is_registered(self) -> None:
+        from opentelemetry._logs import get_logger_provider
+        from opentelemetry.sdk._logs import LoggerProvider
+
+        assert isinstance(get_logger_provider(), LoggerProvider), (
+            "no SDK LoggerProvider registered — log records go nowhere"
+        )
+
+    def test_a_log_handler_is_attached_to_the_root_logger(self) -> None:
+        import logging
+
+        from opentelemetry.instrumentation.logging.handler import LoggingHandler
+
+        handlers = logging.getLogger().handlers
+        assert any(isinstance(h, LoggingHandler) for h in handlers), (
+            "no OTel handler on the root logger — nothing is exported"
+        )

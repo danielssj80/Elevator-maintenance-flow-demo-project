@@ -22,6 +22,8 @@ from importlib.util import find_spec
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import metrics, trace
+from opentelemetry._logs import set_logger_provider
+from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
@@ -29,6 +31,9 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.instrumentation.logging.handler import LoggingHandler
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import MetricReader, PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -58,6 +63,8 @@ _SEMCONV_OPT_IN = "http"
 
 _tracer_provider: TracerProvider | None = None
 _meter_provider: MeterProvider | None = None
+_logger_provider: LoggerProvider | None = None
+_log_handler: LoggingHandler | None = None
 _instrumented_app: FastAPI | None = None
 
 
@@ -116,7 +123,8 @@ def configure_telemetry(
     exporter and reader replace the OTLP ones, and an explicit engine replaces
     the application's.
     """
-    global _tracer_provider, _meter_provider, _instrumented_app
+    global _tracer_provider, _meter_provider, _logger_provider, _log_handler
+    global _instrumented_app
 
     if enabled is None:
         enabled = settings.otel_enabled
@@ -143,6 +151,21 @@ def configure_telemetry(
     )
     _meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(_meter_provider)
+
+    # LoggingInstrumentor alone only injects trace ids into the log FORMAT; it
+    # does not ship anything. Without an explicit LoggerProvider and handler the
+    # Collector's logs pipeline receives nothing at all, silently. The handler
+    # comes from the instrumentation package: the SDK's own LoggingHandler is
+    # deprecated in favour of it.
+    _logger_provider = LoggerProvider(resource=resource)
+    _logger_provider.add_log_record_processor(
+        BatchLogRecordProcessor(OTLPLogExporter(endpoint=_signal_endpoint("/v1/logs")))
+    )
+    set_logger_provider(_logger_provider)
+    _log_handler = LoggingHandler(
+        level=logging.INFO, logger_provider=_logger_provider
+    )
+    logging.getLogger().addHandler(_log_handler)
 
     # Opt into the STABLE HTTP semantic conventions before any instrumentor
     # initialises its stability singleton. Without this the instrumentation
@@ -190,15 +213,22 @@ def get_tracer(name: str) -> trace.Tracer:
 
 def shutdown_telemetry() -> None:
     """Flush and shut down the providers. Safe to call when never configured."""
-    global _tracer_provider, _meter_provider, _instrumented_app
+    global _tracer_provider, _meter_provider, _logger_provider, _log_handler
+    global _instrumented_app
 
+    if _log_handler is not None:
+        logging.getLogger().removeHandler(_log_handler)
     if _tracer_provider is not None:
         _tracer_provider.shutdown()
     if _meter_provider is not None:
         _meter_provider.shutdown()
+    if _logger_provider is not None:
+        _logger_provider.shutdown()
 
     _tracer_provider = None
     _meter_provider = None
+    _logger_provider = None
+    _log_handler = None
     _instrumented_app = None
 
 
