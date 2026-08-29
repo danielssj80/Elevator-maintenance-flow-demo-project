@@ -77,8 +77,8 @@
 - [x] 9.1 Add `basicauth` extension and the `otlphttp/grafana_cloud` exporter to the Collector config, using the **base** gateway URL
 - [x] 9.2 Create `observability/.env.example`; confirm `.env` is git-ignored and add it if not
 - [x] 9.3 Enable Collector self-telemetry so `otelcol_exporter_send_failed_spans` is observable
-- [ ] 9.4 Verify a trace reaches BOTH local Tempo and Grafana Cloud — **BLOCKED**: needs a Grafana Cloud account (endpoint, instance ID, API token). Config is written and validated; the merged Collector config starts cleanly with dummy credentials.
-- [ ] 9.5 Verify `otelcol_exporter_send_failed_spans` for the cloud exporter is 0 — **BLOCKED**: same credentials dependency.
+- [x] 9.4 Verify a trace reaches BOTH local Tempo and Grafana Cloud
+- [x] 9.5 Verify `otelcol_exporter_send_failed_spans` for the cloud exporter is 0
 
 ## 10. Dashboards
 
