@@ -78,13 +78,13 @@
 - [x] 9.2 Create `observability/.env.example`; confirm `.env` is git-ignored and add it if not
 - [x] 9.3 Enable Collector self-telemetry so `otelcol_exporter_send_failed_spans` is observable
 - [x] 9.4 Verify a trace reaches BOTH local Tempo and Grafana Cloud
-- [x] 9.5 Verify `otelcol_exporter_send_failed_spans` for the cloud exporter is 0
+- [x] 9.5 Verify the cloud exporter reports no failures — note that the counter has **no series at all** until it first increments, so this is an absence, not a measured zero. The dashboard uses `or vector(0)` to distinguish the two.
 
 ## 10. Dashboards
 
 - [x] 10.1 Build `fleet-health.json`: counts by risk level, inference last-run age, stale-telemetry count
 - [x] 10.2 Build `api-red.json`: rate, errors and duration by route and status code
-- [x] 10.3 Build `genai.json`: bedrock vs fallback split, fallback rate, token usage, latency, cache hit ratio
+- [x] 10.3 Build `genai.json`: bedrock vs fallback split, fallback rate, cache hit ratio, and a Tempo panel listing briefing traces. Token usage and model latency are **not** graph panels: those attributes live on the botocore span, so the dashboard points at the traces instead. A text panel explains this.
 - [x] 10.4 Build `orchestration.json` skeleton — panels for the n8n change to fill
 - [x] 10.5 Export dashboard JSON into `observability/grafana/dashboards/` and verify the provisioning mount path works on a fresh start
 
@@ -109,7 +109,7 @@
 - [x] 13.1 Ensure the backend and the observability stack are running (start them if not)
 - [x] 13.2 `GET /api/elevators` — verify 200 and that the trace appears in Tempo with database spans
 - [x] 13.3 `GET /api/elevators/{id}` — verify 200 and route-template span naming
-- [x] 13.4 `GET /api/elevators/{id}/briefing` — verify 200, and that the trace shows `briefing.generate` with a nested GenAI span carrying token counts and no message content
+- [x] 13.4 `GET /api/elevators/{id}/briefing` — verify 200, and that the trace shows `briefing.generate` with a nested GenAI span and no message content. Token counts could **not** be verified: the local stack has no AWS credentials, so every briefing takes the fallback path and the botocore span carries no `gen_ai.usage.*`.
 - [x] 13.5 `GET /api/elevators/ELV-999` — verify 404 and that the span is not marked as an error
 - [x] 13.6 `POST /api/elevators/{id}/report` with an invalid body — verify 422; then a valid body, verify 201, then DELETE the created row to restore DB state
 - [x] 13.7 `GET /health` — verify 200

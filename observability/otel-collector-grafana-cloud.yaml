@@ -39,7 +39,10 @@ service:
       processors: [memory_limiter, resource/env, batch]
       exporters: [otlp_http/local, otlp_http/grafana_cloud]
     metrics:
-      receivers: [otlp]
+      # Restated because merge replaces lists: dropping prometheus/self here
+      # would silently stop the collector scraping itself whenever the cloud
+      # overlay is active.
+      receivers: [otlp, prometheus/self]
       processors: [memory_limiter, resource/env, batch]
       exporters: [otlp_http/local, otlp_http/grafana_cloud]
     logs:

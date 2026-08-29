@@ -67,6 +67,10 @@ def _telemetry_session():
     ``settings.otel_enabled``, so the settings singleton keeps its real default
     and the opt-in tests stay meaningful.
     """
+    from opentelemetry.sdk._logs.export import (
+        InMemoryLogExporter,
+        SimpleLogRecordProcessor,
+    )
     from opentelemetry.sdk.metrics.export import InMemoryMetricReader
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
         InMemorySpanExporter,
@@ -76,11 +80,16 @@ def _telemetry_session():
 
     exporter = InMemorySpanExporter()
     reader = InMemoryMetricReader()
+    # In-memory for logs too. Without this the suite opens a real OTLP
+    # connection and publishes its own log records under the production service
+    # name — test traffic became indistinguishable from real traffic in Loki.
+    log_exporter = InMemoryLogExporter()
     telemetry_module.configure_telemetry(
         app,
         enabled=True,
         span_exporter=exporter,
         metric_reader=reader,
+        log_record_processor=SimpleLogRecordProcessor(log_exporter),
         db_engine=test_engine,
     )
     # Starlette caches its middleware stack on the first request. Instrumenting
@@ -89,7 +98,7 @@ def _telemetry_session():
     # request; in production the same ordering is guaranteed because
     # configure_telemetry() runs at import time in main.py.
     app.middleware_stack = None
-    yield exporter, reader
+    yield exporter, reader, log_exporter
     telemetry_module._uninstrument_for_tests(app)
     app.middleware_stack = None
 
@@ -101,14 +110,21 @@ def metric_reader(_telemetry_session):
     Asserting on callback functions directly proves nothing about whether the
     instruments are wired to a provider at all.
     """
-    _, reader = _telemetry_session
+    _, reader, _ = _telemetry_session
     return reader
+
+
+@pytest.fixture
+def log_exporter(_telemetry_session):
+    """The in-memory log exporter, for proving the log pipeline is wired."""
+    _, _, exporter = _telemetry_session
+    return exporter
 
 
 @pytest.fixture
 def span_exporter(_telemetry_session):
     """A cleared in-memory span exporter for a single test."""
-    exporter, _ = _telemetry_session
+    exporter, _, _ = _telemetry_session
     exporter.clear()
     return exporter
 

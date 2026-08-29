@@ -402,14 +402,18 @@ class TestMetricsAreActuallyWired:
 
 
 class TestLifespanWiring:
-    async def test_lifespan_registers_instruments_and_manages_the_refresh_task(
+    async def test_lifespan_registers_instruments_and_cancels_the_refresh_task(
         self, monkeypatch, metric_reader
     ) -> None:
-        """Drives the real lifespan.
+        """Drives the real lifespan and proves the cancellation actually happens.
 
-        The refresh task was previously only tested against a task the test
-        built itself, so removing `refresh_task.cancel()` from the lifespan —
-        or `register_instruments()` — went undetected.
+        Two earlier versions of this test were toothless. The first asserted on
+        metrics that another test had already registered. The second relied on
+        an outer `asyncio.timeout` to fire, but the lifespan's own
+        `contextlib.suppress(asyncio.CancelledError)` swallows that
+        cancellation, so removing `refresh_task.cancel()` left the suite green
+        and merely slow. This version runs the exit as its own shielded task, so
+        a lifespan that never finishes is a fast failure rather than a delay.
         """
         import asyncio
 
@@ -420,15 +424,14 @@ class TestLifespanWiring:
         monkeypatch.setattr(app_settings, "otel_enabled", True)
         monkeypatch.setattr(app_settings, "fleet_metrics_refresh_seconds", 60)
         monkeypatch.setattr("app.main.AsyncSessionLocal", TestSessionLocal)
-        # The lifespan calls shutdown_telemetry() on exit, which would tear down
-        # the session-scoped providers and detach the log handler for every
-        # later test. Shutdown has its own test; here we only exercise the
-        # refresh task's lifecycle.
+        # The real seed commits 100 elevators into the shared test database
+        # mid-session, which broke integration tests whenever file order put
+        # this one first.
+        monkeypatch.setattr("app.main.seed_database", AsyncMock())
+        # Shutdown has its own test; letting it run here would tear down the
+        # session-scoped providers for every later test.
         monkeypatch.setattr("app.main.shutdown_telemetry", lambda: None)
 
-        # Spy rather than checking for emitted metrics: instrument registration
-        # is process-global and idempotent, so another test having registered
-        # them already would mask the lifespan skipping it entirely.
         registered = False
         real_register = metrics_module.register_instruments
 
@@ -437,25 +440,37 @@ class TestLifespanWiring:
             registered = True
             real_register()
 
+        # Spy rather than checking emitted metrics: registration is
+        # process-global and idempotent, so an earlier test having registered
+        # them would mask the lifespan skipping it entirely.
         monkeypatch.setattr("app.main.register_instruments", _spy)
 
-        before = {t for t in asyncio.all_tasks()}
-        # Bounded: if the lifespan ever stops cancelling the task, `await
-        # refresh_task` on exit never returns and the whole suite hangs. A
-        # timeout turns that into a fast, readable failure.
-        async with asyncio.timeout(10), lifespan(app):
+        before = set(asyncio.all_tasks())
+        cm = lifespan(app)
+        await cm.__aenter__()
+        try:
             await asyncio.sleep(0.15)
-            created = {t for t in asyncio.all_tasks()} - before
+            created = set(asyncio.all_tasks()) - before
             assert created, "lifespan started no refresh task"
             refresh_task = created.pop()
             assert not refresh_task.done()
-
             assert registered, (
                 "the lifespan did not register instruments — production would "
                 "emit no fleet-health metrics while looking fully configured"
             )
+        finally:
+            exit_task = asyncio.create_task(cm.__aexit__(None, None, None))
+            try:
+                await asyncio.wait_for(asyncio.shield(exit_task), timeout=3)
+            except TimeoutError:
+                exit_task.cancel()
+                refresh_task.cancel()
+                pytest.fail(
+                    "the lifespan never finished shutting down — the refresh "
+                    "task was not cancelled, so `await refresh_task` blocks "
+                    "forever"
+                )
 
-        await asyncio.sleep(0.05)
-        assert refresh_task.done(), (
-            "the refresh task outlived the lifespan — it was never cancelled"
+        assert refresh_task.cancelled() or refresh_task.done(), (
+            "the refresh task outlived the lifespan"
         )

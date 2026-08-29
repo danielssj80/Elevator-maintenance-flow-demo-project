@@ -425,3 +425,83 @@ class TestLogExport:
             "no StreamHandler on root — console logging was destroyed, so an "
             "export failure would be silent"
         )
+
+    def test_the_log_pipeline_has_a_processor_attached(self, log_exporter) -> None:
+        """A LoggerProvider with zero processors satisfies every weaker check.
+
+        The previous version asserted only that a provider existed and a handler
+        was on root. Deleting the line that adds the record processor — the one
+        thing that actually ships logs — left the suite green.
+        """
+        import logging
+
+        marker = "log-pipeline-teeth-check"
+        log_exporter.clear()
+        logging.getLogger("tests.telemetry").warning(marker)
+
+        emitted = [
+            r.log_record.body
+            for r in log_exporter.get_finished_logs()
+        ]
+        assert any(marker in str(b) for b in emitted), (
+            "the log record never reached an exporter — the LoggerProvider has "
+            "no record processor, so nothing is shipped"
+        )
+
+
+class TestHealthCheckExclusion:
+    """The container healthcheck fires every 10 seconds, for ever.
+
+    The exclusion regex is matched against the FULL url, not the path, so an
+    anchored `^/health$` silently matches nothing. That regression shipped once
+    and went unnoticed until 499 health requests had been traced and billed.
+    """
+
+    def test_the_exclusion_pattern_matches_health_and_nothing_else(self) -> None:
+        from opentelemetry.util.http import parse_excluded_urls
+
+        excluded = parse_excluded_urls(telemetry_module._EXCLUDED_URLS)
+
+        assert excluded.url_disabled("http://localhost:8000/health"), (
+            f"{telemetry_module._EXCLUDED_URLS!r} does not exclude /health — "
+            "the pattern is matched against the full url, so a leading ^ never "
+            "matches"
+        )
+        assert not excluded.url_disabled("http://localhost:8000/api/fleet-health"), (
+            "the pattern over-matches: a route merely ending in 'health' would "
+            "silently lose all tracing"
+        )
+        assert not excluded.url_disabled("http://localhost:8000/api/elevators")
+
+    async def test_health_requests_produce_no_server_span(
+        self, traced_client, span_exporter
+    ) -> None:
+        response = await traced_client.get("/health")
+        assert response.status_code == 200
+
+        server_spans = [
+            s for s in span_exporter.get_finished_spans() if s.kind is SpanKind.SERVER
+        ]
+        assert not server_spans, (
+            f"/health produced {len(server_spans)} server span(s) — the "
+            "healthcheck fires every 10s and would dominate the trace store"
+        )
+
+
+class TestInstrumentationIsInstalled:
+    """Guards wiring that no behavioural test happens to exercise."""
+
+    def test_botocore_is_instrumented(self) -> None:
+        """The entire GenAI story — token counts, model latency, the trace the
+        genai dashboard links to — comes from this one instrumentor.
+        """
+        from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
+
+        assert BotocoreInstrumentor().is_instrumented_by_opentelemetry, (
+            "botocore is not instrumented — no gen_ai spans, no token usage"
+        )
+
+    def test_sqlalchemy_is_instrumented(self) -> None:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
+        assert SQLAlchemyInstrumentor().is_instrumented_by_opentelemetry

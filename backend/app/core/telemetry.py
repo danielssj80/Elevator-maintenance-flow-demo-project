@@ -32,7 +32,7 @@ from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
-from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs import LoggerProvider, LogRecordProcessor
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import MetricReader, PeriodicExportingMetricReader
@@ -54,9 +54,17 @@ logger = logging.getLogger(__name__)
 
 # Health checks fire every 10s from the container healthcheck. Excluding them
 # keeps the trace store readable and the free-tier budget intact.
-# Anchored: the value is a regex matched against the URL, so a bare "health"
-# would also silently drop tracing for a future /api/fleet-health.
-_EXCLUDED_URLS = r"^/health$"
+#
+# Anchored at the END only. The instrumentation matches this regex against the
+# FULL url ("http://host:8000/health"), not the path, so a leading "^" can
+# never match and silently disables the exclusion entirely — which is exactly
+# what a previous "tightening" of this value did. A bare "health" would instead
+# over-match a future /api/fleet-health. Verified against
+# opentelemetry.util.http.parse_excluded_urls:
+#   'health'    -> /health True,  /api/fleet-health True   (over-matches)
+#   '^/health$' -> /health False, /api/fleet-health False  (matches nothing)
+#   '/health$'  -> /health True,  /api/fleet-health False  (correct)
+_EXCLUDED_URLS = r"/health$"
 
 # "http" = emit stable HTTP semantic conventions only. "http/dup" would emit
 # both old and new names, doubling attribute volume for a migration we do not
@@ -132,14 +140,15 @@ def configure_telemetry(
     enabled: bool | None = None,
     span_exporter: SpanExporter | None = None,
     metric_reader: MetricReader | None = None,
+    log_record_processor: LogRecordProcessor | None = None,
     db_engine: AsyncEngine | None = None,
 ) -> None:
     """Configure tracing and metrics. A no-op when telemetry is disabled.
 
     The keyword arguments exist for tests: ``enabled`` overrides the setting so
     the test suite never has to mutate the ``settings`` singleton, an in-memory
-    exporter and reader replace the OTLP ones, and an explicit engine replaces
-    the application's.
+    exporter, reader and log processor replace the OTLP ones, and an explicit
+    engine replaces the application's.
     """
     global _tracer_provider, _meter_provider, _logger_provider, _log_handler
     global _instrumented_app, _has_been_configured
@@ -200,8 +209,15 @@ def configure_telemetry(
     # does not ship anything. Without an explicit LoggerProvider the Collector's
     # logs pipeline receives nothing at all, silently.
     _logger_provider = LoggerProvider(resource=resource)
+    # A seam for tests, matching the span and metric ones. Without it the test
+    # suite opens a real OTLP connection and ships every log record it produces
+    # under the production service name, indistinguishable from real traffic —
+    # and blocks for ~30s per run when no Collector is listening.
     _logger_provider.add_log_record_processor(
-        BatchLogRecordProcessor(OTLPLogExporter(endpoint=_signal_endpoint("/v1/logs")))
+        log_record_processor
+        or BatchLogRecordProcessor(
+            OTLPLogExporter(endpoint=_signal_endpoint("/v1/logs"))
+        )
     )
     set_logger_provider(_logger_provider)
 
@@ -237,6 +253,12 @@ def configure_telemetry(
     # This attaches the OTLP log handler to the root logger itself. Adding
     # another one here would export every record twice, doubling log volume and
     # making any log-derived rate read 2x.
+    #
+    # `set_logging_format=True` is effectively inert: it calls basicConfig
+    # without force=, and root already has the handler installed above. Console
+    # lines therefore carry no trace id; the exported records do, via
+    # otelTraceID/otelSpanID. Kept because the flag also governs handler
+    # installation, not only formatting.
     LoggingInstrumentor().instrument(set_logging_format=True)
     _log_handler = next(
         (h for h in logging.getLogger().handlers if isinstance(h, LoggingHandler)),
