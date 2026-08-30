@@ -30,6 +30,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.telemetry import get_tracer
 from app.ml.feature_mapping import (
     FEATURE_NAME_MAP,
     MAX_MOTOR_HOURS,
@@ -53,6 +54,8 @@ MIN_PLAUSIBLE_KELVIN = 200.0
 MAX_PLAUSIBLE_KELVIN = 400.0
 
 KELVIN_COLUMNS = ("Air_temperature__K", "Process_temperature__K")
+
+tracer = get_tracer(__name__)
 
 TREND_LENGTH = 6
 TOP_FEATURE_COUNT = 3
@@ -184,6 +187,22 @@ class InferenceService:
         self._client = inference_client
 
     async def run(self, now: datetime | None = None) -> RunSummary:
+        with tracer.start_as_current_span("inference.run") as span:
+            summary = await self._run(now)
+            # Counts and shape only — no elevator telemetry on the span. The
+            # skipped count is the one worth alerting on: it is how a fleet that
+            # quietly stopped reporting becomes visible.
+            span.set_attribute("inference.scored", summary.scored)
+            span.set_attribute("inference.skipped_no_telemetry", summary.skipped_no_telemetry)
+            span.set_attribute("inference.out_of_scope", summary.out_of_scope)
+            span.set_attribute("inference.readings_considered", summary.readings_considered)
+            span.set_attribute("inference.window_hours", summary.window_hours)
+            span.set_attribute("inference.pruned_readings", summary.pruned_readings)
+            if summary.model_version is not None:
+                span.set_attribute("inference.model_version", summary.model_version)
+            return summary
+
+    async def _run(self, now: datetime | None = None) -> RunSummary:
         started = datetime.now(UTC)
         now = now or started
         window_start = now - timedelta(hours=settings.inference_window_hours)

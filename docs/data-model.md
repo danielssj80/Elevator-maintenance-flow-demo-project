@@ -37,6 +37,7 @@ The core domain entity. Represents one physical elevator unit.
 | `in_model_scope` | `boolean` | required | Whether this elevator is included in the predictive model |
 | `hourly_trips_avg` | `integer` | ≥ 0 | Average number of trips per hour |
 | `zone` | `string` | required | City or operational zone (e.g. "Madrid", "Barcelona") |
+| `last_scored_at` | `datetime?` | nullable, tz-aware | When an inference run last scored this elevator. Null for a fleet only ever seeded from `predictions.json`. Not exposed by the API — it exists so the trend window can shift on date change rather than on every run |
 
 **`building_type` values:**
 
@@ -60,14 +61,73 @@ Represents a single risk factor contributing to the elevator's `risk_score`. Alw
 | `value` | `string` | required | Human-readable measured value (e.g. "82% remaining", "58 Nm (+18 Nm above avg)") |
 | `direction` | `enum` | `increases`, `decreases` | Whether the factor pushes risk up or down, from the sign of its SHAP value (`impact` is magnitude only) |
 
-**Known feature names (current model):**
+**Feature names the current model can actually produce.**
 
-- `Vibration anomaly` / `Vibration trend` / `Vibration`
-- `Motor current deviation` / `Motor current`
-- `Temperature delta` / `Temperature`
-- `Door error rate` / `Door open/close errors`
-- `Door cycle overrun` / `Door cycle count`
-- `Days since last service`
+> This list previously named vibration, motor current, door errors, door cycles
+> and days-since-service. **None of those has ever been an input to the trained
+> model.** It described a model that was never built, and a `telemetry_readings`
+> table designed from it would have carried columns the booster cannot consume.
+> Corrected 2026-08-30 in change `telemetry-ingestion-inference`.
+
+The booster's feature space is AI4I's seven columns, defined in
+`backend/app/ml/feature_mapping.py` and read at runtime from the model's own
+`feature_names`. `name` is the display label; the column is what the model sees.
+
+| Column (model) | `name` (display) | Source |
+|---|---|---|
+| `Air_temperature__K` | Ambient temperature | `telemetry_readings.ambient_temperature_c` + 273.15 |
+| `Process_temperature__K` | Motor temperature | `telemetry_readings.motor_temperature_c` + 273.15 |
+| `Rotational_speed__rpm` | Motor speed | `telemetry_readings.motor_speed_rpm` |
+| `Torque__Nm` | Load torque | `telemetry_readings.load_torque_nm` |
+| `Tool_wear__min` | Motor useful life remaining | `telemetry_readings.motor_run_hours_cumulative`, or the age × usage × building-type proxy when absent |
+| `Type_L` | Installation type (residential) | derived from `elevators.building_type` |
+| `Type_M` | Installation type (commercial) | derived from `elevators.building_type` |
+
+`Type_H` (infrastructure) is the implicit reference: both one-hot columns at 0.
+
+---
+
+### TelemetryReading (persisted)
+
+One sensor reading for one elevator at one instant. The system of record for
+telemetry: raw readings live here and never in Prometheus.
+
+**Stored in human units** — degrees Celsius, rpm, Nm, cumulative hours — as the
+sensor reports them and a person reads them. The model was trained on absolute
+temperatures in Kelvin, and that conversion happens at exactly one place, while
+the inference service builds its feature matrix. It must not be duplicated
+anywhere else: a Celsius value reaching the booster raises nothing, and the
+resulting scores stay plausible while being wrong.
+
+| Field | Type | Constraints | Feeds the model | Description |
+|---|---|---|---|---|
+| `elevator_id` | `string` | FK → `elevators.id`, cascade delete | — | Which elevator reported it |
+| `recorded_at` | `datetime` | required, tz-aware | — | When the sensor took the reading |
+| `ingested_at` | `datetime` | server default `now()` | — | When the API received it |
+| `ambient_temperature_c` | `float` | required | **yes** | Machine-room ambient, °C |
+| `motor_temperature_c` | `float` | required | **yes** | Motor/process temperature, °C |
+| `motor_speed_rpm` | `float` | `>= 0` | **yes** | Rotational speed |
+| `load_torque_nm` | `float` | `>= 0` | **yes** | Load torque |
+| `motor_run_hours_cumulative` | `float?` | `>= 0`, nullable | **yes** | Lifetime run hours; falls back to the age × usage proxy when absent |
+| `vibration_mm_s` | `float?` | `>= 0`, nullable | **no** | Persisted, not consumed |
+| `door_cycles` | `int?` | `>= 0`, nullable | **no** | Persisted, not consumed |
+| `door_errors` | `int?` | `>= 0`, nullable | **no** | Persisted, not consumed |
+| `motor_current_a` | `float?` | `>= 0`, nullable | **no** | Persisted, not consumed |
+| `source` | `string` | 1–64 chars | — | Producer identifier |
+| `batch_id` | `string` | required | — | Shared by every reading in one request |
+| `trace_id` | `string?` | 32 hex chars, nullable | — | W3C trace id of the ingesting request |
+
+The four "persisted, not consumed" signals are real domain data the current
+model has no input for. They are stored because the domain produces them and a
+future model may use them, and they are marked here so nobody wires them into a
+feature vector expecting the booster to accept them.
+
+`trace_id` is nullable because ingest must work with tracing disabled. When
+present it links a row to the request that created it, so a suspicious reading
+can be traced back from a Grafana panel.
+
+**Retention**: readings older than `TELEMETRY_RETENTION_DAYS` (default 30) are
+deleted at the end of each successful inference run.
 
 ---
 
@@ -110,6 +170,19 @@ Elevators outside scope are displayed with a visual indicator and excluded from 
 
 The `trend` array always contains exactly 6 elements representing the daily risk score history. Index 0 is the oldest day, index 5 is today's score (equal to `risk_score`). Used to render a sparkline in the UI.
 
+An inference run may fire more than once a day — a schedule plus manual triggers
+— so the window shifts **on date change, not per run**: a run on a day the
+elevator was already scored overwrites index 5, and only the first run of a new
+day drops index 0 and appends. `elevators.last_scored_at` exists to make that
+decision possible, because `elevator_trend_points` stores only `day_index` and
+`score` and so a trend point cannot say which day it belongs to.
+
+The six rows are rewritten as a `DELETE` of all six followed by an `INSERT` of
+six, never as `UPDATE ... SET day_index = day_index - 1`: the unique constraint
+on `(elevator_id, day_index)` is non-deferrable and checked per row, so the
+in-place decrement can raise a duplicate-key violation depending on row order
+even though the final state is unique.
+
 ### Feature Impact Sum
 
 The sum of `impact` values across the 3 features of an elevator always approximates 1.0. Individual impacts represent the proportional contribution of each factor to the total risk score.
@@ -141,7 +214,6 @@ The following entities are expected as the project evolves:
 |---|---|
 | `Technician` | Technician profile with zone assignment and visit history |
 | `MaintenanceZone` | Geographic zone grouping elevators and technicians |
-| `TelemetryReading` | Raw sensor data point (vibration, temperature, door cycles, motor current) |
 
 When any of these entities are implemented, update this file and `docs/api-spec.yml` accordingly.
 
@@ -157,6 +229,7 @@ The backend uses **PostgreSQL 16** (managed by SQLAlchemy 2.x async + Alembic mi
 | `elevator_features` | `Feature` (FK to `elevators.id`, cascade delete) |
 | `elevator_trend_points` | trend data (FK to `elevators.id`, unique on `(elevator_id, day_index)`) |
 | `visit_reports` | `VisitReport` (FK to `elevators.id`, JSONB for list fields) |
+| `telemetry_readings` | `TelemetryReading` (FK to `elevators.id`, cascade delete; indexed on `(elevator_id, recorded_at DESC)` and `(recorded_at DESC)`) |
 
 `risk_level` is derived in the service layer from `risk_score` — not stored. `trend` is stored as individual rows and assembled into a sorted array by the service.
 

@@ -530,3 +530,49 @@ async def test_a_successful_run_prunes_readings_beyond_the_retention_window(db_s
         "ELV-P1", since=NOW - timedelta(days=365), limit=50
     )
     assert len(remaining) == 1
+
+
+# ── Tracing ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_run_emits_a_domain_span_with_counts(db_session, span_exporter):
+    db_session.add(_elevator("ELV-S1"))
+    db_session.add(_elevator("ELV-S2"))          # in scope, no telemetry
+    db_session.add(_elevator("ELV-S3", in_scope=False))
+    await db_session.flush()
+    db_session.add(_reading("ELV-S1"))
+    await db_session.flush()
+
+    await _service(db_session, FakeInferenceClient()).run(now=NOW)
+
+    spans = [s for s in span_exporter.get_finished_spans() if s.name == "inference.run"]
+    assert len(spans) == 1
+
+    attributes = dict(spans[0].attributes)
+    assert attributes["inference.scored"] == 1
+    assert attributes["inference.skipped_no_telemetry"] == 1
+    assert attributes["inference.out_of_scope"] == 1
+    assert attributes["inference.model_version"] == "model-abc"
+
+
+@pytest.mark.asyncio
+async def test_the_run_span_carries_no_telemetry_values(db_session, span_exporter):
+    """Counts and shape only.
+
+    Fleet operating data on a span is the same mistake as prompt content on a
+    briefing span: it leaves the database, crosses the Collector, and lands in a
+    backend with different retention and different access control.
+    """
+    db_session.add(_elevator("ELV-S4"))
+    await db_session.flush()
+    db_session.add(_reading("ELV-S4", ambient_c=31.5, torque=47.25))
+    await db_session.flush()
+
+    await _service(db_session, FakeInferenceClient()).run(now=NOW)
+
+    spans = [s for s in span_exporter.get_finished_spans() if s.name == "inference.run"]
+    rendered = " ".join(f"{k}={v}" for k, v in spans[0].attributes.items())
+
+    for leaked in ("31.5", "47.25", "304.65"):
+        assert leaked not in rendered, f"{leaked} must not appear on the span"

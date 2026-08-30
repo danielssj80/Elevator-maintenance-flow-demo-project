@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from inference.scorer import FeatureOrderMismatch, Scorer
+from inference.telemetry import configure_telemetry, get_tracer, shutdown_telemetry
 
 _scorer: Scorer | None = None
 
@@ -33,9 +34,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _scorer
     _scorer = Scorer()
     yield
+    shutdown_telemetry()
 
 
 app = FastAPI(title="Elevator Inference", version="0.1.0", lifespan=lifespan)
+
+# Before anything else takes a reference to the ASGI app.
+configure_telemetry(app)
+
+tracer = get_tracer(__name__)
 
 
 class ScoreRequest(BaseModel):
@@ -64,12 +71,20 @@ def model_info() -> dict[str, object]:
 @app.post("/score", response_model=ScoreResponse)
 def score(request: ScoreRequest) -> ScoreResponse:
     scorer = get_scorer()
-    try:
-        scores, contributions = scorer.score(request.feature_names, request.rows)
-    except FeatureOrderMismatch as exc:
-        # 422, not 500: the caller sent something the model cannot consume, and
-        # it needs to see which columns were expected.
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with tracer.start_as_current_span("inference.score") as span:
+        # Shape and identity only. Telemetry values are fleet operating data and
+        # do not belong on a span, the same rule the briefing path follows for
+        # prompt content.
+        span.set_attribute("inference.row_count", len(request.rows))
+        span.set_attribute("inference.feature_count", len(request.feature_names))
+        span.set_attribute("inference.model_version", scorer.model_version)
+        try:
+            scores, contributions = scorer.score(request.feature_names, request.rows)
+        except FeatureOrderMismatch as exc:
+            # 422, not 500: the caller sent something the model cannot consume,
+            # and it needs to see which columns were expected.
+            span.set_attribute("inference.rejected", True)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return ScoreResponse(
         scores=scores, contributions=contributions, model_version=scorer.model_version

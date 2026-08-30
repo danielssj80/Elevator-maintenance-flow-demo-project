@@ -109,57 +109,57 @@
 
 ## 13. Compose (dev only)
 
-- [ ] 13.1 Add the `inference` service to `docker-compose.yml` with a `mem_limit` and a healthcheck
-- [ ] 13.2 Point the backend at it via `INFERENCE_URL`
-- [ ] 13.3 Confirm `docker-compose.prod.yml` is **not** modified
-- [ ] 13.4 `docker compose build backend inference` before testing anything against the live stack — the running image goes stale against the source tree and has produced wrong conclusions three times
+- [x] 13.1 Add the `inference` service to `docker-compose.yml` with a `mem_limit` and a healthcheck
+- [x] 13.2 Point the backend at it via `INFERENCE_URL`
+- [x] 13.3 Confirm `docker-compose.prod.yml` is **not** modified
+- [x] 13.4 **`backend inference` was not enough.** `migrate` is a separate compose service with `build: ./backend`, so it has its own image (`…-migrate`); building only backend and inference left it running the old `alembic/versions/` and the stack failed with `Can't locate revision identified by '3d92a2ed3fb5'`. Correct command is `docker compose build backend migrate inference`; recorded in `docs/backend-standards.md`
 
 ## 14. Inference Spans
 
-- [ ] 14.1 Add a domain span around the run carrying scored/skipped counts and model version
-- [ ] 14.2 Instrument the inference service with the OTel SDK so the trace spans three services
-- [ ] 14.3 Verify in Tempo that one trace covers `backend → inference → postgres`
-- [ ] 14.4 Confirm no telemetry values or elevator identifiers beyond ids are recorded as span attributes
+- [x] 14.1 Add a domain span around the run carrying scored/skipped counts and model version
+- [x] 14.2 Instrument the inference service with the OTel SDK so the trace spans three services
+- [x] 14.3 Verified in Tempo: one trace from `POST /api/inference/run` carries `elevator-backend` (server + `inference.run` + 79 SQL spans) and `elevator-inference` (`GET /model`, `POST /score`, `inference.score`). n8n becomes the third service in change 3
+- [x] 14.4 Confirm no telemetry values or elevator identifiers beyond ids are recorded as span attributes
 
 ## 15. Review and Update Existing Tests (MANDATORY)
 
-- [ ] 15.1 Review `tests/unit/test_elevator_service.py` for tests invalidated by the shared `_risk_level` import
-- [ ] 15.2 Review `tests/integration/test_seed.py` and `test_migrations.py` against the new table
-- [ ] 15.3 Review `tests/conftest.py` — the new table must be created and torn down with the rest
-- [ ] 15.4 Update whatever the change invalidated; note anything deliberately left alone
+- [x] 15.1 Review `tests/unit/test_elevator_service.py` for tests invalidated by the shared `_risk_level` import
+- [x] 15.2 Review `tests/integration/test_seed.py` and `test_migrations.py` against the new table
+- [x] 15.3 Review `tests/conftest.py` — the new table must be created and torn down with the rest
+- [x] 15.4 Update whatever the change invalidated; note anything deliberately left alone
 
 ## 16. Unit Tests and DB State Verification (MANDATORY)
 
-- [ ] 16.1 Capture pre-test DB baseline (row counts for `elevators`, `elevator_features`, `elevator_trend_points`, `telemetry_readings`)
-- [ ] 16.2 Run targeted tests for the new modules
-- [ ] 16.3 Run the full suite: `pytest tests/ -v --cov=app --cov-report=term-missing`, ≥80% on services and repositories
-- [ ] 16.4 Verify post-test DB state matches the baseline
-- [ ] 16.5 Create `reports/2026-08-30-step-16-unit-tests.md`
-- [ ] 16.6 Mark complete only after the report exists and the suite passes
+- [x] 16.1 Capture pre-test DB baseline (row counts for `elevators`, `elevator_features`, `elevator_trend_points`, `telemetry_readings`)
+- [x] 16.2 Run targeted tests for the new modules
+- [x] 16.3 Run the full suite: `pytest tests/ -v --cov=app --cov-report=term-missing`, ≥80% on services and repositories
+- [x] 16.4 Verify post-test DB state matches the baseline
+- [x] 16.5 Create `reports/2026-08-30-step-16-unit-tests.md`
+- [x] 16.6 Mark complete only after the report exists and the suite passes
 
 ## 17. Manual Endpoint Testing (MANDATORY — AGENT MUST EXECUTE)
 
-- [ ] 17.1 Rebuild and start the stack; confirm the running image matches the source tree
-- [ ] 17.2 `POST /api/telemetry/readings` with a valid batch → 201, rows carry a `trace_id`
-- [ ] 17.3 `POST /api/telemetry/readings` with a batch containing unknown ids → 201, partial accept reported
-- [ ] 17.4 `POST /api/telemetry/readings` with an all-unknown batch → 422
-- [ ] 17.5 `POST /api/telemetry/readings` with >1000 readings → 422
-- [ ] 17.6 `GET /api/telemetry/readings` → 200, newest first; unknown elevator → 200 with an empty list
-- [ ] 17.7 `POST /api/inference/run` → 200, run summary; verify scores changed and fleet variance > 0
-- [ ] 17.8 Stop the inference container and `POST /api/inference/run` → **503, not 500**, no stack trace, DB unchanged
-- [ ] 17.9 Start with `DEPLOYMENT_ENVIRONMENT=production` → both new endpoints 404, `GET /api/elevators` still 200
-- [ ] 17.10 Restore DB state after every mutating call
-- [ ] 17.11 Create `reports/2026-08-30-step-17-endpoint-testing.md`
+- [x] 17.1 Rebuild and start the stack; confirm the running image matches the source tree
+- [x] 17.2 `POST /api/telemetry/readings` with a valid batch → 201, rows carry a `trace_id`
+- [x] 17.3 `POST /api/telemetry/readings` with a batch containing unknown ids → 201, partial accept reported
+- [x] 17.4 `POST /api/telemetry/readings` with an all-unknown batch → 422
+- [x] 17.5 `POST /api/telemetry/readings` with >1000 readings → 422
+- [x] 17.6 `GET /api/telemetry/readings` → 200, newest first; unknown elevator → 200 with an empty list
+- [x] 17.7 `POST /api/inference/run` → 200, run summary; verify scores changed and fleet variance > 0
+- [x] 17.8 `docker compose stop inference` → **503**, `{"detail":"Inference service is unavailable"}`, zero traceback lines in the backend log, and `last_scored_at IS NOT NULL` still 14 — the failed run wrote nothing
+- [x] 17.9 Start with `DEPLOYMENT_ENVIRONMENT=production` → both new endpoints 404, `GET /api/elevators` still 200
+- [x] 17.10 Restore DB state after every mutating call
+- [x] 17.11 Create `reports/2026-08-30-step-17-endpoint-testing.md`
 
 ## 18. E2E Testing with Playwright MCP — N/A
 
-- [ ] 18.1 **Not applicable.** No file under `frontend/` is touched and no API response shape changes. The dashboard reads the same fields it reads today; only their values change. Recorded as an explicit N/A rather than skipped silently, as `2026-07-17-docker-images-to-ghcr/tasks.md` §7 did
+- [x] 18.1 **Not applicable.** No file under `frontend/` is touched and no API response shape changes. The dashboard reads the same fields it reads today; only their values change. Recorded as an explicit N/A rather than skipped silently, as `2026-07-17-docker-images-to-ghcr/tasks.md` §7 did
 
 ## 19. Update Technical Documentation (MANDATORY)
 
-- [ ] 19.1 `docs/api-spec.yml` — add `POST /api/telemetry/readings`, `GET /api/telemetry/readings`, `POST /api/inference/run` with schemas and error responses
-- [ ] 19.2 `docs/data-model.md` — add `TelemetryReading`, and **fix the stale "known feature names" table**, which documents vibration/current/door signals the model has never consumed. State which columns feed the model and which are persisted only
-- [ ] 19.3 `docs/backend-standards.md` — the inference-service pattern, the `feature_mapping` shared module, and the new `cd backend && python -m ml.generate_predictions` invocation
+- [x] 19.1 `docs/api-spec.yml` — add `POST /api/telemetry/readings`, `GET /api/telemetry/readings`, `POST /api/inference/run` with schemas and error responses
+- [x] 19.2 `docs/data-model.md` — add `TelemetryReading`, and **fix the stale "known feature names" table**, which documents vibration/current/door signals the model has never consumed. State which columns feed the model and which are persisted only
+- [x] 19.3 `docs/backend-standards.md` — the inference-service pattern, the `feature_mapping` shared module, and the new `cd backend && python -m ml.generate_predictions` invocation
 - [ ] 19.4 Run `/update-docs` to catch anything missed
 
 ## 20. Adversarial Review
