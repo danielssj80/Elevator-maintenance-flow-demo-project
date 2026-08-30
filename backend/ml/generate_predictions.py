@@ -28,7 +28,7 @@ from datetime import date, timedelta
 
 import joblib
 import numpy as np
-import shap
+import xgboost as xgb
 
 from app.ml.feature_mapping import (
     FEATURE_NAME_MAP,
@@ -347,7 +347,19 @@ def _shap_features(
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
+def generate(
+    model_path: pathlib.Path = MODEL_PATH,
+    dump_vectors_path: pathlib.Path | None = None,
+) -> None:
+    """Generate predictions.json.
+
+    ``dump_vectors_path`` additionally writes the final in-scope feature matrix
+    and its scores as a golden fixture. The online scorer is tested against
+    that file, which is how online and offline scoring are held to the same
+    numbers. Regenerate it whenever the model changes:
+
+        cd backend && python -m ml.generate_predictions --dump-vectors
+    """
     if not model_path.exists():
         print(f"ERROR: model not found at {model_path}", file=sys.stderr)
         print("Run backend/ml/train.py first.", file=sys.stderr)
@@ -428,9 +440,16 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
     print(f"  Medium-risk guarantee: steered {steered} units · {med_count} now medium")
 
     # ── SHAP ──────────────────────────────────────────────────────────────────
+    # From the booster itself rather than the `shap` package: pred_contribs
+    # returns exact TreeSHAP, which is the same quantity shap.TreeExplainer was
+    # computing for an XGBoost model. Dropping the dependency removes
+    # shap → numba → llvmlite (~250 MB) from the offline path, and it is the
+    # same call the inference service makes, so the two cannot diverge.
     print("Computing SHAP values …")
-    explainer = shap.TreeExplainer(model)
-    shap_matrix = explainer.shap_values(X)  # shape: (n, n_features)
+    dmatrix = xgb.DMatrix(X, feature_names=col_names)
+    # The trailing column is the bias (the model's expected value), not a
+    # feature, so it is dropped to keep the matrix (n, n_features).
+    shap_matrix = model.get_booster().predict(dmatrix, pred_contribs=True)[:, :-1]
 
     # ── Assemble in-scope predictions ─────────────────────────────────────────
     pred_rng = random.Random(42)
@@ -470,6 +489,20 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
 
     assert len(all_preds) == 100, f"Expected 100 elevators, got {len(all_preds)}"
 
+    if dump_vectors_path is not None:
+        dump_vectors_path.write_text(
+            json.dumps(
+                {
+                    "feature_names": col_names,
+                    "rows": [[float(v) for v in row] for row in X],
+                    "expected_scores": [round(s, 10) for s in risk_scores],
+                    "elevator_ids": [e["id"] for e in in_scope],
+                },
+                indent=2,
+            )
+        )
+        print(f"Wrote {len(X)} golden feature vectors to {dump_vectors_path}")
+
     OUTPUT_PATH.write_text(json.dumps(all_preds, indent=2, ensure_ascii=False))
     print(f"\nWrote {len(all_preds)} predictions to {OUTPUT_PATH}")
 
@@ -485,4 +518,5 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
 
 
 if __name__ == "__main__":
-    generate()
+    dump = ROOT.parent / "inference" / "tests" / "golden_vectors.json" if "--dump-vectors" in sys.argv else None
+    generate(dump_vectors_path=dump)

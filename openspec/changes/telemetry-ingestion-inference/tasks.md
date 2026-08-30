@@ -65,17 +65,17 @@
 
 ## 8. Inference Service
 
-- [ ] 8.1 Create `backend/inference/` — `main.py` (`POST /score`), `scorer.py`, `requirements.txt` (fastapi, uvicorn, xgboost, joblib, numpy — no shap), `Dockerfile` copying `model.joblib`
-- [ ] 8.2 Implement scoring with `Booster.predict(dmatrix, pred_contribs=True)`; return `{scores, contributions, model_version}`
-- [ ] 8.3 Expose the booster's `feature_names` so the caller can order its matrix by them
-- [ ] 8.4 Drop `shap` from `requirements-ml.txt`
-- [ ] 8.5 Confirm the service holds no database session and no `DATABASE_URL`
+- [x] 8.1 Create `backend/inference/` — `main.py` (`POST /score`), `scorer.py`, `requirements.txt` (fastapi, uvicorn, xgboost, joblib, numpy — no shap), `Dockerfile` copying `model.joblib`
+- [x] 8.2 Implement scoring with `Booster.predict(dmatrix, pred_contribs=True)`; return `{scores, contributions, model_version}`
+- [x] 8.3 Expose the booster's `feature_names` so the caller can order its matrix by them
+- [x] 8.4 Drop `shap` from `requirements-ml.txt`
+- [x] 8.5 Confirm the service holds no database session and no `DATABASE_URL`
 
 ## 9. Golden Test: No Scoring Drift
 
-- [ ] 9.1 Write a test feeding the committed feature vectors through the new scorer and asserting each score matches `predictions.json` to 1e-6
-- [ ] 9.2 Assert the contributions' top-3 impacts sum to within `[0.99, 1.01]`
-- [ ] 9.3 **[M]** Perturb one input column by 1%; confirm the golden test goes red — proving it compares values rather than shapes
+- [x] 9.1 Write a test feeding the committed feature vectors through the new scorer and asserting each score matches `predictions.json` to 1e-6
+- [x] 9.2 Assert the contributions' top-3 impacts sum to within `[0.99, 1.01]`
+- [x] 9.3 **[M]** Perturbed `Torque__Nm` by 1% in `golden_vectors.json`; `test_scores_reproduce_the_committed_predictions` went red and nothing else did; restored, 7 passed
 
 ## 10. Inference Client
 

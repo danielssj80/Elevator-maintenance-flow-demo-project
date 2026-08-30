@@ -1,0 +1,23 @@
+# The only image that carries the model. Deliberately NOT sharing
+# backend/requirements.txt: this service has no database, no ORM and no
+# OTLP-instrumented SQLAlchemy, and the backend has no xgboost.
+#
+# `shap` is absent on purpose. xgboost's own Booster.predict(pred_contribs=True)
+# returns exact TreeSHAP, so the package would add shap → numba → llvmlite
+# (~250 MB, the slowest import in the stack) for a value we already have.
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+xgboost>=2.0
+joblib>=1.3
+numpy>=1.26
+
+# Tracing: this service is the third hop of the n8n → backend → inference trace,
+# so it propagates context and emits a server span. Same lockstep pair as the
+# backend.
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-semantic-conventions==0.65b0
+opentelemetry-exporter-otlp-proto-http==1.44.0
+opentelemetry-instrumentation==0.65b0
+opentelemetry-instrumentation-fastapi==0.65b0
