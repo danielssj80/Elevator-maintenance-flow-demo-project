@@ -1,18 +1,15 @@
 from fastapi import HTTPException
 
+# The threshold rule has one definition, shared with the offline generator. The
+# two used to be separate copies that happened to agree; a change to one of them
+# would have shifted every badge in the UI without shifting the scores behind it.
+from app.ml.feature_mapping import risk_level as _derive_risk_level
 from app.models.visit_report import VisitReport
 from app.repositories.elevator_repository import ElevatorRepository
 from app.repositories.visit_report_repository import VisitReportRepository
 from app.schemas.elevator import ElevatorDetailSchema, ElevatorSummarySchema, FeatureSchema
 from app.schemas.visit_report import PostVisitReportSchema, ReportResponseSchema
 
-
-def _derive_risk_level(score: float) -> str:
-    if score > 0.80:
-        return "high"
-    if score >= 0.50:
-        return "medium"
-    return "low"
 
 
 class ElevatorService:

@@ -58,7 +58,8 @@ The feature mapping, value formatting, risk-level thresholds and natural-languag
 
 #### Scenario: The refactored offline script reproduces its committed output
 - **WHEN** `generate_predictions.py` is run after the extraction with its seeded RNG
-- **THEN** the regenerated `predictions.json` is byte-for-byte identical to the committed file
+- **THEN** every model-derived field of the regenerated `predictions.json` — `risk_score`, `risk_level`, `features`, `trend` and `nl_explanation` — is identical to the committed file for all 100 elevators
+- **AND** the only field permitted to differ is `last_visit_date`, which `_days_ago()` derives from the current date and which no seed can pin
 
 #### Scenario: The online scorer reproduces committed scores
 - **WHEN** the inference service scores the feature vectors behind the committed predictions

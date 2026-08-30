@@ -57,11 +57,11 @@
 
 ## 7. Refactor: Extract `feature_mapping.py`
 
-- [ ] 7.1 Create `app/ml/feature_mapping.py` holding `FEATURE_NAME_MAP`, `FEATURE_MEANS`, `RUN_PARAMS`, `MAX_MOTOR_HOURS`, `_format_value`, `_risk_level`, `_nl_explanation`
-- [ ] 7.2 Import them in `backend/ml/generate_predictions.py`, deleting the originals
-- [ ] 7.3 Change the documented invocation to `cd backend && python -m ml.generate_predictions` in the module docstring
-- [ ] 7.4 Regenerate `predictions.json` and verify it is **byte-for-byte identical** to the committed file (`git diff --exit-code backend/ml/predictions.json`) — the seeded RNG makes this checkable
-- [ ] 7.5 Verify `_risk_level` and `elevator_service._derive_risk_level` still agree, and have the service import the shared one rather than keeping its own copy
+- [x] 7.1 Create `app/ml/feature_mapping.py` holding `FEATURE_NAME_MAP`, `FEATURE_MEANS`, `RUN_PARAMS`, `MAX_MOTOR_HOURS`, `_format_value`, `_risk_level`, `_nl_explanation`
+- [x] 7.2 Import them in `backend/ml/generate_predictions.py`, deleting the originals
+- [x] 7.3 Change the documented invocation to `cd backend && python -m ml.generate_predictions` in the module docstring
+- [x] 7.4 Regenerated and compared. **The byte-for-byte claim in the proposal and in the plan was wrong**, and not because of the refactor: `_days_ago()` derives `last_visit_date` from `date.today()`, so `predictions.json` is not reproducible across days. All 100 rows differ in `last_visit_date` and in nothing else. Verified field-wise instead: `risk_score`, `risk_level`, `features`, `trend` and `nl_explanation` are identical for all 100 elevators, which is what the extraction could have broken. Committed file restored rather than churning 100 date lines
+- [x] 7.5 Verify `_risk_level` and `elevator_service._derive_risk_level` still agree, and have the service import the shared one rather than keeping its own copy
 
 ## 8. Inference Service
 
