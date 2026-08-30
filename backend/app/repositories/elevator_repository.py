@@ -19,3 +19,17 @@ class ElevatorRepository:
             select(Elevator).where(Elevator.id == elevator_id)
         )
         return result.scalar_one_or_none()
+
+    async def filter_existing_ids(self, candidate_ids: set[str]) -> set[str]:
+        """Return the subset of ``candidate_ids`` that exist.
+
+        One round trip for a whole batch: telemetry ingest needs to know which
+        of up to 1000 submitted elevator ids are real, and doing that per
+        reading would be 1000 queries.
+        """
+        if not candidate_ids:
+            return set()
+        result = await self._session.execute(
+            select(Elevator.id).where(Elevator.id.in_(candidate_ids))
+        )
+        return set(result.scalars().all())

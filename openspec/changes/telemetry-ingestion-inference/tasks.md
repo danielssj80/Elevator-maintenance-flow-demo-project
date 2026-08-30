@@ -40,20 +40,20 @@
 
 ## 5. Telemetry: Schemas, Service, Router (TDD)
 
-- [ ] 5.1 Write failing service tests: full batch accepted; partial batch persists valid rows and reports rejected ids; all-invalid batch raises 422; `batch_id` shared across the batch
-- [ ] 5.2 Add `app/schemas/telemetry.py` with `max_length=1000` on the batch
-- [ ] 5.3 Implement `app/services/telemetry_service.py`, resolving the current trace id to 32 hex chars, null when no span is recording
-- [ ] 5.4 Implement `app/routers/telemetry.py` — `POST /api/telemetry/readings`, `GET /api/telemetry/readings`
-- [ ] 5.5 **[M]** Mutate the unknown-id filter to accept everything; confirm the partial-batch test goes red
-- [ ] 5.6 **[M]** Mutate the all-invalid guard to return 201; confirm the 422 test goes red
-- [ ] 5.7 **[M]** Remove `max_length=1000`; confirm the oversize-batch test goes red
-- [ ] 5.8 Test that ingest succeeds with telemetry disabled and writes a null `trace_id`
+- [x] 5.1 Write failing service tests: full batch accepted; partial batch persists valid rows and reports rejected ids; all-invalid batch raises 422; `batch_id` shared across the batch
+- [x] 5.2 Add `app/schemas/telemetry.py` with `max_length=1000` on the batch
+- [x] 5.3 Implement `app/services/telemetry_service.py`, resolving the current trace id to 32 hex chars, null when no span is recording
+- [x] 5.4 Implement `app/routers/telemetry.py` — `POST /api/telemetry/readings`, `GET /api/telemetry/readings`
+- [x] 5.5 **[M]** Mutated `valid = [...]` to `list(batch.readings)`; 3 tests went red (partial-batch, all-invalid 422, nothing-persisted); restored, 9 passed
+- [x] 5.6 **[M]** Mutated `if not valid:` to `if False:`; `test_batch_with_no_valid_readings_is_rejected` and `test_nothing_is_persisted_when_every_reading_is_invalid` went red; restored
+- [x] 5.7 **[M]** Removed `min_length=1, max_length=MAX_BATCH_SIZE` from the batch field; both the oversize and the empty-batch tests went red; restored
+- [x] 5.8 Test that ingest succeeds with telemetry disabled and writes a null `trace_id`
 
 ## 6. Security: Production Router Gating
 
-- [ ] 6.1 Write a failing test asserting that with `deployment_environment == "production"` the telemetry and inference routes return 404 while `GET /api/elevators` and `/health` still work
-- [ ] 6.2 Gate router registration in `app/main.py`
-- [ ] 6.3 **[M]** Remove the gate; confirm the test goes red. This guard is the one standing between an auto-deploying production API with no authentication and a public write endpoint — it does not get taken on trust
+- [x] 6.1 Write a failing test asserting that with `deployment_environment == "production"` the telemetry and inference routes return 404 while `GET /api/elevators` and `/health` still work
+- [x] 6.2 Gate router registration in `app/main.py`
+- [x] 6.3 **[M]** Mutated `if environment != "production":` to `if True:`; `test_gated_routes_are_absent_in_production` and `test_gated_routes_return_404_in_production` went red; restored. The inference router joins `GATED_ROUTES` at task 12.3 — the gate block is written once and covers whatever is inside it
 
 ## 7. Refactor: Extract `feature_mapping.py`
 
