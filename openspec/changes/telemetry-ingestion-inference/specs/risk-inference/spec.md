@@ -3,17 +3,24 @@
 ## ADDED Requirements
 
 ### Requirement: Temperatures are converted to the model's unit at exactly one boundary
-The model was trained on absolute temperatures in Kelvin (`Air_temperature__K ≈ 300`, `Process_temperature__K ≈ 310`). The system SHALL convert stored Celsius values to Kelvin as `K = C + 273.15` at exactly one place — the construction of the feature matrix — and SHALL NOT convert anywhere else. Feeding Celsius to the booster produces no exception and no log line: every tree takes the same branch and every elevator receives an identical, plausible-looking score, so this conversion SHALL be covered by a test that fails if it is removed, and a run SHALL assert that the resulting fleet scores are not all identical.
+The model was trained on absolute temperatures in Kelvin (`Air_temperature__K ≈ 300`, `Process_temperature__K ≈ 310`). The system SHALL convert stored Celsius values to Kelvin as `K = C + 273.15` at exactly one place — the construction of the feature matrix — and SHALL NOT convert anywhere else. Feeding Celsius to the booster produces no exception and no log line, so the system SHALL additionally assert, at that same boundary, that both temperature columns fall inside a plausible absolute-temperature band before any row is scored, and SHALL fail the run rather than score outside it.
+
+The obvious alternative guard — asserting that the resulting fleet scores are not all identical — SHALL NOT be relied upon. It was measured against this model and does not work: with Celsius input the remaining five features still discriminate, so the fleet comes back with 51 distinct scores out of 70 and a standard deviation within 0.002 of the correct one, while 10 of 70 elevators land in the wrong risk band. Corrupted output that passes every distributional check is the reason the guard has to sit on the input, not on the output.
 
 #### Scenario: Celsius is converted once on the way into the model
 - **WHEN** a feature matrix is built from a reading with `ambient_temperature_c` of `27.0`
 - **THEN** the `Air_temperature__K` column holds `300.15`
 - **AND** no other stage of the run applies a further offset
 
-#### Scenario: A run over a varied fleet produces varied scores
-- **WHEN** an inference run scores several in-scope elevators whose telemetry differs
-- **THEN** the resulting risk scores are not all equal
-- **AND** the run fails loudly if they are
+#### Scenario: An unconverted temperature is rejected before scoring
+- **WHEN** a feature matrix is built in which a temperature column falls outside the plausible absolute-temperature band
+- **THEN** the run fails with an error naming the column and the offending value
+- **AND** no elevator is scored, and no score, feature or trend point is written
+
+#### Scenario: Plausible Kelvin values pass the boundary check
+- **WHEN** a feature matrix is built from readings between -40 °C and 80 °C
+- **THEN** every temperature column lands inside the accepted band
+- **AND** the run proceeds
 
 ### Requirement: The feature matrix follows the booster's own column order
 The system SHALL build the feature matrix in the order reported by the loaded booster's `feature_names`, and SHALL NOT rely on a hardcoded column list. A silently reordered column produces a valid-looking score from the wrong feature values.

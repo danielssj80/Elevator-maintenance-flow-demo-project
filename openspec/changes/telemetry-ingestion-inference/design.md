@@ -64,11 +64,29 @@ stored: storing them would let a reading disagree with its own elevator.
 ### Kelvin is converted at one boundary and tested there
 
 Readings are stored in °C, and `K = C + 273.15` is applied only while building
-the feature matrix. This is the single highest-risk detail in the change: the
-failure mode is not an exception but a fleet of identical, plausible scores. Two
-independent guards, both written as tests that fail when the conversion is
-removed: a unit test asserting `27.0 → 300.15` in the matrix, and a run-level
-assertion that scored fleet variance is non-zero.
+the feature matrix. This is the single highest-risk detail in the change,
+because the failure mode is not an exception.
+
+The guard that suggested itself — assert the scored fleet has non-zero variance
+— was measured against the actual model and **does not work**. Feeding the
+committed feature vectors in Celsius does not collapse the fleet: the other five
+features still discriminate, so 51 of 70 scores stay distinct and the standard
+deviation lands within 0.002 of the correct one. What it does do is move 10 of
+70 elevators into the wrong risk band, one of them by 0.996. Silently wrong
+output that survives every distributional check is strictly worse than an
+obvious collapse, and a variance canary would have waved it through.
+
+The guards are therefore both on the input side:
+
+- a unit test asserting `27.0 → 300.15` in the matrix, which fails if the
+  conversion is removed; and
+- a run-level range assertion that both temperature columns sit inside a
+  plausible absolute-temperature band before anything is scored. Celsius values
+  (~20–40) are nowhere near it, so this catches the real mistake deterministically.
+
+`test_celsius_instead_of_kelvin_corrupts_scores_without_collapsing_them` pins the
+measurement in the suite so the variance canary is not reintroduced later by
+someone reasoning from the same wrong intuition.
 
 ### Indexes, and what is deliberately deferred
 

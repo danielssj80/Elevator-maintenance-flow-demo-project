@@ -95,7 +95,7 @@
 - [ ] 11.7 **[M]** Trend stays exactly 6 points; same-day run overwrites index 5; new-day run shifts and appends — mutate each branch separately, confirm red
 - [ ] 11.8 **[M]** Repeated shift ×10 never violates the unique constraint and index 5 always equals the score just written — mutate to `UPDATE ... day_index - 1`, confirm it fails (this is the trap the DELETE+INSERT exists to avoid)
 - [ ] 11.9 **[M]** Impacts sum ∈ [0.99, 1.01] — mutate the normalisation, confirm red
-- [ ] 11.10 **[M]** Fleet score variance > 0 across a varied fleet — mutate by feeding Celsius, confirm red. This is the canary for the failure that produces no error at all
+- [ ] 11.10 **[M]** Range assertion: both temperature columns must sit inside a plausible absolute-temperature band before scoring — mutate by removing it and feeding Celsius, confirm red. **Replaces the fleet-variance canary the plan called for**, which was measured against this model and does not fire: Celsius input leaves 51 of 70 scores distinct with the standard deviation within 0.002 of correct, while moving 10 elevators into the wrong band
 - [ ] 11.11 Whole run executes in one transaction; a mid-run failure leaves the database unchanged
 - [ ] 11.12 `delete_older_than(30)` is called at the end of a successful run
 
