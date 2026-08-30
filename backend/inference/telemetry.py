@@ -47,7 +47,12 @@ def configure_telemetry(app: FastAPI) -> None:
             {
                 "service.name": os.getenv("OTEL_SERVICE_NAME", "elevator-inference"),
                 "service.version": os.getenv("OTEL_SERVICE_VERSION", "0.1.0"),
-                "deployment.environment.name": os.getenv("DEPLOYMENT_ENVIRONMENT", "local"),
+                # Same default as the backend. This one only labels spans — it
+                # gates nothing — but two services disagreeing about which
+                # environment they are in makes a dashboard lie.
+                "deployment.environment.name": os.getenv(
+                    "DEPLOYMENT_ENVIRONMENT", "production"
+                ),
             }
         )
     )

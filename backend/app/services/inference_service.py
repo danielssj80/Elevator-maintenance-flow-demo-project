@@ -156,7 +156,13 @@ def assert_conversion_is_not_broken(
     That is the signature of a dropped or doubled conversion, not of a bad
     sensor, and it is the fault this guard was built for.
     """
-    if rows and len(out_of_band) == len(rows):
+    # Majority, not unanimity. Requiring *every* row to be out of band let a
+    # single in-band row disable the check: with the conversion broken, nine
+    # elevators would be scored from unconverted values because the tenth
+    # happened to land inside the plausible band. A broken conversion affects
+    # every row it touches, so a majority is already conclusive, while one or
+    # two bad rows out of a fleet remain what they look like — bad sensors.
+    if rows and len(out_of_band) * 2 > len(rows):
         index = feature_names.index(KELVIN_COLUMNS[0])
         raise FeatureBuildError(
             f"every row is outside the plausible absolute temperature band "

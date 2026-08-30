@@ -202,6 +202,23 @@ def test_a_whole_fleet_out_of_band_stops_the_run():
     assert "every row" in str(exc.value)
 
 
+def test_a_majority_out_of_band_stops_the_run_even_with_a_survivor():
+    """One in-band row must not disable the conversion check.
+
+    Round 3 raised this and the first fix did not close it: the guard fired only
+    when *every* row was out of band, so a single elevator whose value happened
+    to land inside the plausible band would let the other nine be scored from
+    unconverted numbers.
+    """
+    rows = [[27.0, 37.0, 1500.0, 40.0, 100.0, 0.0, 1.0] for _ in range(9)]
+    rows.append([300.15, 310.15, 1500.0, 40.0, 100.0, 0.0, 1.0])  # the survivor
+    out_of_band = out_of_band_row_indices(FEATURE_NAMES, rows)
+
+    assert len(out_of_band) == 9
+    with pytest.raises(FeatureBuildError):
+        assert_conversion_is_not_broken(FEATURE_NAMES, rows, out_of_band)
+
+
 def test_one_row_out_of_band_does_not_stop_the_run():
     """One bad sensor must not block every other elevator's score."""
     rows = [

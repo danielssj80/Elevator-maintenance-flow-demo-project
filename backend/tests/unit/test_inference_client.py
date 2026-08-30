@@ -120,3 +120,48 @@ async def test_feature_names_connect_error_becomes_503():
         await client.feature_names()
 
     assert exc.value.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        httpx.RemoteProtocolError("server disconnected mid-response"),
+        httpx.ReadError("connection reset while reading"),
+        httpx.WriteError("connection reset while writing"),
+        httpx.PoolTimeout("no connection available"),
+    ],
+    ids=["remote_protocol", "read", "write", "pool_timeout"],
+)
+@pytest.mark.asyncio
+async def test_every_transport_fault_becomes_503(exception: Exception):
+    """Not just the two ways the service can be absent.
+
+    ConnectError and TimeoutException cover "nothing is listening" and "it never
+    answered". They do not cover the connection dying mid-request — and the
+    scorer runs under a 512 MB limit, so an OOM kill part-way through a response
+    is an ordinary event, not a hypothetical. Before this, those escaped as an
+    unhandled 500 with a traceback, which specs/risk-inference forbids in those
+    words.
+    """
+    client = _client_raising(exception)
+
+    with pytest.raises(HTTPException) as exc:
+        await client.score(FEATURE_NAMES, ROWS)
+
+    assert exc.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_an_http_status_error_is_not_mistaken_for_a_transport_fault():
+    """The catch must stay a transport catch.
+
+    HTTPStatusError is not a TransportError: the service answered, and answered
+    badly. Reporting that as "unavailable" would send someone looking for a dead
+    container instead of a bad request.
+    """
+    client = _client_raising(
+        httpx.HTTPStatusError("boom", request=httpx.Request("POST", "http://x"), response=httpx.Response(500))
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.score(FEATURE_NAMES, ROWS)

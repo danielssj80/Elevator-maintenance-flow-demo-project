@@ -562,6 +562,22 @@ are right and the stack is stale.
 - Use `HTTPException` with generic messages for auth failures — never reveal internal details.
 - Database credentials only via environment variables.
 - CORS: restrict `allow_origins` to known frontend origins (no `*` in production).
+- **`DEPLOYMENT_ENVIRONMENT` is fail-closed and every non-production
+  environment must declare itself.** It defaults to `production`, which gates
+  the telemetry and inference routers off. `docker-compose.yml` sets `local`
+  and `tests/conftest.py` sets `local`, but a bare
+  `uvicorn app.main:app --reload` from `backend/` inherits the default and will
+  return 404 on those endpoints with no explanation. Run it as:
+
+  ```bash
+  cd backend && DEPLOYMENT_ENVIRONMENT=local uvicorn app.main:app --reload
+  ```
+
+  The default is this way round because `docker-compose.prod.yml` sets the
+  variable nowhere and loads an out-of-repo env file: with a default of `local`,
+  *forgetting* it published two unauthenticated write endpoints. An unset
+  variable has to be the safe answer.
+
 - **Do not register unauthenticated write endpoints in production.** This API
   has no authentication anywhere, and `docker-compose.prod.yml` auto-deploys on
   merge to the default branch, so any write route reaching production is a

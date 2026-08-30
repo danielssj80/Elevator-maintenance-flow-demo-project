@@ -40,10 +40,16 @@ class InferenceClient:
             else:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     response = await client.post(f"{self._base_url}/score", json=payload)
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            # Narrow on purpose. A bare `except Exception` here would also
-            # swallow a programming error in this module and report it as a
-            # missing service.
+        except httpx.TransportError as exc:
+            # The whole transport family, not two hand-picked members of it.
+            # ConnectError and TimeoutException alone leave RemoteProtocolError,
+            # ReadError and WriteError escaping as an unhandled 500 with a
+            # traceback — and the scorer runs under a 512m limit, so a
+            # connection dying mid-request is a real event, not a hypothetical.
+            #
+            # Still narrow where it matters: HTTPStatusError is not a
+            # TransportError, and neither is a programming error in this module,
+            # so neither is disguised as a missing service.
             raise HTTPException(
                 status_code=503,
                 detail="Inference service is unavailable",
@@ -68,7 +74,7 @@ class InferenceClient:
             else:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     response = await client.get(f"{self._base_url}/model")
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        except httpx.TransportError as exc:
             raise HTTPException(
                 status_code=503, detail="Inference service is unavailable"
             ) from exc

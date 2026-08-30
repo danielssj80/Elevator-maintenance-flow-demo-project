@@ -12,10 +12,10 @@ The obvious alternative guard — asserting that the resulting fleet scores are 
 - **THEN** the `Air_temperature__K` column holds `300.15`
 - **AND** no other stage of the run applies a further offset
 
-The response to an out-of-band column depends on how many rows show it, because two different faults produce it and they need opposite handling. **Every** row out of band is a broken conversion — a code fault — and the run SHALL stop, because scoring would give the whole fleet plausible wrong numbers. **Some** rows out of band is bad sensor data, and the system SHALL skip those elevators, report their count, and score the rest: one broken sensor blocking every other elevator's score on every run is a worse outcome than a missing score.
+The response to an out-of-band column depends on how many rows show it, because two different faults produce it and they need opposite handling. A **majority** of rows out of band is a broken conversion — a code fault — and the run SHALL stop, because scoring would give the fleet plausible wrong numbers. Requiring every row would let one elevator whose value happened to land inside the band disable the check for all the others. A **minority** out of band is bad sensor data, and the system SHALL skip those elevators, report their count, and score the rest: one broken sensor blocking every other elevator's score on every run is a worse outcome than a missing score.
 
-#### Scenario: Every row out of band stops the run
-- **WHEN** a feature matrix is built in which every row's temperature columns fall outside the plausible band
+#### Scenario: A majority out of band stops the run
+- **WHEN** a feature matrix is built in which most rows' temperature columns fall outside the plausible band, even if one row is inside it
 - **THEN** the run fails with an error identifying the band and the first offending value
 - **AND** no elevator is scored, and no score, feature or trend point is written
 - **AND** the failure is reported as a described error, never as an unhandled traceback
@@ -43,7 +43,7 @@ The system SHALL build the feature matrix in the order reported by the loaded bo
 - **THEN** the run fails with an explicit error naming that feature
 
 ### Requirement: Scoring runs in a dedicated service that the backend can survive without
-The system SHALL compute scores and feature contributions in a separate stateless service exposing `POST /score`, which takes feature names and rows and returns scores, contributions and a model version, and which has no database access. The backend SHALL reach it over HTTP, and SHALL translate a connection failure or timeout into HTTP 503 — never HTTP 500 and never a stack trace — because the service is deliberately absent in production.
+The system SHALL compute scores and feature contributions in a separate stateless service exposing `POST /score`, which takes feature names and rows and returns scores, contributions and a model version, and which has no database access. The backend SHALL reach it over HTTP, and SHALL translate **any transport-level failure** into HTTP 503 — never HTTP 500 and never a stack trace — because the service is deliberately absent in production. Connection refusal and timeout are not the whole family: a connection dying mid-response is an ordinary event for a container under a memory limit, and it must not be reported differently from the service being absent. A failure the service itself reports, as opposed to one the transport reports, is a different situation and SHALL NOT be disguised as unavailability.
 
 #### Scenario: The backend scores a batch through the inference service
 - **WHEN** an inference run is triggered and the inference service is reachable
@@ -54,6 +54,11 @@ The system SHALL compute scores and feature contributions in a separate stateles
 - **WHEN** an inference run is triggered and the inference service refuses the connection
 - **THEN** the endpoint responds with HTTP 503
 - **AND** no elevator score, feature or trend point is modified
+
+#### Scenario: The connection dies mid-response
+- **WHEN** the connection to the inference service is reset or the response is truncated part-way
+- **THEN** the endpoint responds with HTTP 503
+- **AND** no stack trace reaches the caller
 
 #### Scenario: The inference service times out
 - **WHEN** the inference service does not respond within the configured timeout

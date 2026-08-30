@@ -41,7 +41,7 @@ python -m ruff check .
 
 ## Results
 
-- Backend suite: **180 passed**, 0 failed, 0 skipped.
+- Backend suite: **186 passed**, 0 failed, 0 skipped.
 - Inference suite: **8 passed**, 0 failed.
 - Ruff: all checks passed.
 - Coverage — total **96%**.
@@ -50,22 +50,26 @@ Modules introduced or changed by this change:
 
 | Module | Stmts | Miss | Cover |
 |---|---|---|---|
-| `app/services/inference_service.py` | 122 | 4 | **97%** |
-| `app/services/telemetry_service.py` | 32 | 2 | **94%** |
-| `app/services/inference_client.py` | 33 | 5 | **85%** |
-| `app/repositories/telemetry_repository.py` | 27 | 0 | **100%** |
+| `app/services/inference_service.py` | 142 | 5 | **96%** |
+| `app/services/telemetry_service.py` | 32 | 1 | **97%** |
+| `app/services/inference_client.py` | 33 | 3 | **91%** |
+| `app/repositories/telemetry_repository.py` | 30 | 0 | **100%** |
 | `app/models/telemetry.py` | 26 | 0 | **100%** |
-| `app/schemas/telemetry.py` | 40 | 0 | **100%** |
-| `app/schemas/inference.py` | 10 | 0 | **100%** |
-| `app/routers/inference.py` | 16 | 3 | 81% |
-| `app/routers/telemetry.py` | 20 | 4 | 80% |
-| `app/main.py` | 43 | 0 | **100%** |
+| `app/schemas/telemetry.py` | 51 | 1 | **98%** |
+| `app/schemas/inference.py` | 11 | 0 | **100%** |
+| `app/routers/inference.py` | 16 | 1 | **94%** |
+| `app/routers/telemetry.py` | 20 | 0 | **100%** |
+| `app/main.py` | 51 | 0 | **100%** |
 
-Both routers sit at the 80% threshold; the uncovered lines are the FastAPI
-dependency-provider bodies, which are exercised through the live stack in step
-17 rather than through the unit suite.
+> Regenerated 2026-08-30 after round 4, which found this table stale in all ten
+> rows while `tasks.md` claimed the report had been refreshed — the refresh had
+> touched only the pass counts. These numbers come from the run recorded above.
 
-`app/ml/feature_mapping.py` reports 72%. The uncovered lines are branches of
+Both routers are now covered through the HTTP layer as well; the single
+uncovered line in `inference.py` is a dependency-provider body, exercised
+through the live stack in step 17.
+
+`app/ml/feature_mapping.py` reports 78%. The uncovered lines are branches of
 `format_value` for feature columns that no test elevator happens to rank in its
 top three. They are covered indirectly by the golden test, which reproduces the
 committed `predictions.json` values, and they are unchanged extracted code.

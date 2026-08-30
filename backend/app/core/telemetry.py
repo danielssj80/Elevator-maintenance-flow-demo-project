@@ -243,10 +243,13 @@ def configure_telemetry(
     _instrumented_app = app
 
     _instrument_sqlalchemy(db_engine)
-    # httpx is not a runtime dependency yet — it arrives with the inference
-    # client in the next change. Instrumenting it unconditionally logs a
-    # confusing "DependencyConflict: requested httpx >= 0.18.0 but found None"
-    # on every start, so guard it and let it switch on by itself later.
+    # httpx became a runtime dependency with the inference client
+    # (telemetry-ingestion-inference), so this guard is now normally satisfied.
+    # It stays because the instrumentation package can still be installed
+    # without the library — an install from requirements.txt alone in some
+    # future split — and instrumenting unconditionally then logs a confusing
+    # "DependencyConflict: requested httpx >= 0.18.0 but found None" on every
+    # start rather than failing usefully.
     if find_spec("httpx") is not None:
         HTTPXClientInstrumentor().instrument(tracer_provider=_tracer_provider)
     BotocoreInstrumentor().instrument(tracer_provider=_tracer_provider)
