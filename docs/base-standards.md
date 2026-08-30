@@ -59,6 +59,25 @@ This project uses OpenSpec for all feature development. The full workflow:
 9. Update Notion task to done
 ```
 
+### Change naming
+
+Change names are **kebab-case and must start with a letter**: `otel-observability`, `telemetry-ingestion-inference`. **Do not prefix with a date.**
+
+This is a hard constraint, not a preference. The openspec CLI rejects any name that does not begin with a letter:
+
+```
+$ openspec new change 2026-08-28-otel-observability
+✖ Error: Change name must start with a letter
+```
+
+Creating under a legal name and renaming the directory afterwards *appears* to work — `openspec list` shows the change and `/archive` handles it — but `openspec status --change <name>` then fails permanently for that change, so artifact-completion checks are lost for its whole lifetime.
+
+Nothing is lost by dropping the prefix: the creation date is already recorded in `.openspec.yaml` (`created:`) and in the change's `README.md` header table.
+
+Folders under `openspec/changes/archive/` created before 2026-08-29 keep their date prefixes. Do not rename them.
+
+Report filenames are unaffected and **keep** their date prefix — `reports/YYYY-MM-DD-step-N-unit-tests.md` — because reports are ordered chronologically within a change.
+
 **OpenSpec is the source of truth during implementation.** Never make code-only fixes between `/apply` and `/archive` without updating the relevant spec artifacts first.
 
 When a change or fix request appears after `/apply` and before `/archive`:
