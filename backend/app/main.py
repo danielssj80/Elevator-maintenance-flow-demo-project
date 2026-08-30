@@ -1,9 +1,11 @@
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -12,7 +14,9 @@ from app.core.telemetry import configure_telemetry, get_tracer, shutdown_telemet
 from app.database import AsyncSessionLocal
 from app.routers import elevators, inference, telemetry
 from app.seed import seed_database
+from app.services.inference_service import FeatureBuildError
 
+logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
 
 
@@ -83,6 +87,18 @@ def build_app(environment: str | None = None) -> FastAPI:
     if environment != "production":
         app.include_router(telemetry.router)
         app.include_router(inference.router)
+
+    @app.exception_handler(FeatureBuildError)
+    async def _feature_build_error(request: Request, exc: FeatureBuildError) -> JSONResponse:
+        """A run that cannot build a usable matrix is a server fault, but a
+        described one.
+
+        Without this the error escapes as a bare 500 with a full traceback,
+        which docs/backend-standards.md names as the thing not to do. The
+        message says which invariant failed; it carries no telemetry values.
+        """
+        logger.error("Inference run aborted: %s", exc)
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     @app.get("/health")
     def health() -> dict[str, str]:

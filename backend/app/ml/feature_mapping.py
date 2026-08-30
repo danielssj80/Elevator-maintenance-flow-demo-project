@@ -108,3 +108,41 @@ def nl_explanation(level: str, features: list[dict]) -> str:
         f"driver, combined with {f[1]['name']} ({f[1]['value']}) and "
         f"{f[2]['name']} ({f[2]['value']})."
     )
+
+
+def type_one_hot(building_type: str) -> tuple[float, float]:
+    """``(Type_L, Type_M)`` for a building type.
+
+    drop_first on sorted H/L/M drops H, so infrastructure is the implicit
+    reference with both columns at 0.
+
+    Shared rather than duplicated: this was written out twice, once in the
+    offline generator and once in the online service. Two copies of an encoding
+    is how a retrained model silently gets a different meaning for the same
+    building on the two paths.
+    """
+    type_l = 1.0 if building_type == "residential" else 0.0
+    type_m = 1.0 if building_type in ("commercial", "office") else 0.0
+    return type_l, type_m
+
+
+def tool_wear_from_run_hours(
+    run_hours: float | None,
+    *,
+    building_type: str,
+    hourly_trips_avg: int,
+    age_years: int,
+) -> float:
+    """Consumed motor life on the AI4I ``[0, 253]`` scale.
+
+    When cumulative run hours are unavailable, fall back to the age x usage x
+    building-type proxy. Both paths must agree exactly, or the same elevator
+    scores differently online and offline for no visible reason.
+    """
+    if run_hours is None:
+        run_min_per_trip, active_hours = RUN_PARAMS[building_type]
+        run_hours = (
+            hourly_trips_avg * active_hours * run_min_per_trip / 60.0 * 365 * age_years
+        )
+    fraction_consumed = min(1.0, run_hours / MAX_MOTOR_HOURS)
+    return fraction_consumed * 253.0

@@ -31,6 +31,7 @@
 - [x] 3.3 Add a comment recording that partitioning and BRIN are deferred until ~50 M rows
 - [x] 3.4 `alembic upgrade head`, then `alembic downgrade -1` and `upgrade head` again to prove the downgrade works
 - [x] 3.5 Verify `test_migrations.py` still passes
+- [x] 3.6 **Added mid-implementation, not foreseen in the plan.** `elevators.last_scored_at` + migration `3d92a2ed3fb5`: the trend window shifts on date change and `elevator_trend_points` carries no date, so the decision is not derivable from the trend. Recorded here because the independent review found it present in the code and in no task
 
 ## 4. Telemetry: Repository
 
@@ -160,11 +161,13 @@
 - [x] 19.1 `docs/api-spec.yml` — add `POST /api/telemetry/readings`, `GET /api/telemetry/readings`, `POST /api/inference/run` with schemas and error responses
 - [x] 19.2 `docs/data-model.md` — add `TelemetryReading`, and **fix the stale "known feature names" table**, which documents vibration/current/door signals the model has never consumed. State which columns feed the model and which are persisted only
 - [x] 19.3 `docs/backend-standards.md` — the inference-service pattern, the `feature_mapping` shared module, and the new `cd backend && python -m ml.generate_predictions` invocation
-- [ ] 19.4 Run `/update-docs` to catch anything missed
+- [x] 19.4 Docs updated directly: `data-model.md` (stale feature table, `TelemetryReading`, `last_scored_at`, trend-shift rule), `api-spec.yml` (3 paths, 5 schemas, the 500), `backend-standards.md` (ML-at-runtime section, compose rebuild trap, production gating)
 
 ## 20. Adversarial Review
 
 - [x] 20.0 **Concurrency, found by the review.** Two concurrent `POST /api/inference/run` against the live stack both returned 200 and both took the new-day branch, shifting the trend window twice for one day — a literal violation of the date-change requirement, in the exact scenario it exists to protect. Fixed with `pg_advisory_xact_lock` for the transaction's duration; re-measured on the live stack, the second run now waits (0.464s vs 0.205s) and the window advances once
 
-- [ ] 20.1 Run `/adversarial-review`, with explicit instruction to verify every **[M]** claim by re-running the mutation rather than trusting the task line
-- [ ] 20.2 Address findings, then re-review — each unreviewed batch of fixes on the previous change introduced fresh defects of the class it was fixing
+- [x] 20.1 Round 1, by the implementing session. Found 3 Majors (no test for task 11.11; unhandled `ZeroDivisionError` on a degenerate contribution vector; concurrent runs double-shifting the trend). Report: `reports/2026-08-30-adversarial-review.md`
+- [x] 20.2 Round 2, **independent session with no prior context**. Verdict FAIL, 4 Majors. It reproduced all 17 `[M]` claims from scratch and found what round 1 could not see — including that round 1's own fix, the advisory lock, shipped with no test at all. Report: `reports/2026-08-30-adversarial-review-independent.md`
+- [x] 20.3 Findings addressed: ingest range + no-future validation; window and prune bounded at both ends; out-of-band rows skipped per elevator instead of aborting the fleet, with the abort kept for the all-rows case that means a broken conversion; `FeatureBuildError` mapped to a described 500 instead of a traceback; prune runs even when nothing is scored; the one-hot and tool-wear proxy genuinely shared with the offline generator; the golden fixture anchored to `predictions.json`. **Seven new guards, each mutation-checked** — including the lock, whose first test called the helper directly and survived deletion of the call from `run()`, which is the same mistake a third time
+- [ ] 20.4 **Round 3, independent.** Not yet run. Every unreviewed batch of fixes on the previous change introduced fresh defects of the class it was fixing, and this batch is larger than either of those

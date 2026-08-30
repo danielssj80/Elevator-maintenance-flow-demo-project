@@ -41,8 +41,8 @@ python -m ruff check .
 
 ## Results
 
-- Backend suite: **151 passed**, 0 failed, 0 skipped.
-- Inference suite: **7 passed**, 0 failed.
+- Backend suite: **173 passed**, 0 failed, 0 skipped.
+- Inference suite: **8 passed**, 0 failed.
 - Ruff: all checks passed.
 - Coverage — total **95%**.
 
@@ -72,10 +72,18 @@ committed `predictions.json` values, and they are unchanged extracted code.
 
 ## Mutation Verification
 
-Every guard in this change was verified by breaking it and observing the suite
-go red, before the task was marked complete. Fifteen mutations in total; each
-was restored and the suite reconfirmed green. Two guards were found toothless
-this way and fixed:
+> **Superseded in part.** This section was written before the two adversarial
+> rounds. Its claim that *every* guard was verified was true of the guards that
+> existed when it was written, and false of three added afterwards — the
+> advisory lock, the atomicity behaviour, and the degenerate-contribution
+> check. See `2026-08-30-adversarial-review.md` and
+> `2026-08-30-adversarial-review-independent.md`; all three are now
+> mutation-checked, along with four more added in response to round 2.
+
+Every guard existing at the time of this step was verified by breaking it and
+observing the suite go red, before the task was marked complete. Fifteen
+mutations; each was restored and the suite reconfirmed green. Two guards were
+found toothless this way and fixed:
 
 | Mutation | First result | Action |
 |---|---|---|

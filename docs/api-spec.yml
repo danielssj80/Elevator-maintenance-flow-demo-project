@@ -270,6 +270,12 @@ paths:
                 $ref: "#/components/schemas/InferenceRunResponse"
         "404":
           description: Not registered in this environment (production)
+        "500":
+          description: >
+            The run could not build a usable feature matrix — for example every
+            temperature column fell outside the plausible absolute-temperature
+            band, which is the signature of a broken Celsius-to-Kelvin
+            conversion. Returned as a described error, never as a traceback.
         "502":
           description: The inference service responded, but not with a score
         "503":
@@ -523,16 +529,32 @@ components:
         - load_torque_nm
       properties:
         elevator_id: { type: string, example: ELV-001 }
-        recorded_at: { type: string, format: date-time }
+        recorded_at:
+          type: string
+          format: date-time
+          description: >
+            When the sensor took the reading. May not be in the future beyond a
+            small clock-skew tolerance: a future-dated reading would sit inside
+            every subsequent inference window and never be reached by the
+            retention prune.
         ambient_temperature_c:
           type: number
           format: float
-          description: Machine-room ambient temperature in degrees Celsius. Consumed by the model.
+          minimum: -60
+          maximum: 120
+          description: >
+            Machine-room ambient temperature in degrees Celsius. Consumed by the
+            model. Bounded so a Kelvin value submitted here (~300) is rejected at
+            the door rather than becoming a row that fails every later run.
           example: 27.0
         motor_temperature_c:
           type: number
           format: float
-          description: Motor/process temperature in degrees Celsius. Consumed by the model.
+          minimum: -60
+          maximum: 120
+          description: >
+            Motor/process temperature in degrees Celsius. Consumed by the model.
+            Bounded for the same reason as ambient.
           example: 37.0
         motor_speed_rpm:
           type: number
@@ -631,6 +653,7 @@ components:
       required:
         - scored
         - skipped_no_telemetry
+        - skipped_out_of_range
         - out_of_scope
         - readings_considered
         - window_hours
@@ -646,6 +669,12 @@ components:
             In-scope elevators with no readings in the window, left untouched.
             The number to watch: it is how a fleet that quietly stopped
             reporting becomes visible.
+        skipped_out_of_range:
+          type: integer
+          description: >
+            In-scope elevators excluded because a telemetry value was outside
+            the plausible range. One broken sensor is skipped and reported
+            rather than stopping every other elevator's score.
         out_of_scope:
           type: integer
         readings_considered:

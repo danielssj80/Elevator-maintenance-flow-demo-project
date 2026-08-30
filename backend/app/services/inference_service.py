@@ -33,11 +33,11 @@ from app.core.config import settings
 from app.core.telemetry import get_tracer
 from app.ml.feature_mapping import (
     FEATURE_NAME_MAP,
-    MAX_MOTOR_HOURS,
-    RUN_PARAMS,
     format_value,
     nl_explanation,
     risk_level,
+    tool_wear_from_run_hours,
+    type_one_hot,
 )
 from app.models.elevator import Elevator, ElevatorFeature, ElevatorTrendPoint
 from app.repositories.elevator_repository import ElevatorRepository
@@ -72,34 +72,13 @@ class FeatureBuildError(RuntimeError):
 class RunSummary:
     scored: int
     skipped_no_telemetry: int
+    skipped_out_of_range: int
     out_of_scope: int
     readings_considered: int
     model_version: str | None
     window_hours: int
     duration_seconds: float
     pruned_readings: int
-
-
-def _tool_wear_from_run_hours(elevator: Elevator, run_hours: float | None) -> float:
-    """Consumed motor life on the AI4I [0, 253] scale.
-
-    When a producer cannot report cumulative run hours, fall back to the same
-    age x usage x building-type proxy the offline generator uses, so an
-    elevator scored online and offline gets the same number rather than two
-    defensible different ones.
-    """
-    if run_hours is None:
-        run_min_per_trip, active_hours = RUN_PARAMS[elevator.building_type]
-        run_hours = (
-            elevator.hourly_trips_avg
-            * active_hours
-            * run_min_per_trip
-            / 60.0
-            * 365
-            * elevator.age_years
-        )
-    fraction_consumed = min(1.0, run_hours / MAX_MOTOR_HOURS)
-    return fraction_consumed * 253.0
 
 
 def build_feature_row(
@@ -117,13 +96,14 @@ def build_feature_row(
         "Process_temperature__K": aggregate.motor_temperature_c + KELVIN_OFFSET,
         "Rotational_speed__rpm": aggregate.motor_speed_rpm,
         "Torque__Nm": aggregate.load_torque_nm,
-        "Tool_wear__min": _tool_wear_from_run_hours(
-            elevator, aggregate.motor_run_hours_cumulative
+        "Tool_wear__min": tool_wear_from_run_hours(
+            aggregate.motor_run_hours_cumulative,
+            building_type=elevator.building_type,
+            hourly_trips_avg=elevator.hourly_trips_avg,
+            age_years=elevator.age_years,
         ),
-        # drop_first on sorted H/L/M drops H, so infrastructure is the implicit
-        # reference with both columns at 0.
-        "Type_L": 1.0 if elevator.building_type == "residential" else 0.0,
-        "Type_M": 1.0 if elevator.building_type in ("commercial", "office") else 0.0,
+        "Type_L": type_one_hot(elevator.building_type)[0],
+        "Type_M": type_one_hot(elevator.building_type)[1],
     }
 
     missing = [name for name in feature_names if name not in values]
@@ -135,25 +115,55 @@ def build_feature_row(
     return [values[name] for name in feature_names]
 
 
-def assert_temperatures_are_absolute(feature_names: list[str], rows: list[list[float]]) -> None:
-    """Fail before scoring if a temperature column is not in Kelvin.
+def out_of_band_row_indices(
+    feature_names: list[str], rows: list[list[float]]
+) -> list[int]:
+    """Indices of rows whose temperature columns are not plausible Kelvin.
 
-    This is the guard that catches the conversion being dropped. It is
-    deliberately not a check on the scores: see the module docstring.
+    Separating "which rows" from "what to do about it" is the point. Two very
+    different faults produce an out-of-band row, and they need opposite
+    responses:
+
+    * **Every** row out of band means the conversion itself is broken — a code
+      fault. Scoring anything would produce plausible, wrong numbers for the
+      whole fleet, so the run must stop.
+    * **Some** rows out of band means bad data from one or two sensors. Stopping
+      the fleet for that is the wrong trade: one broken sensor would block every
+      other elevator's score, on every run, until someone noticed. Those
+      elevators are skipped and reported instead.
+
+    Ingest validation now rejects implausible Celsius at the door, so this is
+    the second line rather than the first.
     """
+    indices: list[int] = []
     for column in KELVIN_COLUMNS:
         if column not in feature_names:
             continue
         index = feature_names.index(column)
-        for row in rows:
+        for row_number, row in enumerate(rows):
             value = row[index]
             if not MIN_PLAUSIBLE_KELVIN <= value <= MAX_PLAUSIBLE_KELVIN:
-                raise FeatureBuildError(
-                    f"{column} = {value:.2f} is outside the plausible absolute "
-                    f"temperature band [{MIN_PLAUSIBLE_KELVIN}, {MAX_PLAUSIBLE_KELVIN}]. "
-                    "A Celsius value reaching the model produces plausible but "
-                    "wrong scores, so the run stops here."
-                )
+                indices.append(row_number)
+    return sorted(set(indices))
+
+
+def assert_conversion_is_not_broken(
+    feature_names: list[str], rows: list[list[float]], out_of_band: list[int]
+) -> None:
+    """Stop the run when *every* row is out of band.
+
+    That is the signature of a dropped or doubled conversion, not of a bad
+    sensor, and it is the fault this guard was built for.
+    """
+    if rows and len(out_of_band) == len(rows):
+        index = feature_names.index(KELVIN_COLUMNS[0])
+        raise FeatureBuildError(
+            f"every row is outside the plausible absolute temperature band "
+            f"[{MIN_PLAUSIBLE_KELVIN}, {MAX_PLAUSIBLE_KELVIN}] "
+            f"(first value: {rows[0][index]:.2f}). This is the shape of a broken "
+            "Celsius-to-Kelvin conversion, not of bad sensor data: scoring would "
+            "produce plausible but wrong numbers for the entire fleet."
+        )
 
 
 def _top_features(
@@ -207,6 +217,7 @@ class InferenceService:
             # quietly stopped reporting becomes visible.
             span.set_attribute("inference.scored", summary.scored)
             span.set_attribute("inference.skipped_no_telemetry", summary.skipped_no_telemetry)
+            span.set_attribute("inference.skipped_out_of_range", summary.skipped_out_of_range)
             span.set_attribute("inference.out_of_scope", summary.out_of_scope)
             span.set_attribute("inference.readings_considered", summary.readings_considered)
             span.set_attribute("inference.window_hours", summary.window_hours)
@@ -226,47 +237,70 @@ class InferenceService:
         in_scope = [e for e in elevators if e.in_model_scope]
         out_of_scope_count = len(elevators) - len(in_scope)
 
-        aggregates = await self._telemetry_repo.aggregate_window(window_start)
+        aggregates = await self._telemetry_repo.aggregate_window(window_start, until=now)
 
         targets = [e for e in in_scope if e.id in aggregates]
         skipped = [e for e in in_scope if e.id not in aggregates]
 
         if not targets:
+            # Prune anyway. A fleet with nothing to score is precisely when
+            # stale rows pile up, and an early return that skips the prune
+            # means retention stops working exactly when it is needed.
             return RunSummary(
                 scored=0,
                 skipped_no_telemetry=len(skipped),
+                skipped_out_of_range=0,
                 out_of_scope=out_of_scope_count,
                 readings_considered=0,
                 model_version=None,
                 window_hours=settings.inference_window_hours,
                 duration_seconds=(datetime.now(UTC) - started).total_seconds(),
-                pruned_readings=0,
+                pruned_readings=await self._prune(now),
             )
 
         feature_names = await self._client.feature_names()
         rows = [build_feature_row(e, aggregates[e.id], feature_names) for e in targets]
-        assert_temperatures_are_absolute(feature_names, rows)
 
-        scores, contributions, model_version = await self._client.score(feature_names, rows)
+        out_of_band = out_of_band_row_indices(feature_names, rows)
+        assert_conversion_is_not_broken(feature_names, rows, out_of_band)
 
-        for elevator, row, score, contribution in zip(
-            targets, rows, scores, contributions, strict=True
-        ):
-            await self._apply(elevator, feature_names, row, score, contribution, now)
+        if out_of_band:
+            excluded = set(out_of_band)
+            skipped_out_of_range = [targets[i].id for i in out_of_band]
+            targets = [e for i, e in enumerate(targets) if i not in excluded]
+            rows = [r for i, r in enumerate(rows) if i not in excluded]
+        else:
+            skipped_out_of_range = []
 
-        pruned = await self._telemetry_repo.delete_older_than(
-            cutoff=now - timedelta(days=settings.telemetry_retention_days)
-        )
+        if targets:
+            scores, contributions, model_version = await self._client.score(
+                feature_names, rows
+            )
+            for elevator, row, score, contribution in zip(
+                targets, rows, scores, contributions, strict=True
+            ):
+                await self._apply(elevator, feature_names, row, score, contribution, now)
+        else:
+            model_version = None
+
+        pruned = await self._prune(now)
 
         return RunSummary(
             scored=len(targets),
             skipped_no_telemetry=len(skipped),
+            skipped_out_of_range=len(skipped_out_of_range),
             out_of_scope=out_of_scope_count,
             readings_considered=sum(aggregates[e.id].reading_count for e in targets),
             model_version=model_version,
             window_hours=settings.inference_window_hours,
             duration_seconds=(datetime.now(UTC) - started).total_seconds(),
             pruned_readings=pruned,
+        )
+
+    async def _prune(self, now: datetime) -> int:
+        return await self._telemetry_repo.prune(
+            cutoff=now - timedelta(days=settings.telemetry_retention_days),
+            future_cutoff=now,
         )
 
     async def _acquire_run_lock(self) -> None:

@@ -11,6 +11,7 @@ class InferenceRunResponseSchema(BaseModel):
 
     scored: int
     skipped_no_telemetry: int
+    skipped_out_of_range: int
     out_of_scope: int
     readings_considered: int
     model_version: str | None

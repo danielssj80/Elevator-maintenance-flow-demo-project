@@ -120,3 +120,33 @@ def test_celsius_instead_of_kelvin_corrupts_scores_without_collapsing_them():
     assert len(set(round(s, 6) for s in celsius_scores)) > 1, (
         "a variance canary would not catch this — do not reintroduce one as the guard"
     )
+
+
+def test_the_golden_fixture_agrees_with_the_committed_predictions():
+    """Closes the loop the fixture alone leaves open.
+
+    `golden_vectors.json` is written by the same script that writes
+    `predictions.json`, so on its own it certifies the scorer against the
+    generator rather than against the artefact the spec names. If someone
+    regenerates the fixture after an accidental behaviour change, every other
+    test here would keep passing against the new baseline.
+
+    This anchors it to the committed `predictions.json` by elevator id.
+    """
+    predictions = {
+        p["id"]: p
+        for p in json.loads(
+            (pathlib.Path(__file__).parents[2] / "ml" / "predictions.json").read_text()
+        )
+    }
+
+    ids = GOLDEN["elevator_ids"]
+    assert len(ids) == len(GOLDEN["expected_scores"])
+
+    for elevator_id, expected in zip(ids, GOLDEN["expected_scores"], strict=True):
+        committed = predictions[elevator_id]["risk_score"]
+        assert committed is not None, f"{elevator_id} is in the fixture but out of scope"
+        # predictions.json rounds to 4 decimals; the fixture keeps 10.
+        assert abs(committed - expected) < 5e-5, (
+            f"{elevator_id}: fixture {expected} vs committed {committed}"
+        )

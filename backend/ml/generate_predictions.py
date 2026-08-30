@@ -32,11 +32,11 @@ import xgboost as xgb
 
 from app.ml.feature_mapping import (
     FEATURE_NAME_MAP,
-    MAX_MOTOR_HOURS,
-    RUN_PARAMS,
     format_value,
     nl_explanation,
     risk_level,
+    tool_wear_from_run_hours,
+    type_one_hot,
 )
 
 ROOT = pathlib.Path(__file__).parent
@@ -174,17 +174,17 @@ def _synthesise_features(
     # Tool wear — proxy for fraction of the motor's rated life consumed.
     # Cumulative lifetime run-hours (age × usage, scaled per building type) over the
     # rated ~40,000 h before failure, mapped onto the AI4I [0, 253] domain.
-    run_min_per_trip, active_hours = RUN_PARAMS[building_type]
-    life_run_hours = hourly_trips_avg * active_hours * run_min_per_trip / 60.0 * 365 * age_years
-    fraction_consumed = min(1.0, life_run_hours / MAX_MOTOR_HOURS)
     if push_to_failure:
-        fraction_consumed = rng.uniform(0.85, 0.97)
-    tool_wear = fraction_consumed * 253.0
+        tool_wear = rng.uniform(0.85, 0.97) * 253.0
+    else:
+        tool_wear = tool_wear_from_run_hours(
+            None,
+            building_type=building_type,
+            hourly_trips_avg=hourly_trips_avg,
+            age_years=age_years,
+        )
 
-    # Type one-hot: drop_first on sorted H/L/M drops H (infrastructure = reference)
-    # Type_L=1 for residential, Type_M=1 for commercial/office, both=0 for infrastructure
-    type_l = 1.0 if building_type == "residential" else 0.0
-    type_m = 1.0 if building_type in ("commercial", "office") else 0.0
+    type_l, type_m = type_one_hot(building_type)
 
     return {
         "Air_temperature__K":     round(air_temp, 2),

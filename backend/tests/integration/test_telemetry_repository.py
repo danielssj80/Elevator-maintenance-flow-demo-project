@@ -131,7 +131,7 @@ async def test_aggregate_window_excludes_readings_outside_the_window(db_session:
     )
     await db_session.flush()
 
-    aggregates = await repo.aggregate_window(since=NOW - timedelta(hours=1))
+    aggregates = await repo.aggregate_window(since=NOW - timedelta(hours=1), until=NOW)
 
     assert aggregates["ELV-R04"].reading_count == 1
     assert aggregates["ELV-R04"].load_torque_nm == 40.0
@@ -143,7 +143,7 @@ async def test_aggregate_window_omits_elevators_with_no_readings(db_session: Asy
     await db_session.flush()
 
     repo = TelemetryRepository(db_session)
-    aggregates = await repo.aggregate_window(since=NOW - timedelta(hours=1))
+    aggregates = await repo.aggregate_window(since=NOW - timedelta(hours=1), until=NOW)
 
     assert "ELV-R05" not in aggregates
 
@@ -164,7 +164,7 @@ async def test_aggregate_window_maxes_run_hours_and_averages_conditions(
     )
     await db_session.flush()
 
-    aggregates = await repo.aggregate_window(since=NOW - timedelta(hours=1))
+    aggregates = await repo.aggregate_window(since=NOW - timedelta(hours=1), until=NOW)
     agg = aggregates["ELV-R06"]
 
     assert agg.load_torque_nm == 40.0
@@ -173,7 +173,7 @@ async def test_aggregate_window_maxes_run_hours_and_averages_conditions(
 
 
 @pytest.mark.asyncio
-async def test_delete_older_than_prunes_only_beyond_the_cutoff(db_session: AsyncSession):
+async def test_prune_removes_only_readings_outside_the_retained_band(db_session: AsyncSession):
     db_session.add(_make_elevator("ELV-R07"))
     await db_session.flush()
 
@@ -186,11 +186,56 @@ async def test_delete_older_than_prunes_only_beyond_the_cutoff(db_session: Async
     )
     await db_session.flush()
 
-    deleted = await repo.delete_older_than(cutoff=NOW - timedelta(days=30))
+    deleted = await repo.prune(cutoff=NOW - timedelta(days=30), future_cutoff=NOW)
     await db_session.flush()
 
     assert deleted == 1
     remaining = await repo.list_for_elevator(
         "ELV-R07", since=NOW - timedelta(days=365), limit=10
+    )
+    assert len(remaining) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_future_dated_reading_is_outside_the_window(db_session: AsyncSession):
+    """Bounded at both ends.
+
+    With a lower bound only, one future-dated row sits inside every subsequent
+    window for ever, so the elevator never reads as stale — and the prune, which
+    only deletes below its cutoff, never reaches it either.
+    """
+    db_session.add(_make_elevator("ELV-R08"))
+    await db_session.flush()
+
+    repo = TelemetryRepository(db_session)
+    await repo.create_many([_make_reading("ELV-R08", datetime(2099, 1, 1, tzinfo=UTC))])
+    await db_session.flush()
+
+    aggregates = await repo.aggregate_window(since=NOW - timedelta(hours=1), until=NOW)
+    assert "ELV-R08" not in aggregates
+
+
+@pytest.mark.asyncio
+async def test_prune_removes_future_dated_readings(db_session: AsyncSession):
+    """Ingest validation rejects them now, but rows predating that validation
+    would otherwise be permanently unreachable."""
+    db_session.add(_make_elevator("ELV-R09"))
+    await db_session.flush()
+
+    repo = TelemetryRepository(db_session)
+    await repo.create_many(
+        [
+            _make_reading("ELV-R09", datetime(2099, 1, 1, tzinfo=UTC)),
+            _make_reading("ELV-R09", NOW - timedelta(hours=1)),
+        ]
+    )
+    await db_session.flush()
+
+    deleted = await repo.prune(cutoff=NOW - timedelta(days=30), future_cutoff=NOW)
+    await db_session.flush()
+
+    assert deleted == 1
+    remaining = await repo.list_for_elevator(
+        "ELV-R09", since=NOW - timedelta(days=365), limit=10
     )
     assert len(remaining) == 1

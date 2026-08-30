@@ -10,8 +10,9 @@ from app.repositories.telemetry_repository import TelemetryRepository, WindowAgg
 from app.services.inference_service import (
     FeatureBuildError,
     InferenceService,
-    assert_temperatures_are_absolute,
+    assert_conversion_is_not_broken,
     build_feature_row,
+    out_of_band_row_indices,
 )
 
 NOW = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
@@ -183,14 +184,34 @@ async def test_the_conversion_is_applied_exactly_once(db_session):
     assert client.received_rows[0][index] == pytest.approx(300.15)
 
 
-def test_a_celsius_row_is_rejected_before_scoring():
+def test_a_celsius_row_is_detected_as_out_of_band():
     """The guard that replaces the plan's fleet-variance canary."""
     celsius_row = [27.0, 37.0, 1500.0, 40.0, 100.0, 0.0, 1.0]
 
-    with pytest.raises(FeatureBuildError) as exc:
-        assert_temperatures_are_absolute(FEATURE_NAMES, [celsius_row])
+    assert out_of_band_row_indices(FEATURE_NAMES, [celsius_row]) == [0]
 
-    assert "Air_temperature__K" in str(exc.value)
+
+def test_a_whole_fleet_out_of_band_stops_the_run():
+    """Every row out of band is a broken conversion, not a broken sensor."""
+    celsius_rows = [[27.0, 37.0, 1500.0, 40.0, 100.0, 0.0, 1.0] for _ in range(3)]
+    out_of_band = out_of_band_row_indices(FEATURE_NAMES, celsius_rows)
+
+    with pytest.raises(FeatureBuildError) as exc:
+        assert_conversion_is_not_broken(FEATURE_NAMES, celsius_rows, out_of_band)
+
+    assert "every row" in str(exc.value)
+
+
+def test_one_row_out_of_band_does_not_stop_the_run():
+    """One bad sensor must not block every other elevator's score."""
+    rows = [
+        [300.15, 310.15, 1500.0, 40.0, 100.0, 0.0, 1.0],
+        [27.0, 37.0, 1500.0, 40.0, 100.0, 0.0, 1.0],
+    ]
+    out_of_band = out_of_band_row_indices(FEATURE_NAMES, rows)
+
+    assert out_of_band == [1]
+    assert_conversion_is_not_broken(FEATURE_NAMES, rows, out_of_band)  # must not raise
 
 
 @pytest.mark.asyncio
@@ -212,7 +233,7 @@ async def test_the_run_refuses_to_score_an_out_of_band_temperature(db_session):
     with pytest.raises(FeatureBuildError) as exc:
         await _service(db_session, FakeInferenceClient()).run(now=NOW)
 
-    assert "Air_temperature__K" in str(exc.value)
+    assert "every row" in str(exc.value)
 
     await db_session.flush()
     db_session.expire_all()
@@ -241,7 +262,7 @@ def test_plausible_kelvin_rows_pass_the_band_check():
         row = build_feature_row(
             _elevator("ELV-K5"), _aggregate("ELV-K5", ambient_c=celsius, motor_c=celsius), FEATURE_NAMES
         )
-        assert_temperatures_are_absolute(FEATURE_NAMES, [row])
+        assert out_of_band_row_indices(FEATURE_NAMES, [row]) == []
 
 
 # ── Column order ─────────────────────────────────────────────────────────────
@@ -622,7 +643,7 @@ async def test_an_out_of_band_temperature_aborts_before_any_elevator_is_written(
     db_session.add(_elevator("ELV-A3"))
     db_session.add(_elevator("ELV-A4"))
     await db_session.flush()
-    db_session.add(_reading("ELV-A3"))
+    db_session.add(_reading("ELV-A3", ambient_c=-400.0))
     db_session.add(_reading("ELV-A4", ambient_c=-400.0))
     await db_session.flush()
 
@@ -635,3 +656,53 @@ async def test_an_out_of_band_temperature_aborts_before_any_elevator_is_written(
         elevator = await ElevatorRepository(db_session).get_by_id(elevator_id)
         assert elevator.last_scored_at is None, f"{elevator_id} must be untouched"
         assert elevator.risk_score == 0.4
+
+
+@pytest.mark.asyncio
+async def test_one_bad_sensor_does_not_stop_the_rest_of_the_fleet(db_session):
+    """Defence in depth, and the behaviour that matters operationally.
+
+    Ingest validation now refuses implausible Celsius, so a row like this can
+    only arrive by bypassing the schema — a direct insert, a seed, or a future
+    schema change. When it does, the run must skip that elevator and score the
+    others: one broken sensor blocking every other elevator's score on every
+    run until someone noticed is a worse failure than a wrong number.
+    """
+    db_session.add(_elevator("ELV-D1"))
+    db_session.add(_elevator("ELV-D2"))
+    await db_session.flush()
+    db_session.add(_reading("ELV-D1"))
+    db_session.add(_reading("ELV-D2", ambient_c=-400.0))
+    await db_session.flush()
+
+    summary = await _service(db_session, FakeInferenceClient()).run(now=NOW)
+
+    assert summary.scored == 1
+    assert summary.skipped_out_of_range == 1
+
+    await db_session.flush()
+    db_session.expire_all()
+    good = await ElevatorRepository(db_session).get_by_id("ELV-D1")
+    bad = await ElevatorRepository(db_session).get_by_id("ELV-D2")
+    assert good.last_scored_at is not None, "the healthy elevator must still be scored"
+    assert bad.last_scored_at is None, "the elevator with a bad reading must be skipped"
+    assert bad.risk_score == 0.4
+
+
+@pytest.mark.asyncio
+async def test_the_prune_runs_even_when_nothing_could_be_scored(db_session):
+    """A fleet with nothing to score is exactly when stale rows pile up.
+
+    An early return that skips the prune means retention stops working
+    precisely when it is needed.
+    """
+    db_session.add(_elevator("ELV-P2"))
+    await db_session.flush()
+    # Old enough to prune, and outside the window, so there is nothing to score.
+    db_session.add(_reading("ELV-P2", minutes_ago=60 * 24 * 40))
+    await db_session.flush()
+
+    summary = await _service(db_session, FakeInferenceClient()).run(now=NOW)
+
+    assert summary.scored == 0
+    assert summary.pruned_readings == 1
