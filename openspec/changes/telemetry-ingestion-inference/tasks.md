@@ -15,28 +15,28 @@
 
 ## 1. Telemetry: Failing Repository Test (TDD)
 
-- [ ] 1.1 Write `tests/integration/test_telemetry_repository.py` asserting `create_many()` persists a batch and `list_for_elevator()` returns it newest-first — failing, because nothing exists yet
-- [ ] 1.2 Confirm the failure is `ImportError`/`NoSuchTableError`, not an assertion typo
+- [x] 1.1 Write `tests/integration/test_telemetry_repository.py` asserting `create_many()` persists a batch and `list_for_elevator()` returns it newest-first — failing, because nothing exists yet
+- [x] 1.2 Confirm the failure is `ImportError`/`NoSuchTableError`, not an assertion typo
 
 ## 2. Telemetry: ORM Model
 
-- [ ] 2.1 Add `app/models/telemetry.py` with `TelemetryReading` per `design.md`: model-input columns in human units, four persisted-but-unconsumed domain signals, provenance (`source`, `batch_id`, `trace_id`), `recorded_at`, `ingested_at`
-- [ ] 2.2 Export it from `app/models/__init__.py` so `Base.metadata` sees it in tests
-- [ ] 2.3 Document in the module docstring which columns the current model consumes and which it does not
+- [x] 2.1 Add `app/models/telemetry.py` with `TelemetryReading` per `design.md`: model-input columns in human units, four persisted-but-unconsumed domain signals, provenance (`source`, `batch_id`, `trace_id`), `recorded_at`, `ingested_at`
+- [x] 2.2 Export it from `app/models/__init__.py` so `Base.metadata` sees it in tests
+- [x] 2.3 Document in the module docstring which columns the current model consumes and which it does not
 
 ## 3. Telemetry: Alembic Migration
 
-- [ ] 3.1 Generate the migration with `down_revision = 'aa3f0fc81e9c'`
-- [ ] 3.2 Hand-write the two indexes: `(elevator_id, recorded_at DESC)` and `(recorded_at DESC)` — autogenerate will not produce the DESC ordering
-- [ ] 3.3 Add a comment recording that partitioning and BRIN are deferred until ~50 M rows
-- [ ] 3.4 `alembic upgrade head`, then `alembic downgrade -1` and `upgrade head` again to prove the downgrade works
-- [ ] 3.5 Verify `test_migrations.py` still passes
+- [x] 3.1 Generate the migration with `down_revision = 'aa3f0fc81e9c'`
+- [x] 3.2 Hand-write the two indexes: `(elevator_id, recorded_at DESC)` and `(recorded_at DESC)`. Autogenerate did emit DESC, but only because the model expressed it through `postgresql_ops` — the operator-class slot, not the sort order. Model now uses `.desc()` and the migration `sa.text('recorded_at DESC')`; verified the DDL is unchanged and `alembic check` is clean
+- [x] 3.3 Add a comment recording that partitioning and BRIN are deferred until ~50 M rows
+- [x] 3.4 `alembic upgrade head`, then `alembic downgrade -1` and `upgrade head` again to prove the downgrade works
+- [x] 3.5 Verify `test_migrations.py` still passes
 
 ## 4. Telemetry: Repository
 
-- [ ] 4.1 Implement `create_many()`, `list_for_elevator()` (window + limit, newest first), `aggregate_window()` (AVG temps/speed/torque, MAX run hours, COUNT) and `delete_older_than(days)`
-- [ ] 4.2 Task 1's tests pass
-- [ ] 4.3 **[M]** Test `aggregate_window()` excludes readings outside the window — mutate by widening the window predicate, confirm red
+- [x] 4.1 Implement `create_many()`, `list_for_elevator()` (window + limit, newest first), `aggregate_window()` (AVG temps/speed/torque, MAX run hours, COUNT) and `delete_older_than(days)`
+- [x] 4.2 Task 1's tests pass
+- [x] 4.3 **[M]** Test `aggregate_window()` excludes readings outside the window — mutated by deleting the `recorded_at >= since` predicate; `test_aggregate_window_excludes_readings_outside_the_window` went red and no other test did; restored, 7 passed
 
 ## 5. Telemetry: Schemas, Service, Router (TDD)
 
