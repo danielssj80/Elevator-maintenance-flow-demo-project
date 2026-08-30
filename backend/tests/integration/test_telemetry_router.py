@@ -284,3 +284,44 @@ async def test_a_broken_conversion_returns_a_described_500_not_a_traceback(
     # The message explains the invariant; it must not carry telemetry values
     # beyond the single offending number it names.
     assert "-400" not in detail
+
+
+@pytest.mark.asyncio
+async def test_the_read_endpoint_hides_readings_the_inference_window_refuses(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """The two must agree about what telemetry exists.
+
+    The upper bound on `list_for_elevator` shipped with no caller and then with
+    no test: mutating it away left the suite green. If the read endpoint reports
+    a reading the run will not consider, an operator debugging a skipped
+    elevator sees data that the scorer does not.
+
+    Inserted through the model because ingest validation refuses a future
+    timestamp — which is the point: this is the second line of defence.
+    """
+    from app.models.telemetry import TelemetryReading
+
+    db_session.add(_elevator("ELV-H09"))
+    await db_session.flush()
+    db_session.add(
+        TelemetryReading(
+            elevator_id="ELV-H09",
+            recorded_at=datetime.now(UTC) + timedelta(days=365),
+            ingested_at=datetime.now(UTC),
+            ambient_temperature_c=27.0,
+            motor_temperature_c=37.0,
+            motor_speed_rpm=1500.0,
+            load_torque_nm=40.0,
+            motor_run_hours_cumulative=12000.0,
+            source="direct-insert",
+            batch_id="b1",
+            trace_id=None,
+        )
+    )
+    await db_session.flush()
+
+    response = await client.get("/api/telemetry/readings?elevator_id=ELV-H09&hours=2160")
+
+    assert response.status_code == 200
+    assert response.json() == [], "a future-dated reading must not be reported as present"

@@ -42,6 +42,7 @@ from app.ml.feature_mapping import (
 from app.models.elevator import Elevator, ElevatorFeature, ElevatorTrendPoint
 from app.repositories.elevator_repository import ElevatorRepository
 from app.repositories.telemetry_repository import TelemetryRepository, WindowAggregate
+from app.schemas.telemetry import MAX_CLOCK_SKEW
 from app.services.inference_client import InferenceClient
 
 KELVIN_OFFSET = 273.15
@@ -237,7 +238,13 @@ class InferenceService:
         in_scope = [e for e in elevators if e.in_model_scope]
         out_of_scope_count = len(elevators) - len(in_scope)
 
-        aggregates = await self._telemetry_repo.aggregate_window(window_start, until=now)
+        # The same tolerance ingest accepts. Using a bare `now` here would
+        # accept a reading two minutes ahead of the server clock, then exclude
+        # it from every window and delete it on the next prune — silent data
+        # loss for a row the API said 201 to.
+        aggregates = await self._telemetry_repo.aggregate_window(
+            window_start, until=now + MAX_CLOCK_SKEW
+        )
 
         targets = [e for e in in_scope if e.id in aggregates]
         skipped = [e for e in in_scope if e.id not in aggregates]
@@ -300,7 +307,9 @@ class InferenceService:
     async def _prune(self, now: datetime) -> int:
         return await self._telemetry_repo.prune(
             cutoff=now - timedelta(days=settings.telemetry_retention_days),
-            future_cutoff=now,
+            # Same tolerance again: a reading inside the accepted skew is a
+            # legitimate reading, not a future-dated one to be swept away.
+            future_cutoff=now + MAX_CLOCK_SKEW,
         )
 
     async def _acquire_run_lock(self) -> None:

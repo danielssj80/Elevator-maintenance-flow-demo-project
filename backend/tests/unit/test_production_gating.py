@@ -13,6 +13,7 @@ rather than in production.
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import DEFAULT_DEPLOYMENT_ENVIRONMENT, settings
 from app.main import build_app
 
 GATED_ROUTES = [
@@ -67,3 +68,35 @@ def test_gated_routes_are_present_outside_production(environment: str):
 
     for _method, path in GATED_ROUTES:
         assert path in registered, f"{path} must be registered in {environment}"
+
+
+def test_the_default_environment_is_fail_closed():
+    """The failure this gate actually had.
+
+    Both earlier reviews tested the gate by setting DEPLOYMENT_ENVIRONMENT by
+    hand, which only ever asks "does the mechanism work when configured". It
+    does. Nobody asked whether production configures it — and
+    docker-compose.prod.yml sets it nowhere, loading an out-of-repo env file
+    instead. With a default of "local", forgetting the variable published two
+    unauthenticated write endpoints on a stack that auto-deploys on merge.
+
+    So the default itself is the guard: an unset variable must be the safe
+    answer.
+    """
+    assert DEFAULT_DEPLOYMENT_ENVIRONMENT == "production"
+
+
+def test_build_app_with_no_argument_gates_off_when_the_variable_is_unset(monkeypatch):
+    """And the default must be wired to the gate, not merely declared.
+
+    `build_app()` with no argument is how the real process builds the app.
+    """
+    monkeypatch.setattr(settings, "deployment_environment", DEFAULT_DEPLOYMENT_ENVIRONMENT)
+
+    registered = _paths(build_app())
+
+    for _method, path in GATED_ROUTES:
+        assert path not in registered, (
+            f"{path} is registered when DEPLOYMENT_ENVIRONMENT is unset"
+        )
+    assert "/api/elevators" in registered

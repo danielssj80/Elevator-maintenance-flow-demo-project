@@ -706,3 +706,74 @@ async def test_the_prune_runs_even_when_nothing_could_be_scored(db_session):
 
     assert summary.scored == 0
     assert summary.pruned_readings == 1
+
+
+# ── Clock skew ───────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_reading_inside_the_accepted_skew_is_scored_not_discarded(db_session):
+    """Silent data loss, introduced while fixing the future-dated-reading bug.
+
+    Ingest accepts up to MAX_CLOCK_SKEW ahead of the server clock. If the
+    window stops at exactly `now`, such a reading is accepted with 201, never
+    scored, and deleted by the next prune — the API says yes and the system
+    quietly throws it away.
+    """
+    from app.schemas.telemetry import MAX_CLOCK_SKEW
+
+    db_session.add(_elevator("ELV-CS1"))
+    await db_session.flush()
+    # Two minutes ahead: inside the tolerance ingest grants.
+    db_session.add(_reading("ELV-CS1", minutes_ago=-2))
+    await db_session.flush()
+
+    summary = await _service(db_session, FakeInferenceClient()).run(now=NOW)
+
+    assert MAX_CLOCK_SKEW.total_seconds() >= 120
+    assert summary.scored == 1, "a reading inside the accepted skew must be scored"
+    assert summary.pruned_readings == 0, "and must not be pruned as future-dated"
+
+
+@pytest.mark.asyncio
+async def test_a_reading_beyond_the_skew_is_still_excluded_and_pruned(db_session):
+    db_session.add(_elevator("ELV-CS2"))
+    await db_session.flush()
+    db_session.add(_reading("ELV-CS2", minutes_ago=-60 * 24 * 365))
+    await db_session.flush()
+
+    summary = await _service(db_session, FakeInferenceClient()).run(now=NOW)
+
+    assert summary.scored == 0
+    assert summary.pruned_readings == 1
+
+
+# ── Trend on a freshly seeded fleet ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_fleet_scored_earlier_today_has_its_last_point_overwritten(db_session):
+    """Seeding is a scoring event, so the first run of that day overwrites.
+
+    Round 3 raised this: with `last_scored_at` null on a freshly seeded fleet,
+    the first run shifted the window and dropped a real point, even though the
+    seeded trend's index 5 is already today's score.
+    """
+    db_session.add(
+        _elevator(
+            "ELV-SD1",
+            last_scored_at=NOW - timedelta(minutes=30),
+            trend=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+        )
+    )
+    await db_session.flush()
+    db_session.add(_reading("ELV-SD1"))
+    await db_session.flush()
+
+    await _service(db_session, FakeInferenceClient([0.9])).run(now=NOW)
+
+    await db_session.flush()
+    db_session.expire_all()
+    elevator = await ElevatorRepository(db_session).get_by_id("ELV-SD1")
+    trend = [tp.score for tp in sorted(elevator.trend_points, key=lambda t: t.day_index)]
+    assert trend == [0.1, 0.2, 0.3, 0.4, 0.5, 0.9], "index 0 must not be dropped"

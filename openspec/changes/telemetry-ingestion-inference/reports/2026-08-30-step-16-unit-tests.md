@@ -41,10 +41,10 @@ python -m ruff check .
 
 ## Results
 
-- Backend suite: **173 passed**, 0 failed, 0 skipped.
+- Backend suite: **180 passed**, 0 failed, 0 skipped.
 - Inference suite: **8 passed**, 0 failed.
 - Ruff: all checks passed.
-- Coverage — total **95%**.
+- Coverage — total **96%**.
 
 Modules introduced or changed by this change:
 

@@ -1,6 +1,6 @@
 import json
 import pathlib
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,6 +87,14 @@ async def seed_database(session: AsyncSession) -> None:
     if count > 0:
         return
 
+    now = datetime.now(UTC)
     for elevator in _build_elevators():
+        # Seeding *is* a scoring event: predictions.json carries model output
+        # and its trend's index 5 is today's score. Leaving this null made the
+        # first run of the same day shift the window and drop a real point,
+        # contradicting the documented "index 5 = today" contract. A fleet
+        # seeded on an earlier day keeps a null here on that day and correctly
+        # shifts on its next run.
+        elevator.last_scored_at = now
         session.add(elevator)
     await session.flush()

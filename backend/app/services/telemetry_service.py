@@ -24,6 +24,7 @@ from app.models.telemetry import TelemetryReading
 from app.repositories.elevator_repository import ElevatorRepository
 from app.repositories.telemetry_repository import TelemetryRepository
 from app.schemas.telemetry import (
+    MAX_CLOCK_SKEW,
     TelemetryBatchSchema,
     TelemetryIngestResponseSchema,
     TelemetryReadingSchema,
@@ -104,5 +105,10 @@ class TelemetryService:
     async def list_readings(
         self, elevator_id: str, since: datetime, limit: int
     ) -> list[TelemetryReadingSchema]:
-        rows = await self._telemetry_repo.list_for_elevator(elevator_id, since, limit)
+        # Bounded at both ends, like the inference window. Without the upper
+        # bound this endpoint would report readings the inference run refuses to
+        # consider, so the two would disagree about what telemetry exists.
+        rows = await self._telemetry_repo.list_for_elevator(
+            elevator_id, since, limit, until=datetime.now(UTC) + MAX_CLOCK_SKEW
+        )
         return [TelemetryReadingSchema.model_validate(r) for r in rows]

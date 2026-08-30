@@ -12,10 +12,19 @@ The obvious alternative guard — asserting that the resulting fleet scores are 
 - **THEN** the `Air_temperature__K` column holds `300.15`
 - **AND** no other stage of the run applies a further offset
 
-#### Scenario: An unconverted temperature is rejected before scoring
-- **WHEN** a feature matrix is built in which a temperature column falls outside the plausible absolute-temperature band
-- **THEN** the run fails with an error naming the column and the offending value
+The response to an out-of-band column depends on how many rows show it, because two different faults produce it and they need opposite handling. **Every** row out of band is a broken conversion — a code fault — and the run SHALL stop, because scoring would give the whole fleet plausible wrong numbers. **Some** rows out of band is bad sensor data, and the system SHALL skip those elevators, report their count, and score the rest: one broken sensor blocking every other elevator's score on every run is a worse outcome than a missing score.
+
+#### Scenario: Every row out of band stops the run
+- **WHEN** a feature matrix is built in which every row's temperature columns fall outside the plausible band
+- **THEN** the run fails with an error identifying the band and the first offending value
 - **AND** no elevator is scored, and no score, feature or trend point is written
+- **AND** the failure is reported as a described error, never as an unhandled traceback
+
+#### Scenario: One row out of band skips that elevator only
+- **WHEN** a feature matrix is built in which one row's temperature columns fall outside the plausible band and the others do not
+- **THEN** that elevator is not scored and its score, features and trend are unchanged
+- **AND** every other in-scope elevator with telemetry is scored normally
+- **AND** the run reports the excluded elevator in its skipped-out-of-range count
 
 #### Scenario: Plausible Kelvin values pass the boundary check
 - **WHEN** a feature matrix is built from readings between -40 °C and 80 °C
@@ -102,8 +111,40 @@ The system SHALL derive `risk_level` from the score using the service layer's ex
 - **WHEN** scores of 0.85, 0.60 and 0.20 are persisted by a run
 - **THEN** their levels are `high`, `medium` and `low` respectively
 
+### Requirement: Implausible readings are refused at ingest
+Because a value reaching the model in the wrong unit produces no error, the system SHALL bound temperatures at the point of entry, to a range wide enough that no real machine-room reading is refused and narrow enough that an absolute temperature submitted as Celsius is. It SHALL likewise refuse a `recorded_at` beyond a small clock-skew tolerance, because a future-dated reading would sit inside every subsequent inference window and never be reached by the retention prune.
+
+That same tolerance SHALL be used by the inference window and by the prune. A reading the ingest endpoint accepted must be scoreable and must not be deleted as future-dated; accepting a row and then silently discarding it is worse than refusing it.
+
+#### Scenario: A Kelvin value submitted as Celsius is refused
+- **WHEN** a reading is submitted with an ambient temperature of `300.15`
+- **THEN** the request is rejected with HTTP 422
+- **AND** nothing is persisted
+
+#### Scenario: A future-dated reading is refused
+- **WHEN** a reading is submitted with a `recorded_at` a year ahead
+- **THEN** the request is rejected with HTTP 422
+
+#### Scenario: A reading inside the clock-skew tolerance is honoured
+- **WHEN** a reading is accepted with a `recorded_at` slightly ahead of the server clock
+- **THEN** the next run scores it
+- **AND** the retention prune does not delete it
+
+### Requirement: A run reports what it did and what it could not do
+The system SHALL return, for each run, the number of elevators scored, skipped for want of telemetry, skipped for an out-of-range reading, and out of scope, together with the readings considered, the model version, the window length, the duration and the number of readings pruned. The skip counts are the operational signal: they are how a fleet that stopped reporting, or a sensor that started lying, becomes visible without reading the database.
+
+#### Scenario: A run summarises its outcome
+- **WHEN** an inference run completes
+- **THEN** the response reports each of those counts
+- **AND** the model version is null when nothing was scored
+
 ### Requirement: The six-day trend window shifts on date change, not on every run
 `ElevatorTrendPoint` holds exactly six points per elevator with `day_index` 0 to 5, where index 5 is today. Because a run may fire more than once a day — a daily schedule plus manual runs during a demo — the system SHALL overwrite index 5 when the newest existing point already belongs to today, and SHALL shift the window and append only when it belongs to an earlier day. The shift SHALL be performed by deleting all six rows and inserting six within the run's transaction, never by decrementing `day_index` in place: the table's unique constraint on `(elevator_id, day_index)` is checked per row and non-deferrable, so an in-place decrement can raise a duplicate-key violation depending on row order even though the final state is unique.
+
+#### Scenario: Seeding counts as having been scored
+- **WHEN** the fleet is seeded from the committed predictions and an inference run executes on the same day
+- **THEN** the point at index 5 is replaced rather than the window being shifted
+- **AND** no real trend point is dropped, because the seeded trend's index 5 is already today's score
 
 #### Scenario: A second run on the same day overwrites today's point
 - **WHEN** a run executes and the newest trend point for an elevator is dated today

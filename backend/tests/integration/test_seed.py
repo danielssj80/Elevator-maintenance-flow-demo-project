@@ -46,3 +46,25 @@ async def test_seed_is_idempotent(db_session: AsyncSession):
     await seed_database(db_session)
     count = (await db_session.execute(select(func.count()).select_from(Elevator))).scalar_one()
     assert count == 100
+
+
+@pytest.mark.asyncio
+async def test_seeding_records_when_the_fleet_was_scored(db_session):
+    """Seeding loads model output, so it counts as a scoring event.
+
+    Without this the first inference run of the same day shifts the trend
+    window and drops a real point, even though the seeded trend's index 5 is
+    already today's score.
+    """
+    from app.models.elevator import Elevator
+    from app.seed import seed_database
+
+    await seed_database(db_session)
+    await db_session.flush()
+
+    result = await db_session.execute(select(Elevator).limit(5))
+    seeded = list(result.scalars().all())
+
+    assert seeded, "expected the seed to insert elevators"
+    for elevator in seeded:
+        assert elevator.last_scored_at is not None

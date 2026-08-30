@@ -166,3 +166,86 @@ State restored: **Yes**.
 ## Outcome
 
 **PASS**
+
+---
+
+# Re-run — after adversarial rounds 2 and 3
+
+- **Date**: 2026-08-30 (later the same day)
+- **Reason**: rounds 2 and 3 changed observable behaviour — ingest validation,
+  per-elevator degradation, the run summary's new field, the fail-closed
+  environment default. Round 3 found that this report's boxes were still ticked
+  against code that no longer existed. Everything below was re-executed against
+  a stack rebuilt from the current tree (`backend`, `migrate`, `inference`).
+
+## What changed since the first run
+
+### Ingest now refuses implausible readings
+
+| Request | Status |
+|---|---|
+| `ambient_temperature_c: -400` | **422** ✓ |
+| `ambient_temperature_c: 300.15` (Kelvin submitted as Celsius) | **422** ✓ |
+| `recorded_at: 2099-01-01` | **422** ✓ |
+| Valid 60-reading batch | **201**, `accepted: 60` ✓ |
+
+### The run reports the new field
+
+```json
+{
+  "scored": 14, "skipped_no_telemetry": 56, "skipped_out_of_range": 0,
+  "out_of_scope": 30, "readings_considered": 42,
+  "model_version": "8fbb94ff07b7", "window_hours": 24,
+  "duration_seconds": 0.148029, "pruned_readings": 0
+}
+```
+
+Same 14/56/30 split as the original run, so the added validation did not change
+which elevators are eligible.
+
+### The trend no longer loses a point on the first run after seeding
+
+`ELV-001` before and after the first run of the seeding day:
+
+```
+before:  0.6, 0.65, 0.68, 0.75, 0.78, 0.8
+after:   0.6, 0.65, 0.68, 0.75, 0.78, 0.0002
+```
+
+Index 5 replaced, index 0 preserved. Before the fix this shifted the window and
+dropped `0.6`. All 100 seeded elevators now carry `last_scored_at`.
+
+### The production gate holds when nobody configures it
+
+The built image run with **`DEPLOYMENT_ENVIRONMENT` unset entirely** — the state
+`docker-compose.prod.yml` actually produces, since it sets the variable nowhere
+and loads an out-of-repo env file:
+
+| Request | Status |
+|---|---|
+| `POST /api/telemetry/readings` | **404** ✓ |
+| `POST /api/inference/run` | **404** ✓ |
+| `GET /api/elevators` | 200 ✓ |
+| `GET /health` | 200 ✓ |
+
+The first run of this report tested the gate by **setting** the variable, which
+only ever asks whether the mechanism works when configured. It does. It never
+asked whether production configures it — and it did not.
+
+## A false alarm worth recording
+
+The first re-run scored 3 elevators instead of 14 and looked like a regression
+from the new ingest validation. It was not: the reusable batch fixture in the
+scratchpad had been overwritten with a 10-reading file by the round-3 review
+agent, which shares that directory. Regenerating it restored `scored: 14`.
+Recorded because "the code regressed" was the wrong first conclusion, and the
+cheap check — look at the input before blaming the system — settled it.
+
+## DB State
+
+Restored: counts back to 100 / 210 / 420 / 0, risk-score checksum back to
+`2d3eaded7d948dca394034571e88eb5b`.
+
+## Outcome
+
+**PASS**
