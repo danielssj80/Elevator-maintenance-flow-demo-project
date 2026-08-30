@@ -47,5 +47,16 @@ class Settings:
         os.getenv("FLEET_METRICS_REFRESH_SECONDS", "60")
     )
 
+    # --- Inference (M5 - telemetry-ingestion-inference) ---------------------
+    # The scoring service is dev-only; production never has one, which is why
+    # an unreachable service is a 503 rather than an error worth paging on.
+    inference_url: str = os.getenv("INFERENCE_URL", "http://inference:8001")
+    inference_timeout_seconds: int = int(os.getenv("INFERENCE_TIMEOUT_SECONDS", "30"))
+    # Readings older than this are pruned at the end of each successful run, so
+    # an unattended local database stays bounded.
+    telemetry_retention_days: int = int(os.getenv("TELEMETRY_RETENTION_DAYS", "30"))
+    # The window an inference run aggregates over.
+    inference_window_hours: int = int(os.getenv("INFERENCE_WINDOW_HOURS", "24"))
+
 
 settings = Settings()

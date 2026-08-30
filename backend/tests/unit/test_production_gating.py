@@ -15,11 +15,10 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import build_app
 
-# The inference router joins this list when it lands (task 12); the gate is
-# written once and covers whatever is inside the block.
 GATED_ROUTES = [
     ("POST", "/api/telemetry/readings"),
     ("GET", "/api/telemetry/readings"),
+    ("POST", "/api/inference/run"),
 ]
 
 
@@ -46,6 +45,7 @@ async def test_gated_routes_return_404_in_production():
     app = build_app(environment="production")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         assert (await client.post("/api/telemetry/readings", json={})).status_code == 404
+        assert (await client.post("/api/inference/run", json={})).status_code == 404
         assert (await client.get("/health")).status_code == 200
 
 

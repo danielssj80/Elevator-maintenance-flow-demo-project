@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.metrics import refresh_snapshot_periodically, register_instruments
 from app.core.telemetry import configure_telemetry, get_tracer, shutdown_telemetry
 from app.database import AsyncSessionLocal
-from app.routers import elevators, telemetry
+from app.routers import elevators, inference, telemetry
 from app.seed import seed_database
 
 tracer = get_tracer(__name__)
@@ -82,6 +82,7 @@ def build_app(environment: str | None = None) -> FastAPI:
     # the exposure.
     if environment != "production":
         app.include_router(telemetry.router)
+        app.include_router(inference.router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

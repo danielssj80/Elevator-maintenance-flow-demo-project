@@ -79,31 +79,33 @@
 
 ## 10. Inference Client
 
-- [ ] 10.1 Add `httpx` to `requirements.txt` at the version `requirements-dev.txt` pins
-- [ ] 10.2 Implement `app/services/inference_client.py` mirroring `BedrockClient`'s structure, with a configurable timeout
-- [ ] 10.3 Write failing tests: `httpx.ConnectError` → `HTTPException(503)`; `httpx.TimeoutException` → 503
-- [ ] 10.4 **[M]** Broaden the except clause to bare `Exception` and return 500; confirm both tests go red
+- [x] 10.1 Add `httpx` to `requirements.txt` at the version `requirements-dev.txt` pins
+- [x] 10.2 Implement `app/services/inference_client.py` mirroring `BedrockClient`'s structure, with a configurable timeout
+- [x] 10.3 Write failing tests: `httpx.ConnectError` → `HTTPException(503)`; `httpx.TimeoutException` → 503
+- [x] 10.4 **[M]** Broadened to `except Exception` and switched 503 → 500; 5 tests went red, including `test_a_programming_error_is_not_disguised_as_an_absent_service`; restored, 8 passed
 
 ## 11. Inference Service Logic (TDD)
 
-- [ ] 11.1 **[M]** Kelvin: test that `ambient_temperature_c = 27.0` becomes `Air_temperature__K = 300.15` in the matrix — mutate by removing `+ 273.15`, confirm red. **This is the single most important test in the change**
-- [ ] 11.2 **[M]** Kelvin applied exactly once: test that no later stage re-offsets — mutate by adding a second conversion, confirm red
-- [ ] 11.3 **[M]** Column order comes from the booster's `feature_names`, not a literal — mutate by hardcoding a reordered list, confirm red
-- [ ] 11.4 **[M]** Out-of-scope elevators are untouched — mutate by dropping the `in_model_scope` filter, confirm red
-- [ ] 11.5 **[M]** In-scope elevator with zero readings in the window is skipped, not zeroed — mutate by scoring it with defaults, confirm red
-- [ ] 11.6 **[M]** Missing `motor_run_hours_cumulative` falls back to the `age_years × hourly_trips_avg × RUN_PARAMS` proxy — mutate the fallback to a constant, confirm red
-- [ ] 11.7 **[M]** Trend stays exactly 6 points; same-day run overwrites index 5; new-day run shifts and appends — mutate each branch separately, confirm red
-- [ ] 11.8 **[M]** Repeated shift ×10 never violates the unique constraint and index 5 always equals the score just written — mutate to `UPDATE ... day_index - 1`, confirm it fails (this is the trap the DELETE+INSERT exists to avoid)
-- [ ] 11.9 **[M]** Impacts sum ∈ [0.99, 1.01] — mutate the normalisation, confirm red
-- [ ] 11.10 **[M]** Range assertion: both temperature columns must sit inside a plausible absolute-temperature band before scoring — mutate by removing it and feeding Celsius, confirm red. **Replaces the fleet-variance canary the plan called for**, which was measured against this model and does not fire: Celsius input leaves 51 of 70 scores distinct with the standard deviation within 0.002 of correct, while moving 10 elevators into the wrong band
-- [ ] 11.11 Whole run executes in one transaction; a mid-run failure leaves the database unchanged
-- [ ] 11.12 `delete_older_than(30)` is called at the end of a successful run
+- [x] 11.1 **[M]** Removed `+ KELVIN_OFFSET` from `Air_temperature__K`; **13 of 22 tests went red**, the band check catching it downstream as well; restored
+- [x] 11.2 **[M]** Applied `+ KELVIN_OFFSET` twice to `Process_temperature__K`; 11 tests went red; restored
+- [x] 11.3 **[M]** Replaced `for name in feature_names` with `sorted(values)`, which swaps `Tool_wear__min` and `Torque__Nm`. First run: 5 red — but `test_the_matrix_follows_the_booster_column_order` **survived**, because it compared only the names sent, not which column each value landed in. Strengthened it to assert every value against its own column; re-ran, 6 red including that one; restored
+- [x] 11.4 **[M]** Dropped the `in_model_scope` filter; `test_out_of_scope_elevators_are_never_touched` went red; restored
+- [x] 11.5 **[M]** Made `targets = list(in_scope)` so elevators without telemetry are scored; 2 tests went red, including the out-of-window one; restored
+- [x] 11.6 **[M]** Made the fallback return a constant 100.0; `test_missing_run_hours_falls_back_to_the_offline_proxy` went red; restored
+- [x] 11.7 **[M]** Both branches mutated separately. Same-day branch made to shift → `test_second_run_of_the_same_day_overwrites_index_five` red. New-day branch made to overwrite → `test_first_run_of_a_new_day_shifts_the_window` red. Restored after each
+- [x] 11.8 **[M]** Replaced the DELETE+INSERT with `UPDATE ... SET day_index = day_index - 1`. The loop test failed with `asyncpg.exceptions.UniqueViolationError: duplicate key value violates unique constraint "elevator_trend_points_elevator_id_day_index_key"` — the predicted trap, reproduced; restored
+- [x] 11.9 **[M]** Removed the `/ total` normalisation; 9 tests went red, the run's own impact-sum assertion firing first; restored
+- [x] 11.10 **[M]** Range assertion on both temperature columns before scoring. **Replaces the fleet-variance canary the plan called for**, which was measured against this model and does not fire: Celsius input leaves 51 of 70 scores distinct with the standard deviation within 0.002 of correct, while moving 10 elevators into the wrong band.
+
+      First mutation run: deleting the `assert_temperatures_are_absolute` call from `run()` left **all 22 tests green**. The only test covering it called the function directly, so the guard existed and nothing exercised it through the real path — the most important guard in the change was decoration. Added `test_the_run_refuses_to_score_an_out_of_band_temperature` and `test_the_run_never_reaches_the_model_with_an_out_of_band_row`; re-ran the same mutation, both went red; restored
+- [x] 11.11 Whole run executes in one transaction; a mid-run failure leaves the database unchanged
+- [x] 11.12 `delete_older_than(30)` is called at the end of a successful run
 
 ## 12. Inference Router
 
-- [ ] 12.1 Implement `app/routers/inference.py` — `POST /api/inference/run`
-- [ ] 12.2 Return a run summary: scored count, skipped count, out-of-scope count, duration, model version
-- [ ] 12.3 Verify the production gate from task 6 covers this router too
+- [x] 12.1 Implement `app/routers/inference.py` — `POST /api/inference/run`
+- [x] 12.2 Return a run summary: scored count, skipped count, out-of-scope count, duration, model version
+- [x] 12.3 `POST /api/inference/run` added to `GATED_ROUTES`; the gate block covers it and the production tests assert its 404
 
 ## 13. Compose (dev only)
 
