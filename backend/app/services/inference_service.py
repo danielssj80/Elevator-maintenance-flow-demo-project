@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -56,6 +56,9 @@ MAX_PLAUSIBLE_KELVIN = 400.0
 KELVIN_COLUMNS = ("Air_temperature__K", "Process_temperature__K")
 
 tracer = get_tracer(__name__)
+
+# Arbitrary but fixed: the advisory-lock namespace for an inference run.
+RUN_LOCK_KEY = 8_531_207
 
 TREND_LENGTH = 6
 TOP_FEATURE_COUNT = 3
@@ -162,6 +165,16 @@ def _top_features(
     )[:TOP_FEATURE_COUNT]
     total = sum(abs(contributions[i]) for i in ranked)
 
+    if total == 0:
+        # A degenerate contribution vector — every feature contributing exactly
+        # nothing. Without this the normalisation below divides by zero and the
+        # run dies with an unhandled ZeroDivisionError and a stack trace, and
+        # the impact-sum check in _apply never gets the chance to fire.
+        raise FeatureBuildError(
+            "the model returned an all-zero contribution vector, so feature "
+            "impacts cannot be normalised"
+        )
+
     return [
         {
             "name": FEATURE_NAME_MAP.get(feature_names[i], feature_names[i]),
@@ -206,6 +219,8 @@ class InferenceService:
         started = datetime.now(UTC)
         now = now or started
         window_start = now - timedelta(hours=settings.inference_window_hours)
+
+        await self._acquire_run_lock()
 
         elevators = await self._elevator_repo.list_all()
         in_scope = [e for e in elevators if e.in_model_scope]
@@ -253,6 +268,27 @@ class InferenceService:
             duration_seconds=(datetime.now(UTC) - started).total_seconds(),
             pruned_readings=pruned,
         )
+
+    async def _acquire_run_lock(self) -> None:
+        """Serialise concurrent runs for the whole transaction.
+
+        Without it two overlapping runs each read `last_scored_at` before the
+        other commits, both conclude the elevator has not been scored today, and
+        both shift the trend window — so a single day advances it twice and the
+        oldest real point is lost. Measured, not theorised: two concurrent
+        `POST /api/inference/run` against the live stack both returned 200 and
+        both took the new-day branch.
+
+        This is the exact overlap the date-change rule exists to make safe (a
+        manual demo trigger landing on top of the schedule), so the rule needs
+        the lock to actually hold.
+
+        `pg_advisory_xact_lock` is released when the transaction ends, whether
+        it commits or rolls back — no cleanup path to get wrong. The second run
+        waits rather than failing: a run is short, and a caller that asked for a
+        re-score would rather wait than get a 409.
+        """
+        await self._session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": RUN_LOCK_KEY})
 
     async def _apply(
         self,

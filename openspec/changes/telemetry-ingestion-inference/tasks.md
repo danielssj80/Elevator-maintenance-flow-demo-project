@@ -98,7 +98,7 @@
 - [x] 11.10 **[M]** Range assertion on both temperature columns before scoring. **Replaces the fleet-variance canary the plan called for**, which was measured against this model and does not fire: Celsius input leaves 51 of 70 scores distinct with the standard deviation within 0.002 of correct, while moving 10 elevators into the wrong band.
 
       First mutation run: deleting the `assert_temperatures_are_absolute` call from `run()` left **all 22 tests green**. The only test covering it called the function directly, so the guard existed and nothing exercised it through the real path — the most important guard in the change was decoration. Added `test_the_run_refuses_to_score_an_out_of_band_temperature` and `test_the_run_never_reaches_the_model_with_an_out_of_band_row`; re-ran the same mutation, both went red; restored
-- [x] 11.11 Whole run executes in one transaction; a mid-run failure leaves the database unchanged
+- [x] 11.11 Whole run executes in one transaction; a mid-run failure leaves the database unchanged. **Marked complete in error on the first pass — no test existed.** Caught by the adversarial review. Writing it surfaced two real defects: an all-zero contribution vector raised an unhandled `ZeroDivisionError` in `_top_features` before the impact-sum check could fire, and nothing asserted that a failing run raises rather than returning a summary (swallowing it would let the request commit partial state under a 200). Both fixed and mutation-checked
 - [x] 11.12 `delete_older_than(30)` is called at the end of a successful run
 
 ## 12. Inference Router
@@ -163,6 +163,8 @@
 - [ ] 19.4 Run `/update-docs` to catch anything missed
 
 ## 20. Adversarial Review
+
+- [x] 20.0 **Concurrency, found by the review.** Two concurrent `POST /api/inference/run` against the live stack both returned 200 and both took the new-day branch, shifting the trend window twice for one day — a literal violation of the date-change requirement, in the exact scenario it exists to protect. Fixed with `pg_advisory_xact_lock` for the transaction's duration; re-measured on the live stack, the second run now waits (0.464s vs 0.205s) and the window advances once
 
 - [ ] 20.1 Run `/adversarial-review`, with explicit instruction to verify every **[M]** claim by re-running the mutation rather than trusting the task line
 - [ ] 20.2 Address findings, then re-review — each unreviewed batch of fixes on the previous change introduced fresh defects of the class it was fixing

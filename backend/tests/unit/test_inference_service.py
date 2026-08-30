@@ -576,3 +576,62 @@ async def test_the_run_span_carries_no_telemetry_values(db_session, span_exporte
 
     for leaked in ("31.5", "47.25", "304.65"):
         assert leaked not in rendered, f"{leaked} must not appear on the span"
+
+
+# ── Atomicity ────────────────────────────────────────────────────────────────
+
+
+class BadContributionClient(FakeInferenceClient):
+    """Returns a contribution vector that cannot be normalised.
+
+    An all-zero vector makes the top-3 impacts sum to zero rather than to one,
+    which is what a broken or mismatched model response looks like from here.
+    """
+
+    async def score(self, feature_names, rows):
+        self.received_feature_names = feature_names
+        self.received_rows = rows
+        return [0.9] * len(rows), [[0.0] * len(feature_names) for _ in rows], "model-bad"
+
+
+@pytest.mark.asyncio
+async def test_a_mid_run_failure_propagates_instead_of_returning_a_summary(db_session):
+    """Atomicity depends on this, so it is asserted rather than assumed.
+
+    The run has no transaction of its own: `get_db` commits only after the
+    handler returns, so a run that fails must *raise*. If it ever caught its own
+    error and returned a summary, the request would complete normally and
+    FastAPI would commit whatever partial state the loop had already written —
+    a fleet where some elevators are scored from the new window and the rest
+    from the previous one, with a 200 on top of it.
+    """
+    db_session.add(_elevator("ELV-A1"))
+    db_session.add(_elevator("ELV-A2"))
+    await db_session.flush()
+    db_session.add(_reading("ELV-A1"))
+    db_session.add(_reading("ELV-A2"))
+    await db_session.flush()
+
+    with pytest.raises(FeatureBuildError):
+        await _service(db_session, BadContributionClient()).run(now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_an_out_of_band_temperature_aborts_before_any_elevator_is_written(db_session):
+    """The guard fires before the loop, so not even the first elevator changes."""
+    db_session.add(_elevator("ELV-A3"))
+    db_session.add(_elevator("ELV-A4"))
+    await db_session.flush()
+    db_session.add(_reading("ELV-A3"))
+    db_session.add(_reading("ELV-A4", ambient_c=-400.0))
+    await db_session.flush()
+
+    with pytest.raises(FeatureBuildError):
+        await _service(db_session, FakeInferenceClient()).run(now=NOW)
+
+    await db_session.flush()
+    db_session.expire_all()
+    for elevator_id in ("ELV-A3", "ELV-A4"):
+        elevator = await ElevatorRepository(db_session).get_by_id(elevator_id)
+        assert elevator.last_scored_at is None, f"{elevator_id} must be untouched"
+        assert elevator.risk_score == 0.4

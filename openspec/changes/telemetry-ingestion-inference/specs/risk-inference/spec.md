@@ -122,9 +122,23 @@ The system SHALL derive `risk_level` from the score using the service layer's ex
 - **AND** the trend holds exactly six points after each one
 - **AND** index 5 always equals the score written by that shift
 
-### Requirement: A run is atomic
-The system SHALL apply all score, feature and trend changes for a run inside a single transaction, so that a failure part-way through leaves no fleet in which some elevators are scored from the new window and others from the previous one.
+### Requirement: A run is atomic and never overlaps another run
+The system SHALL apply all score, feature and trend changes for a run inside a single transaction, so that a failure part-way through leaves no fleet in which some elevators are scored from the new window and others from the previous one. The run has no transaction of its own — the request-scoped session commits only after the handler returns — so a failing run SHALL raise rather than return a summary; swallowing its own error would let the request complete and commit whatever partial state the loop had written, under a 200.
+
+The system SHALL also serialise concurrent runs for the duration of the transaction. Two overlapping runs each read `last_scored_at` before the other commits, both conclude the elevator has not been scored today, and both shift the trend window — advancing a single day twice and dropping the oldest real point. This is precisely the overlap the date-change rule exists to make safe (a manual trigger landing on top of the schedule), so the rule requires the lock in order to hold.
 
 #### Scenario: A failure mid-run leaves no partial state
 - **WHEN** a run fails after scoring some elevators but before completing
 - **THEN** no elevator's score, features or trend points are changed
+- **AND** the failure propagates to the caller rather than being reported as a completed run
+
+#### Scenario: A degenerate contribution vector is rejected, not divided by
+- **WHEN** the scoring service returns a contribution vector whose top three magnitudes sum to zero
+- **THEN** the run fails with an explicit error about normalisation
+- **AND** not with an unhandled division by zero
+
+#### Scenario: Two overlapping runs do not double-shift the trend
+- **WHEN** two inference runs are triggered concurrently
+- **THEN** the second waits for the first to complete
+- **AND** it observes the first run's `last_scored_at`, so the trend window advances once for the day
+- **AND** both runs report success
