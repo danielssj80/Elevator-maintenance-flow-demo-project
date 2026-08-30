@@ -66,6 +66,7 @@ rules:
     - Before creating any artifact, read docs/base-standards.md to apply core principles
     - All content must be in English
     - When making API or data model decisions, check docs/api-spec.yml and docs/data-model.md first
+    - Change names are kebab-case and must start with a letter — never a date prefix; the CLI rejects it and `openspec status` breaks permanently for renamed directories
 
   proposal:
     - Read docs/data-model.md to identify which entities are affected

@@ -39,6 +39,111 @@ async def db_session(setup_test_db) -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
 
 
+@pytest.fixture(autouse=True)
+def _clear_briefing_cache():
+    """Reset the process-local briefing cache between tests.
+
+    `briefing_service._CACHE` is a module-level dict, so it leaks across test
+    modules, not just across tests in one file. Living here rather than in
+    test_briefing_service.py means a new test file cannot silently inherit a
+    cached briefing and assert against the wrong source.
+    """
+    from app.services import briefing_service
+
+    briefing_service._CACHE.clear()
+    yield
+    briefing_service._CACHE.clear()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _telemetry_session():
+    """Configure telemetry once per session with in-memory exporters.
+
+    Session-scoped on purpose: ``trace.set_tracer_provider`` only takes effect
+    the first time it is called in a process, so configuring per test would
+    leave later tests writing into the first provider's exporter.
+
+    ``enabled=True`` is passed explicitly rather than mutating
+    ``settings.otel_enabled``, so the settings singleton keeps its real default
+    and the opt-in tests stay meaningful.
+    """
+    from opentelemetry.sdk._logs.export import (
+        InMemoryLogExporter,
+        SimpleLogRecordProcessor,
+    )
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    from app.core import telemetry as telemetry_module
+
+    exporter = InMemorySpanExporter()
+    reader = InMemoryMetricReader()
+    # In-memory for logs too. Without this the suite opens a real OTLP
+    # connection and publishes its own log records under the production service
+    # name — test traffic became indistinguishable from real traffic in Loki.
+    log_exporter = InMemoryLogExporter()
+    telemetry_module.configure_telemetry(
+        app,
+        enabled=True,
+        span_exporter=exporter,
+        metric_reader=reader,
+        log_record_processor=SimpleLogRecordProcessor(log_exporter),
+        db_engine=test_engine,
+    )
+    # Starlette caches its middleware stack on the first request. Instrumenting
+    # afterwards would add middleware that never runs, so force a rebuild.
+    # Autouse + session scope means this happens before any test makes a
+    # request; in production the same ordering is guaranteed because
+    # configure_telemetry() runs at import time in main.py.
+    app.middleware_stack = None
+    yield exporter, reader, log_exporter
+    telemetry_module._uninstrument_for_tests(app)
+    app.middleware_stack = None
+
+
+@pytest.fixture
+def metric_reader(_telemetry_session):
+    """The in-memory metric reader, for collecting real instrument output.
+
+    Asserting on callback functions directly proves nothing about whether the
+    instruments are wired to a provider at all.
+    """
+    _, reader, _ = _telemetry_session
+    return reader
+
+
+@pytest.fixture
+def log_exporter(_telemetry_session):
+    """The in-memory log exporter, for proving the log pipeline is wired."""
+    _, _, exporter = _telemetry_session
+    return exporter
+
+
+@pytest.fixture
+def span_exporter(_telemetry_session):
+    """A cleared in-memory span exporter for a single test."""
+    exporter, _, _ = _telemetry_session
+    exporter.clear()
+    return exporter
+
+
+@pytest_asyncio.fixture
+async def traced_client(
+    span_exporter, db_session: AsyncSession
+) -> AsyncGenerator[AsyncClient, None]:
+    """Client hitting the instrumented app, backed by the instrumented engine."""
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
 @pytest_asyncio.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:

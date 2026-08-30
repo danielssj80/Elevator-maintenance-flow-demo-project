@@ -1,0 +1,15 @@
+# Registers this project's dashboards as an ADDITIONAL provider.
+#
+# Mounted as a single file into the image's provisioning directory rather than
+# mounting the directory itself: a directory mount masks the image's own
+# grafana-dashboards.yaml and silently removes the built-in RED and JVM
+# dashboards.
+apiVersion: 1
+
+providers:
+  - name: "Elevator Maintenance"
+    type: file
+    folder: "Elevator Maintenance"
+    options:
+      path: /otel-lgtm/elevator-dashboards
+      foldersFromFilesStructure: false

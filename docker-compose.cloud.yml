@@ -1,0 +1,18 @@
+# Overlay that additionally exports telemetry to Grafana Cloud.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+#
+# Requires GRAFANA_CLOUD_OTLP_ENDPOINT, GRAFANA_CLOUD_INSTANCE_ID and
+# GRAFANA_CLOUD_API_TOKEN in a git-ignored .env at the repo root.
+# See observability/.env.example.
+services:
+  otel-collector:
+    command:
+      - --config=/etc/otel/config.yaml
+      - --config=/etc/otel/grafana-cloud.yaml
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+      - ./observability/otel-collector-grafana-cloud.yaml:/etc/otel/grafana-cloud.yaml:ro
+    env_file:
+      - path: .env
+        required: false
