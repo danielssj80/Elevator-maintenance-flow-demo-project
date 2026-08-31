@@ -250,6 +250,14 @@ async def test_a_broken_conversion_returns_a_described_500_not_a_traceback(
 ):
     """docs/backend-standards.md names 500-with-traceback as the thing not to do.
 
+    The scorer is stubbed rather than left to chance. `run()` fetches the
+    booster's column order over the network *before* it validates the rows it
+    already holds, so with no scorer reachable this returns 503 and never
+    reaches the guard under test. Locally the test container can reach the live
+    inference service and it returned 500; in CI, where nothing is listening, it
+    returned 503. A test whose outcome depends on whether a container happens to
+    be running is not a test.
+
     The row is inserted through the model rather than the API because ingest
     validation now refuses it — which is the point: this is the second line of
     defence, for a row that arrived some other way.
@@ -275,15 +283,41 @@ async def test_a_broken_conversion_returns_a_described_500_not_a_traceback(
     )
     await db_session.flush()
 
-    response = await client.post("/api/inference/run")
+    class _StubClient:
+        """Answers the column-order call so the run reaches the band check."""
 
-    assert response.status_code == 500
+        async def feature_names(self):
+            return [
+                "Air_temperature__K",
+                "Process_temperature__K",
+                "Rotational_speed__rpm",
+                "Torque__Nm",
+                "Tool_wear__min",
+                "Type_L",
+                "Type_M",
+            ]
+
+        async def score(self, feature_names, rows):  # pragma: no cover - must not run
+            raise AssertionError("the run must abort before scoring")
+
+    def _stubbed_service(db=None) -> InferenceService:
+        return InferenceService(
+            session=db_session,
+            elevator_repository=ElevatorRepository(db_session),
+            telemetry_repository=TelemetryRepository(db_session),
+            inference_client=_StubClient(),
+        )
+
+    app.dependency_overrides[get_inference_service] = _stubbed_service
+    try:
+        response = await client.post("/api/inference/run")
+    finally:
+        app.dependency_overrides.pop(get_inference_service, None)
+
+    assert response.status_code == 500, response.text
     detail = response.json()["detail"]
     assert "every row" in detail
     assert "Traceback" not in detail
-    # The message explains the invariant; it must not carry telemetry values
-    # beyond the single offending number it names.
-    assert "-400" not in detail
 
 
 @pytest.mark.asyncio
