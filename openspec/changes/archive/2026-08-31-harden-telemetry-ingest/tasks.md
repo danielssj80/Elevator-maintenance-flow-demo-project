@@ -197,7 +197,7 @@ Each sub-task means: break the implementation, run the suite, confirm it goes
       `SELECT count(*) FROM telemetry_readings` is 0 on production, since the
       migration's unbounded DELETE is defended by that assumption and it cannot
       be verified from here
-- [ ] 13.2 `/archive` the change and sync `openspec/specs/telemetry-ingestion/`
+- [x] 13.2 `/archive` the change and sync `openspec/specs/telemetry-ingestion/`
 - [ ] 13.3 `/commit` and open the PR (merge needs approval)
 - [ ] 13.4 Set the Notion task *Make telemetry ingest idempotent before n8n
       starts retrying batches* to Done, and the *X-Ingest-Token* task to Done
