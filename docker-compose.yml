@@ -35,6 +35,14 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: elevator-backend
       DEPLOYMENT_ENVIRONMENT: local
+      # Bedrock. Production authenticates with the EC2 instance role and needs
+      # none of these; locally there is no role, so boto3 finds nothing and the
+      # briefing endpoint answers source="fallback" with a
+      # NoCredentialsError in the log. Optional on purpose — the stack works
+      # without them, it just never reaches a model.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      BEDROCK_REGION: ${BEDROCK_REGION:-eu-north-1}
       # The X-Ingest-Token guard on POST /api/telemetry/readings and
       # POST /api/inference/run is fail-open: an unset token means open, so
       # that a fresh checkout and the test suite work with no configuration.
