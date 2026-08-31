@@ -18,6 +18,7 @@ import asyncio
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -255,3 +256,133 @@ def test_resync_updates_existing_rows_and_preserves_visit_reports(resync_migrati
     assert state["trend_count"] == 6, f"expected 6 trend points, got {state['trend_count']}"
     # The user-submitted report survived (ON DELETE CASCADE must never have fired).
     assert state["report_notes"] == "REPORT_TO_PRESERVE", "visit report was lost during resync"
+
+
+# --- Duplicate telemetry: the one-off dedup the unique identity depends on -------------------
+
+DEDUP_DB = "elevator_dedup_test_db"
+_DEDUP_ASYNC_URL = _with_db(settings.test_database_url, DEDUP_DB)
+_DEDUP_DSN = _asyncpg_dsn(_DEDUP_ASYNC_URL)
+
+# The revision immediately before the one that adds uq_telemetry_readings_identity. Upgrading
+# only this far gives us telemetry_readings *without* the constraint, so duplicates can be
+# planted the way a pre-constraint database would already hold them.
+_PRE_IDENTITY_REV = "3d92a2ed3fb5"
+_DUP_EID = "ELV-DUP"
+_DUP_AT = datetime(2026, 8, 31, 10, 0, tzinfo=UTC)
+
+
+async def _seed_duplicate_readings(dsn: str) -> None:
+    """Plant three rows sharing one identity, plus one that differs only by source.
+
+    This is what a pre-constraint database looks like after a producer retried: the same
+    reading stored more than once, with nothing able to tell the copies apart afterwards.
+    """
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(
+            """
+            INSERT INTO elevators (
+                id, building_name, building_type, floor_count, model, brand, age_years,
+                risk_score, risk_level, last_visit_date, last_visit_technician,
+                last_visit_notes, nl_explanation, in_model_scope, hourly_trips_avg, zone
+            ) VALUES (
+                $1, 'Dup Building', 'office', 5, 'Model', 'own', 3,
+                0.4, 'low', '2026-01-01', 'Ana', 'notes', 'explanation', true, 10, 'Madrid'
+            )
+            """,
+            _DUP_EID,
+        )
+        for ambient, source in (
+            (20.0, "n8n-ingest"),   # the row that must survive: lowest id for its identity
+            (30.0, "n8n-ingest"),
+            (40.0, "n8n-ingest"),
+            (50.0, "field-gateway"),  # a different producer, so a different reading
+        ):
+            await conn.execute(
+                """
+                INSERT INTO telemetry_readings (
+                    elevator_id, recorded_at, ambient_temperature_c, motor_temperature_c,
+                    motor_speed_rpm, load_torque_nm, source, batch_id
+                ) VALUES ($1, $2, $3, 37.0, 1500.0, 40.0, $4, 'b1')
+                """,
+                _DUP_EID, _DUP_AT, ambient, source,
+            )
+    finally:
+        await conn.close()
+
+
+async def _surviving_readings(dsn: str) -> list[tuple[str, float]]:
+    conn = await asyncpg.connect(dsn)
+    try:
+        rows = await conn.fetch(
+            "SELECT source, ambient_temperature_c FROM telemetry_readings "
+            "WHERE elevator_id = $1 ORDER BY id",
+            _DUP_EID,
+        )
+        return [(r["source"], r["ambient_temperature_c"]) for r in rows]
+    finally:
+        await conn.close()
+
+
+async def _insert_would_violate_identity(dsn: str) -> bool:
+    conn = await asyncpg.connect(dsn)
+    try:
+        await conn.execute(
+            """
+            INSERT INTO telemetry_readings (
+                elevator_id, recorded_at, ambient_temperature_c, motor_temperature_c,
+                motor_speed_rpm, load_torque_nm, source, batch_id
+            ) VALUES ($1, $2, 99.0, 37.0, 1500.0, 40.0, 'n8n-ingest', 'b2')
+            """,
+            _DUP_EID, _DUP_AT,
+        )
+        return False
+    except asyncpg.exceptions.UniqueViolationError:
+        return True
+    finally:
+        await conn.close()
+
+
+@pytest.fixture
+def dedup_migration_db() -> str:
+    """Isolated DB migrated to just before the unique identity, ready for duplicates."""
+    _run(_admin_execute(f'DROP DATABASE IF EXISTS "{DEDUP_DB}" WITH (FORCE)'))
+    _run(_admin_execute(f'CREATE DATABASE "{DEDUP_DB}"'))
+    try:
+        result = _alembic_upgrade(_PRE_IDENTITY_REV, _DEDUP_ASYNC_URL)
+        assert result.returncode == 0, (
+            f"failed to build schema at {_PRE_IDENTITY_REV}:\n{result.stderr}"
+        )
+        yield _DEDUP_ASYNC_URL
+    finally:
+        _run(_admin_execute(f'DROP DATABASE IF EXISTS "{DEDUP_DB}" WITH (FORCE)'))
+
+
+def test_upgrade_dedups_existing_readings_and_then_constrains(dedup_migration_db: str) -> None:
+    """The migration must survive a database that already holds the duplicates.
+
+    `test_alembic_upgrade_head_succeeds_on_empty_db` proves the chain runs, but every table is
+    empty there, so the dedup DELETE is a no-op and the constraint has nothing to reject. That
+    passes just as happily with the DELETE removed. This is the case that does not.
+    """
+    _run(_seed_duplicate_readings(_DEDUP_DSN))
+
+    result = _alembic_upgrade("head", dedup_migration_db)
+    assert result.returncode == 0, (
+        "alembic upgrade head failed on a database holding duplicate readings — the dedup "
+        "DELETE must run before the unique constraint is created:\n"
+        f"--- STDOUT ---\n{result.stdout}\n--- STDERR ---\n{result.stderr}"
+    )
+
+    # One row per identity, and the survivor is the one stored first (ambient 20.0), not the
+    # last writer. The different-source reading is a different identity and is untouched.
+    assert _run(_surviving_readings(_DEDUP_DSN)) == [
+        ("n8n-ingest", 20.0),
+        ("field-gateway", 50.0),
+    ]
+    # And the constraint is actually enforcing, not merely declared.
+    assert _run(_insert_would_violate_identity(_DEDUP_DSN)), (
+        "a duplicate identity was accepted after the migration; the unique constraint is "
+        "not enforcing"
+    )

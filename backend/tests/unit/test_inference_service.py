@@ -473,9 +473,11 @@ async def test_ten_consecutive_shifts_never_violate_the_unique_constraint(db_ses
     """
     db_session.add(_elevator("ELV-T3", trend=[0.1] * 6))
     await db_session.flush()
-    db_session.add(_reading("ELV-T3"))
-    await db_session.flush()
 
+    # No pre-seeded reading: the loop below seeds one per iteration, and day 0's
+    # lands on the same `(elevator_id, recorded_at, source)` a default
+    # `_reading("ELV-T3")` would — which is now a stored reading's identity, not
+    # a second row.
     for day in range(10):
         score = round(0.10 + day * 0.05, 4)
         run_at = NOW + timedelta(days=day)

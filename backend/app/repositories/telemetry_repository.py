@@ -1,9 +1,35 @@
 from datetime import datetime
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, inspect, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.telemetry import TelemetryReading
+
+# The columns that identify a reading. Repeating one is a retry, not a new
+# observation — see the model docstring for why `source` is among them.
+IDENTITY_COLUMNS = ("elevator_id", "recorded_at", "source")
+
+
+def _as_insert_values(reading: TelemetryReading) -> dict[str, object]:
+    """One ORM instance flattened into values for a core INSERT.
+
+    The conflict-tolerant insert has to be a core statement, but the service
+    still speaks in domain objects, so the translation lives here. The primary
+    key is left out so the sequence assigns it, and a column that is unset and
+    carries a server default is left out too — naming it would insert NULL,
+    because a server default only applies to a column the statement omits.
+    """
+    columns = inspect(TelemetryReading).local_table.columns
+    values: dict[str, object] = {}
+    for column in columns:
+        if column.primary_key:
+            continue
+        value = getattr(reading, column.key)
+        if value is None and column.server_default is not None:
+            continue
+        values[column.key] = value
+    return values
 
 
 class WindowAggregate:
@@ -38,8 +64,33 @@ class TelemetryRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create_many(self, readings: list[TelemetryReading]) -> None:
-        self._session.add_all(readings)
+    async def create_many(self, readings: list[TelemetryReading]) -> int:
+        """Insert readings, skipping any whose identity is already stored.
+
+        Returns the number of rows actually inserted, which is what the caller
+        reports as ``accepted``.
+
+        ``ON CONFLICT DO NOTHING`` rather than a read-then-insert: two
+        simultaneous retries would both read "absent" and both insert, which is
+        precisely the race a scheduler produces. Rather than ``DO UPDATE``
+        because a reading is an observation — a second report of the same
+        identity carries no new information, and overwriting would let a late
+        retry replace a value the last inference run already consumed.
+
+        A single multi-row VALUES clause, not executemany, so the ``RETURNING``
+        count is unambiguous. At the 1000-reading batch bound that is ~14k bound
+        parameters, well inside PostgreSQL's 65535 limit.
+        """
+        if not readings:
+            return 0
+
+        result = await self._session.execute(
+            pg_insert(TelemetryReading)
+            .values([_as_insert_values(r) for r in readings])
+            .on_conflict_do_nothing(index_elements=list(IDENTITY_COLUMNS))
+            .returning(TelemetryReading.id)
+        )
+        return len(result.scalars().all())
 
     async def list_for_elevator(
         self, elevator_id: str, since: datetime, limit: int, until: datetime | None = None

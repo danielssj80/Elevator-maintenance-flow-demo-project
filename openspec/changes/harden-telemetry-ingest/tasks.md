@@ -135,7 +135,8 @@ Each sub-task means: break the implementation, run the suite, confirm it goes
       tests/unit/test_ingest_auth.py tests/integration/test_telemetry_idempotency.py -v`
 - [ ] 9.3 Run the full suite with coverage:
       `pytest tests/ -v --cov=app --cov-report=term-missing`
-- [ ] 9.4 Run `ruff check` and `ruff format --check`
+- [ ] 9.4 Run `ruff check` (the project does not use `ruff format`; 49 pre-existing
+      files fail `format --check`, so running it would report noise, not findings)
 - [ ] 9.5 Verify post-test DB state matches the baseline
 - [ ] 9.6 Create `reports/2026-08-31-step-9-unit-tests.md`
 - [ ] 9.7 Mark complete only after the report exists and the suite passes
