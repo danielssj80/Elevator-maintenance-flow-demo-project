@@ -1,0 +1,204 @@
+# Tasks: n8n-workflow-orchestration
+
+## 0. Setup: Create Feature Branch (MANDATORY)
+
+- [x] 0.1 Create branch `feature/n8n-workflow-orchestration`
+- [x] 0.2 Verify current branch with `git branch --show-current`
+- [ ] 0.3 **Stacked on `feature/harden-telemetry-ingest` (PR #33), not on `main`.**
+      This change sends the `X-Ingest-Token` those endpoints check. Record the
+      stack in the README and merge PR #33 first
+- [ ] 0.4 Verify change 2's endpoints still respond: `POST /api/telemetry/readings`
+      and `POST /api/inference/run` with a token, `GET /api/elevators`
+
+## 1. Environment and credentials
+
+- [ ] 1.1 Add the n8n variables to `observability/.env.example`:
+      `N8N_ENCRYPTION_KEY`, `N8N_EXECUTIONS_MODE`, `TELEMETRY_INGEST_TOKEN`
+- [ ] 1.2 Generate a real `N8N_ENCRYPTION_KEY` into the git-ignored root `.env`
+- [ ] 1.3 Confirm `.gitignore` covers it and that no key is ever committed
+
+## 2. Compose: n8n in queue-mode shape
+
+- [ ] 2.1 Add `n8n-db-init`: one-shot, `psql ... || CREATE DATABASE n8n`, gated
+      with `service_completed_successfully`, mirroring the `migrate` service.
+      **Not** `docker-entrypoint-initdb.d` — it only runs on an empty data
+      directory and `postgres_data` already has data everywhere
+- [ ] 2.2 Add `n8n` (main), pinned to an explicit tag **≥ 2.19.0** — OTel tracing
+      landed there and an older `:latest` has none, silently. `mem_limit: 768m`
+- [ ] 2.3 Add `redis` and `n8n-worker` behind `profiles: [queue]`;
+      `EXECUTIONS_MODE` from an env var defaulting to `regular`.
+      `n8n-worker` `mem_limit: 640m`
+- [ ] 2.4 Set `DB_POSTGRESDB_POOL_SIZE=4` on every n8n process
+- [ ] 2.5 Set `N8N_ENCRYPTION_KEY` **identically** on main and worker — a
+      mismatch fails every credential-using node with an opaque error
+- [ ] 2.6 Confirm `docker-compose.prod.yml` is untouched
+- [ ] 2.7 Bring the stack up; verify n8n reaches Postgres and (under the profile)
+      Redis, and that the editor loads
+
+## 3. OpenTelemetry on every n8n process
+
+- [ ] 3.1 Add the OTel env block to `n8n` **and** `n8n-worker`, identical. In
+      queue mode the worker continues the trace; configured on main alone it
+      executes everything and emits nothing
+- [ ] 3.2 Set `N8N_OTEL_TRACES_PRODUCTION_ONLY=false` in dev. **It defaults to
+      `true`**, so editor "Test workflow" runs export zero spans — the single
+      most likely way to conclude this is broken when it works
+- [ ] 3.3 Set `N8N_AGENTS_TRACING_RECORD_INPUTS=false` and
+      `N8N_AGENTS_TRACING_RECORD_OUTPUTS=false`; both default to `true` and
+      would ship prompts and model output outward
+- [ ] 3.4 Use the **base** OTLP URL, never a full path, and never alongside an
+      explicit exporter endpoint. Wrong form 404s at DEBUG only
+- [ ] 3.5 Do not override `OTEL_PROPAGATORS` — W3C is the default and is what
+      links the trace
+
+## 4. Verify trace linkage (do this before building anything on it)
+
+- [ ] 4.1 Build a throwaway workflow with one HTTP node hitting `GET /api/elevators`
+- [ ] 4.2 **Activate** it — do not use the Test button
+- [ ] 4.3 In Tempo, confirm one trace spanning `n8n → elevator-backend → postgresql`
+- [ ] 4.4 If unlinked, in this order: `PRODUCTION_ONLY`, then the image tag, then
+      `OTEL_PROPAGATORS`, then fall back to span links
+- [ ] 4.5 Under the queue profile, confirm `n8n-worker` appears as its own
+      service in Tempo
+- [ ] 4.6 Screenshot the service graph — this is the milestone's deliverable image
+
+## 5. Backend: orchestration attribute middleware (TDD)
+
+- [ ] 5.1 Write a **failing** test: a request carrying `X-N8N-Execution-Id` and
+      `X-N8N-Workflow-Id` produces a server span carrying both as attributes
+- [ ] 5.2 Write a **failing** test: a request with neither header is served
+      normally and the span carries no orchestration attributes — not empty ones
+- [ ] 5.3 Implement `app/core/orchestration_context.py` and wire it in `main.py`
+- [ ] 5.4 Tests pass; **mutation-check**: remove the middleware → red
+- [ ] 5.5 Confirm it is a no-op with `otel_enabled` false
+
+## 6. Collector: scrape n8n, and keep the cloud pipeline affordable
+
+- [ ] 6.1 Add an n8n scrape job to `observability/otel-collector-config.yaml`
+      with an `n8n_role` label distinguishing main from worker
+- [ ] 6.2 Enable `N8N_METRICS` and `N8N_METRICS_INCLUDE_QUEUE_METRICS`;
+      **workflow-id and node-type labels off** — cardinality
+- [ ] 6.3 `--force-recreate` the collector: it only reads its mounted config at
+      startup
+- [ ] 6.4 **Verify the worker target actually scrapes before building any panel
+      on it** — n8n has a long history of `/metrics` 404ing on workers. Record
+      what answered and what did not
+- [ ] 6.5 Add a `filter` processor to the **cloud** pipeline only, dropping n8n
+      `node.execute` spans; keep them locally where they are useful
+
+## 7. Workflow: telemetry ingest (every 15 minutes)
+
+- [ ] 7.1 `Schedule Trigger → GET /api/elevators → AI Agent (Bedrock Nova Lite,
+      Structured Output Parser) → Code → POST /api/telemetry/readings`
+- [ ] 7.2 Constrain the agent to **one typed scenario object** — no per-elevator
+      numbers. Letting it emit readings reintroduces the Kelvin/Celsius
+      corruption through the front door
+- [ ] 7.3 The Code node derives readings deterministically from the scenario,
+      in Celsius/rpm/Nm/hours
+- [ ] 7.4 **Stamp `recorded_at` in the Code node, not the HTTP node.** This is
+      what makes a retry idempotent: n8n re-runs the failed node with the same
+      input, so an upstream timestamp survives the retry
+- [ ] 7.5 Attach the `X-Ingest-Token` as an n8n **credential**, never inline
+- [ ] 7.6 Verify a run: 201, rows land, each carrying a `trace_id`
+
+## 8. Workflow: daily inference and ops digest
+
+- [ ] 8.1 `Schedule Trigger (06:00 Europe/Madrid) + Manual Trigger →
+      POST /api/inference/run → GET /api/elevators → Code (digest facts) →
+      AI Agent (ops digest)`
+- [ ] 8.2 Manual trigger present, so a demo never waits a day
+- [ ] 8.3 Same credential on the inference node
+- [ ] 8.4 Verify: scores move, and the trend still holds **exactly six** points
+
+## 9. Prove the retry guarantee end to end
+
+This is what `harden-telemetry-ingest` was carved out for; verify it here rather
+than assuming it.
+
+- [ ] 9.1 Run the ingest workflow; record the row count and the fleet scores
+- [ ] 9.2 Force the HTTP node to fail and let n8n retry it — confirm the retry
+      answers 201 with `accepted` 0 and the row count is unchanged
+- [ ] 9.3 Re-score; confirm the scores equal those from a single ingest
+- [ ] 9.4 Record the result in `reports/YYYY-MM-DD-step-9-retry-guarantee.md`
+
+## 10. Export and publish the definitions
+
+- [ ] 10.1 Write `scripts/export-n8n-workflow.sh` stripping `id`, `versionId`,
+      `meta.instanceId` and every `credentials` block via `jq`
+- [ ] 10.2 Export both workflows to `n8n/workflows/`
+- [ ] 10.3 **Verify a scrubbed definition still imports** into a clean instance
+- [ ] 10.4 Commit a canvas screenshot per workflow — for this audience, that is
+      what actually gets looked at
+- [ ] 10.5 `n8n/workflows/README.md`: what each does, its cadence, what it needs
+      configured
+
+## 11. Wire up the orchestration dashboard
+
+- [ ] 11.1 Delete the "Not wired up yet" text panel in
+      `observability/grafana/dashboards/orchestration.json`
+- [ ] 11.2 Confirm its three existing queries now return data
+- [ ] 11.3 Add a panel only for what step 6.4 proved actually scrapes
+
+## 12. Review and Update Existing Tests (MANDATORY)
+
+- [ ] 12.1 Review `tests/unit/test_telemetry_spans.py` for the new middleware
+- [ ] 12.2 Review the compose-file assertions in `tests/unit/test_dev_compose.py`
+      — add one that `docker-compose.prod.yml` defines no orchestrator service
+- [ ] 12.3 Update every test this change invalidates, and no others
+
+## 13. Unit Tests and DB State Verification (MANDATORY)
+
+- [ ] 13.1 Capture the pre-test DB baseline
+- [ ] 13.2 Run targeted tests, then the full suite with coverage
+- [ ] 13.3 `ruff check` (the project does not use `ruff format`)
+- [ ] 13.4 Verify post-test DB state matches the baseline
+- [ ] 13.5 Create `reports/YYYY-MM-DD-step-13-unit-tests.md`
+
+## 14. Manual Endpoint Testing (MANDATORY — AGENT MUST EXECUTE)
+
+- [ ] 14.1 `docker compose build backend migrate` — building `backend` alone
+      leaves `migrate` on its old image and it applies nothing, silently
+- [ ] 14.2 Exercise both write endpoints with and without the token
+- [ ] 14.3 Restore DB state afterwards (`docker exec **-i**` for a heredoc —
+      without `-i` psql gets no stdin and reports success having done nothing)
+- [ ] 14.4 Create `reports/YYYY-MM-DD-step-14-endpoint-testing.md`
+
+## 15. E2E Testing with Playwright MCP (MANDATORY if frontend changed)
+
+- [ ] 15.1 **N/A** — nothing in `frontend/` is touched and no response shape
+      changes. Grafana is a separate audience on its own port. Record the
+      determination in the step 14 report
+
+## 16. Update Technical Documentation (MANDATORY)
+
+- [ ] 16.1 New `docs/orchestration.md`: the two workflows, their cadences, the
+      queue-mode switch, the trace-linkage traps, **and plainly that schedules
+      fire only while the local stack is up**
+- [ ] 16.2 `docs/deployment.md`: state that n8n is local-only and production
+      carries no orchestrator
+- [ ] 16.3 `docs/backend-standards.md`: the orchestration-attribute middleware
+- [ ] 16.4 Run `/update-docs` and act on anything 16.1–16.3 missed
+
+## 17. Milestone acceptance (M5 end to end)
+
+- [ ] 17.1 Stack up, all services healthy
+- [ ] 17.2 An activated workflow produces one trace `n8n → backend → postgresql`
+      with `n8n.execution.id` on the server span
+- [ ] 17.3 Fleet-health dashboard moves within ~60 s of a run
+- [ ] 17.4 Grafana Cloud shows the same traces and
+      `otelcol_exporter_send_failed_spans` for the cloud exporter is 0
+- [ ] 17.5 **Fleet score variance > 0** — the Kelvin canary
+- [ ] 17.6 Record it all in `reports/YYYY-MM-DD-step-17-milestone-acceptance.md`
+
+## 18. Independent Review and Close-out
+
+- [ ] 18.1 Mutation-check every guard added by this change and record the results
+- [ ] 18.2 Run `/adversarial-review` **as an independent cold-start agent**, not
+      as a self-review — on the previous change the self-review found 3 issues
+      and an independent session found 7 more, two of them in things the
+      self-review had touched and got wrong
+- [ ] 18.3 Fix every finding, then re-run 18.1
+- [ ] 18.4 `/archive` and sync `openspec/specs/workflow-orchestration/`
+- [ ] 18.5 `/commit` and open the PR (merge needs approval)
+- [ ] 18.6 Set the Notion task *n8n workflow orchestration (self-hosted, queue
+      mode)* to Done **on merge**, and close out the M5 milestone
