@@ -126,8 +126,32 @@ feature vector expecting the booster to accept them.
 present it links a row to the request that created it, so a suspicious reading
 can be traced back from a Grafana panel.
 
+**Identity**: a reading is identified by `(elevator_id, recorded_at, source)`,
+enforced by the unique constraint `uq_telemetry_readings_identity`, and stored
+at most once. Submitting a reading whose identity is already stored is a
+successful no-op: the request answers 201 with `accepted` 0 and
+`duplicates_ignored` counting it, and the stored row is left as it is rather
+than overwritten.
+
+The constraint is load-bearing, not hygiene. An inference run averages *rows*
+over its window rather than distinct readings, so the same batch stored twice
+would be weighted twice and shift the resulting risk score — with no exception
+and no log line. The producer is a scheduled n8n workflow, and n8n retries a
+failed node by re-sending the same payload, so a repeated batch is an expected
+event rather than an anomaly.
+
+`source` is part of the identity because two producers reporting the same
+elevator at the same instant are two independent observations and averaging both
+is correct. A retry never changes it.
+
 **Retention**: readings older than `TELEMETRY_RETENTION_DAYS` (default 30) are
 deleted at the end of each successful inference run.
+
+**Write access**: `POST /api/telemetry/readings` requires the `X-Ingest-Token`
+header where `TELEMETRY_INGEST_TOKEN` is configured, as does
+`POST /api/inference/run`. The guard is fail-open — unset means open — so that a
+fresh checkout works unconfigured; every environment that registers these
+routers sets a token. Production registers neither router.
 
 ---
 
@@ -229,7 +253,7 @@ The backend uses **PostgreSQL 16** (managed by SQLAlchemy 2.x async + Alembic mi
 | `elevator_features` | `Feature` (FK to `elevators.id`, cascade delete) |
 | `elevator_trend_points` | trend data (FK to `elevators.id`, unique on `(elevator_id, day_index)`) |
 | `visit_reports` | `VisitReport` (FK to `elevators.id`, JSONB for list fields) |
-| `telemetry_readings` | `TelemetryReading` (FK to `elevators.id`, cascade delete; indexed on `(elevator_id, recorded_at DESC)` and `(recorded_at DESC)`) |
+| `telemetry_readings` | `TelemetryReading` (FK to `elevators.id`, cascade delete; unique on `(elevator_id, recorded_at, source)`, indexed on `(recorded_at DESC)`) |
 
 `risk_level` is derived in the service layer from `risk_score` — not stored. `trend` is stored as individual rows and assembled into a sorted array by the service.
 

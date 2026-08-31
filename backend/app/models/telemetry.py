@@ -27,12 +27,21 @@ every elevator the same plausible score.
 **Provenance.** ``trace_id`` is the W3C trace id of the ingesting request as 32
 hex characters, so a suspicious row can be traced back to the request that
 created it. It is nullable because ingest must work with tracing disabled.
+
+**Identity.** A reading is identified by ``(elevator_id, recorded_at, source)``
+and stored at most once. The inference run averages *rows* over its window
+rather than distinct readings, so a batch present twice is weighted twice and
+moves the resulting score with no error and no log line — and the producer is a
+scheduled workflow whose orchestrator retries a failed node by re-sending the
+same payload. ``source`` belongs in the key because two producers reporting the
+same elevator at the same instant are two independent observations and
+averaging both is correct; a retry never changes it.
 """
 
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, func
+from sqlalchemy import DateTime, ForeignKey, Index, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -43,6 +52,15 @@ if TYPE_CHECKING:
 
 class TelemetryReading(Base):
     __tablename__ = "telemetry_readings"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "elevator_id",
+            "recorded_at",
+            "source",
+            name="uq_telemetry_readings_identity",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     elevator_id: Mapped[str] = mapped_column(ForeignKey("elevators.id", ondelete="CASCADE"))
@@ -76,20 +94,31 @@ class TelemetryReading(Base):
     elevator: Mapped["Elevator"] = relationship()
 
 
+# There is deliberately no index on ``(elevator_id, recorded_at DESC)`` any
+# more. The unique index behind ``uq_telemetry_readings_identity`` leads with
+# exactly those two columns, so it covers the same predicate and the planner
+# supplies the ordering itself.
+#
+# The only query that wants a leading ``elevator_id`` is
+# ``TelemetryRepository.list_for_elevator`` — the read endpoint. The inference
+# run's ``aggregate_window`` does *not*: it filters on ``recorded_at`` alone and
+# groups by ``elevator_id``, so it is served by ``ix_telemetry_readings_recorded``
+# below. (The comment this replaces claimed the inference run issued a
+# per-elevator window query. It never has.)
+#
+# Measured rather than assumed, on 200k rows: the read query costs 5 buffers /
+# 0.31 ms against the unique index alone, and 4 buffers / 0.21 ms with the old
+# index also present. The exact plan node varies with the data — both an index
+# scan backwards and a bitmap scan plus sort have been observed — which is why
+# the number that matters here is the difference, and it does not justify a
+# second index write on every insert into the hottest table in the schema.
+#
 # Declared after the class so the DESC ordering can be expressed with the
 # column's own ``.desc()`` rather than through ``postgresql_ops``. That
 # parameter is the slot for operator classes (``varchar_pattern_ops`` and the
 # like); passing "DESC" through it happens to render correctly today because
 # SQLAlchemy appends the string after the column name, but sort order is not
 # what it means and nothing guarantees it keeps working.
-Index(
-    # The window query the inference run issues once per elevator, and the read
-    # endpoint. DESC matches the scan direction of both.
-    "ix_telemetry_readings_elevator_recorded",
-    TelemetryReading.elevator_id,
-    TelemetryReading.recorded_at.desc(),
-)
-
 Index(
     # The retention prune and the fleet-staleness gauge, neither of which
     # filters by elevator.

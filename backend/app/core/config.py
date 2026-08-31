@@ -73,5 +73,19 @@ class Settings:
     # The window an inference run aggregates over.
     inference_window_hours: int = int(os.getenv("INFERENCE_WINDOW_HOURS", "24"))
 
+    # Shared secret for POST /api/telemetry/readings and POST /api/inference/run.
+    #
+    # Unset means open, which is the opposite of `deployment_environment` above
+    # and deliberately so. That one is fail-closed because forgetting it
+    # publishes unauthenticated write endpoints on the internet. This one only
+    # ever applies to routers that do not exist in production at all, and a
+    # fail-closed default would break pytest and a bare `uvicorn` run for anyone
+    # with no configuration. The safety comes from the other end instead: every
+    # environment that registers those routers sets this — docker-compose.yml
+    # does, and tests/unit/test_dev_compose.py asserts it against the file
+    # rather than against a fixture — and build_app warns at startup when it
+    # registers them unguarded.
+    telemetry_ingest_token: str | None = os.getenv("TELEMETRY_INGEST_TOKEN") or None
+
 
 settings = Settings()

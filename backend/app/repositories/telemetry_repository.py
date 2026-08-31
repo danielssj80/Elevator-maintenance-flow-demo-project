@@ -1,9 +1,43 @@
 from datetime import datetime
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, inspect, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.telemetry import TelemetryReading
+
+# The columns that identify a reading. Repeating one is a retry, not a new
+# observation — see the model docstring for why `source` is among them.
+IDENTITY_COLUMNS = ("elevator_id", "recorded_at", "source")
+
+
+def _as_insert_values(reading: TelemetryReading) -> dict[str, object]:
+    """One ORM instance flattened into values for a core INSERT.
+
+    The conflict-tolerant insert has to be a core statement, but the service
+    still speaks in domain objects, so the translation lives here. The primary
+    key is left out so the sequence assigns it, and a column that is unset and
+    carries a server default is left out too — naming it would insert NULL,
+    because a server default only applies to a column the statement omits.
+
+    **The same trap exists for a Python-side default and is not handled here**,
+    because no column on this table has one: every nullable column is
+    ``mapped_column(default=None)``, which is SQLAlchemy's way of saying "no
+    default", so passing None is exactly right. Adding a column with a real
+    Python-side default would silently write NULL instead of that default.
+    ``test_no_column_carries_a_python_side_default`` fails the day that happens,
+    which is better than a branch here that nothing exercises.
+    """
+    columns = inspect(TelemetryReading).local_table.columns
+    values: dict[str, object] = {}
+    for column in columns:
+        if column.primary_key:
+            continue
+        value = getattr(reading, column.key)
+        if value is None and column.server_default is not None:
+            continue
+        values[column.key] = value
+    return values
 
 
 class WindowAggregate:
@@ -38,8 +72,43 @@ class TelemetryRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create_many(self, readings: list[TelemetryReading]) -> None:
-        self._session.add_all(readings)
+    async def create_many(self, readings: list[TelemetryReading]) -> int:
+        """Insert readings, skipping any whose identity is already stored.
+
+        Returns the number of rows actually inserted, which is what the caller
+        reports as ``accepted``.
+
+        ``ON CONFLICT DO NOTHING`` rather than a read-then-insert: two
+        simultaneous retries would both read "absent" and both insert, which is
+        precisely the race a scheduler produces. Rather than ``DO UPDATE``
+        because a reading is an observation — a second report of the same
+        identity carries no new information, and overwriting would let a late
+        retry replace a value the last inference run already consumed.
+
+        A single multi-row VALUES clause, not executemany, so the ``RETURNING``
+        count is unambiguous. At the 1000-reading batch bound that is ~14k bound
+        parameters, well inside PostgreSQL's 65535 limit.
+
+        One statement also covers repeats *within* the batch, not just across
+        requests: PostgreSQL's speculative insertion sees the second copy
+        conflict with the first and skips it rather than raising. The service
+        deliberately does not pre-deduplicate the batch — a Python pass over it
+        was written, and deleting it left every test green, because this clause
+        already does the work. Code that survives its own deletion is not a
+        guard, so the behaviour is pinned by
+        ``test_a_reading_repeated_within_one_batch_is_persisted_once`` and
+        stated here, where it actually happens, instead.
+        """
+        if not readings:
+            return 0
+
+        result = await self._session.execute(
+            pg_insert(TelemetryReading)
+            .values([_as_insert_values(r) for r in readings])
+            .on_conflict_do_nothing(index_elements=list(IDENTITY_COLUMNS))
+            .returning(TelemetryReading.id)
+        )
+        return len(result.scalars().all())
 
     async def list_for_elevator(
         self, elevator_id: str, since: datetime, limit: int, until: datetime | None = None
