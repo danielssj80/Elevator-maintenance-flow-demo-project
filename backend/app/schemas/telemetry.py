@@ -69,8 +69,23 @@ class TelemetryBatchSchema(BaseModel):
 
 
 class TelemetryIngestResponseSchema(BaseModel):
+    """What the ingest actually did with the batch.
+
+    ``accepted`` counts the rows written, not the readings submitted. A reading
+    whose ``(elevator_id, recorded_at, source)`` is already stored is counted in
+    ``duplicates_ignored`` instead — whether it repeats an earlier request or
+    another reading in the same batch. A producer retrying a whole batch
+    therefore gets ``accepted: 0``, which is the honest answer and the one worth
+    logging.
+
+    ``batch_id`` labels the rows *this* request inserted. A retry that inserts
+    nothing returns a ``batch_id`` that labels no rows: the provenance of those
+    readings stays with the request that first stored them.
+    """
+
     batch_id: str
     accepted: int
+    duplicates_ignored: int
     rejected_elevator_ids: list[str]
     trace_id: str | None
 

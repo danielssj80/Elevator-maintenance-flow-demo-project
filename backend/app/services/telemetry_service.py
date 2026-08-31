@@ -12,6 +12,16 @@ Two decisions live here and are both load-bearing:
 * **Readings are persisted exactly as submitted.** No unit conversion happens
   here. The model's Kelvin feature space is reached at one boundary inside the
   inference path; converting here too would double-apply the offset.
+
+* **A repeated reading is a no-op, not an error.** A reading is identified by
+  ``(elevator_id, recorded_at, source)`` and stored at most once. The producer
+  is a scheduled workflow whose orchestrator retries a failed node by re-sending
+  the same payload, and the inference run averages *rows* over its window, so a
+  batch stored twice would weigh twice and move the score silently. A retry is a
+  correctly configured producer doing its job, so it succeeds with
+  ``accepted: 0`` rather than being rejected. That is a different situation from
+  a batch referencing no known elevator, which is a misconfigured producer and
+  still a 422.
 """
 
 import uuid
@@ -72,7 +82,7 @@ class TelemetryService:
         trace_id = current_trace_id()
         ingested_at = datetime.now(UTC)
 
-        await self._telemetry_repo.create_many(
+        inserted = await self._telemetry_repo.create_many(
             [
                 TelemetryReading(
                     elevator_id=r.elevator_id,
@@ -97,7 +107,11 @@ class TelemetryService:
 
         return TelemetryIngestResponseSchema(
             batch_id=batch_id,
-            accepted=len(valid),
+            accepted=inserted,
+            # Everything that referenced a known elevator and did not become a
+            # row: repeats within this batch, and readings already stored by an
+            # earlier request. The caller does not need them told apart.
+            duplicates_ignored=len(valid) - inserted,
             rejected_elevator_ids=rejected,
             trace_id=trace_id,
         )

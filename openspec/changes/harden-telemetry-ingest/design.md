@@ -40,22 +40,25 @@ a duplicate, and they are supposed to be stored. Node-level retry — the defaul
 and the case in the Notion task — re-sends the identical payload and is fully
 covered.
 
-## Decision 2 — `ON CONFLICT DO NOTHING`, plus an in-service dedup
+## Decision 2 — `ON CONFLICT DO NOTHING`, and nothing else
 
 The insert becomes
 `pg_insert(TelemetryReading).values([...]).on_conflict_do_nothing(index_elements=[...]).returning(TelemetryReading.id)`,
 and the count of returned ids is what `accepted` reports.
 
-`DO NOTHING` alone would handle intra-statement duplicates, but relying on that
-means relying on PostgreSQL's speculative-insertion semantics for a behaviour we
-have to state in a spec scenario. The service therefore drops repeats within the
-batch first, keeping the first occurrence. That makes the intra-batch rule
-explicit, testable without a database, and independent of the dialect. The
-`ON CONFLICT` clause then covers the cross-request case, which is the one a
-concurrent retry can hit and which no amount of in-process checking can close.
-
 Read-then-insert was rejected outright: two simultaneous retries both read
 "absent" and both insert, which is precisely the race a scheduler produces.
+
+**An in-service pre-deduplication was written and then removed.** The plan was
+to drop repeats within the batch in Python first, so that the intra-batch rule
+was stated explicitly rather than resting on PostgreSQL's speculative-insertion
+semantics. It was deleted because it survived its own mutation: with the pass
+removed, every test stayed green, because the single multi-row `INSERT`
+already skips a row conflicting with one inserted earlier in the same statement.
+Ten lines that look like a guard and enforce nothing are exactly the defect this
+project has paid for repeatedly, so the reliance is documented in
+`create_many`'s docstring and pinned by a test instead of being restated in code
+that does not run.
 
 ## Decision 3 — the response tells the truth about what happened
 

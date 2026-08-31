@@ -80,6 +80,16 @@ class TelemetryRepository:
         A single multi-row VALUES clause, not executemany, so the ``RETURNING``
         count is unambiguous. At the 1000-reading batch bound that is ~14k bound
         parameters, well inside PostgreSQL's 65535 limit.
+
+        One statement also covers repeats *within* the batch, not just across
+        requests: PostgreSQL's speculative insertion sees the second copy
+        conflict with the first and skips it rather than raising. The service
+        deliberately does not pre-deduplicate the batch — a Python pass over it
+        was written, and deleting it left every test green, because this clause
+        already does the work. Code that survives its own deletion is not a
+        guard, so the behaviour is pinned by
+        ``test_a_reading_repeated_within_one_batch_is_persisted_once`` and
+        stated here, where it actually happens, instead.
         """
         if not readings:
             return 0
