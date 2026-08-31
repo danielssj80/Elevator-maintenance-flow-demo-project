@@ -127,6 +127,16 @@ class ElevatorService:
 - Return ORM model instances or `None` — never raise `HTTPException`.
 - Accept a `Session` (or `AsyncSession`) via constructor.
 - Name methods clearly: `get_by_id`, `list_all`, `create`, `update`, `delete`.
+- **A repeatable write uses `ON CONFLICT DO NOTHING`, never read-then-insert.**
+  `TelemetryRepository.create_many` inserts with
+  `pg_insert(Model).values([...]).on_conflict_do_nothing(index_elements=[...]).returning(Model.id)`
+  and returns the number of rows it actually wrote, which is what the service
+  reports to the caller. Read-then-insert loses the race two concurrent retries
+  produce: both read "absent", both insert. A single multi-row `VALUES` clause
+  also covers repeats *within* one payload, because PostgreSQL skips a row
+  conflicting with one inserted earlier in the same statement — so do not add a
+  Python pre-deduplication pass on top. One was written here and deleted when
+  removing it left every test green.
 
 ```python
 class ElevatorRepository:
@@ -585,3 +595,27 @@ are right and the stack is stale.
   `deployment_environment != "production"`. Gate at **registration**, not inside
   the handler: an unregistered route cannot be reached by a guard that was
   written wrong.
+
+- **`X-Ingest-Token` guards the write endpoints outside production.**
+  `app/core/ingest_auth.py` holds `require_ingest_token`, applied as a route
+  dependency on `POST /api/telemetry/readings` and `POST /api/inference/run`.
+  It compares with `secrets.compare_digest` and answers one 401 for both an
+  absent and an incorrect token, so the endpoint cannot be used to discover
+  whether a guard is configured.
+
+  This one is **fail-open** — unset means open — which is the opposite of
+  `DEPLOYMENT_ENVIRONMENT` above and deliberately so. It only ever runs on
+  routers production does not register, and a fail-closed default would break
+  `pytest` and a bare `uvicorn` run for anyone with no configuration. The safety
+  comes from the other end: `docker-compose.yml` sets `TELEMETRY_INGEST_TOKEN`,
+  `build_app()` logs a warning when it registers those routers without one, and
+  `tests/unit/test_dev_compose.py` asserts both against the compose files.
+
+- **Assert a guard against the configuration that runs it, not only against a
+  fixture.** Round 3 of `telemetry-ingestion-inference` found the production
+  gate open in the one environment it existed to protect, after three rounds of
+  tests that all set the variable by hand. `tests/unit/test_dev_compose.py`
+  parses `docker-compose.yml` and `docker-compose.prod.yml` and is the only
+  place in the suite that would notice a guard correct in Python and absent from
+  the deployment. Add to it whenever a new guard depends on an environment
+  variable.

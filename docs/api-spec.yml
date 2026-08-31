@@ -168,11 +168,29 @@ paths:
         producer and is rejected with 422.
 
 
+        **Idempotent.** A reading is identified by
+        `(elevator_id, recorded_at, source)` and stored at most once. Submitting
+        the same batch again persists nothing and answers 201 with `accepted` 0
+        and `duplicates_ignored` equal to the batch size. The stored row wins:
+        a resubmission with different sensor values does not overwrite it. This
+        matters because the inference run averages *rows* over its window, so a
+        batch stored twice would weigh twice and move the resulting score with
+        no error and no log line — and the scheduled producer retries a failed
+        node by re-sending the same payload.
+
+
         **Not available in production.** The router is not registered when
         DEPLOYMENT_ENVIRONMENT is production, and the endpoint returns 404
         there. The deployed API has no authentication, so an ungated write
         endpoint would let anyone inject telemetry and re-score the live fleet.
+
+
+        **Requires `X-Ingest-Token`** where one is configured; see the
+        IngestToken security scheme. Absent and incorrect both answer 401 with
+        the same body.
       operationId: ingest_telemetry_readings
+      security:
+        - IngestToken: []
       requestBody:
         required: true
         content:
@@ -186,6 +204,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TelemetryIngestResponse"
+        "401":
+          $ref: "#/components/responses/MissingIngestToken"
         "404":
           description: Not registered in this environment (production)
         "422":
@@ -260,7 +280,15 @@ paths:
 
 
         **Not available in production.**
+
+
+        **Requires `X-Ingest-Token`** where one is configured — the same shared
+        secret as the ingest endpoint. Both are write endpoints reached by the
+        same scheduled producer, so guarding one and not the other would be a
+        gap with no rationale behind it.
       operationId: run_inference
+      security:
+        - IngestToken: []
       responses:
         "200":
           description: Run completed
@@ -268,6 +296,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InferenceRunResponse"
+        "401":
+          $ref: "#/components/responses/MissingIngestToken"
         "404":
           description: Not registered in this environment (production)
         "500":
@@ -617,15 +647,31 @@ components:
 
     TelemetryIngestResponse:
       type: object
-      required: [batch_id, accepted, rejected_elevator_ids, trace_id]
+      required:
+        [batch_id, accepted, duplicates_ignored, rejected_elevator_ids, trace_id]
       properties:
         batch_id:
           type: string
           format: uuid
-          description: Shared by every reading persisted from this request.
+          description: >
+            Shared by every reading persisted from this request. It labels the
+            rows *this* request inserted, so a retry that inserts nothing
+            returns a batch_id that labels no rows: the provenance of those
+            readings stays with the request that first stored them.
         accepted:
           type: integer
-          description: How many readings were persisted.
+          description: >
+            How many rows were written — not how many readings were submitted.
+            A reading whose identity is already stored is counted in
+            duplicates_ignored instead.
+        duplicates_ignored:
+          type: integer
+          description: >
+            Readings that referenced a known elevator and did not become a row,
+            because their (elevator_id, recorded_at, source) is already stored.
+            Counts repeats of an earlier request and repeats within this batch
+            alike. A producer retrying a whole batch gets accepted 0 and this
+            equal to the batch size, which is a success, not an error.
         rejected_elevator_ids:
           type: array
           items: { type: string }
@@ -694,7 +740,38 @@ components:
           description: Readings deleted by the retention prune at the end of the run.
 
 
+  securitySchemes:
+
+    IngestToken:
+      type: apiKey
+      in: header
+      name: X-Ingest-Token
+      description: >
+        Shared secret on the two write endpoints, compared in constant time.
+        Configured through TELEMETRY_INGEST_TOKEN.
+
+
+        Deliberately fail-open: when no token is configured the endpoints accept
+        a request without the header, so a fresh checkout and the test suite
+        work with no configuration, and the application logs a warning at
+        startup naming the endpoints it left unguarded. The guard therefore only
+        has effect where a token is set, which is why docker-compose.yml sets
+        one and a test asserts that it does. Production is protected by the
+        router gate instead: these endpoints are not registered there at all.
+
   responses:
+
+    MissingIngestToken:
+      description: >
+        The X-Ingest-Token header was absent or did not match. The two are
+        deliberately indistinguishable — a different status or body for each
+        would make the endpoint an oracle for whether a guard is configured.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            detail: Invalid or missing X-Ingest-Token
 
     NotFound:
       description: Resource not found
