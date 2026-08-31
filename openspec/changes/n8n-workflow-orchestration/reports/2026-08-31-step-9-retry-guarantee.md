@@ -107,3 +107,99 @@ the workflow JSON as its own source.
 
 **PASS** — steps 7, 9, 10.1–10.3 and 10.5 complete. 10.4 (canvas screenshots) is
 open and needs the editor UI.
+
+---
+
+# Addendum — Step 8, and three more generator defects the canary caught
+
+## The digest workflow
+
+`Schedule (06:00 Europe/Madrid) + Manual Trigger → POST /api/inference/run →
+GET /api/elevators → Code (facts) → AI Agent (prose)`. Both triggers feed the
+same chain, so a demonstration never waits for 06:00.
+
+The Code node computes every number — the level counts, the top five by score,
+the run's own skip counts — and the agent is told to use only what it is given.
+Output from a real run:
+
+> Today's fleet risk distribution shows 69 lifts at low risk, one at medium
+> risk, and none at high risk. The lift in the Oficinas Castellana building in
+> Valencia, with a medium risk score of 0.7445, needs immediate attention […]
+> No lifts were skipped during today's run […] 30 lifts were out of scope.
+
+Every figure in that paragraph is checkable against the database. The model
+contributed the wording and nothing else.
+
+Trend length stayed at exactly 6 points per lift across the re-scoring.
+
+## The Kelvin canary earned its place three more times
+
+Acceptance criterion 17.5 — *fleet score variance > 0* — is the only check that
+looks at whether the generated data means anything. It failed three separate
+times after the first fix, each with a different cause, and each would have
+shipped a demonstration of seventy identical healthy lifts.
+
+**1. The scenario moved the whole fleet, and the window average cancelled it.**
+The first generator folded the scenario into a single hash, so every lift was
+re-rolled from scratch each tick, and `load_factor` multiplied the whole fleet's
+torque at once. Both effects are global, and the inference run averages a
+24-hour window. Measured directly:
+
+| ticks averaged | before | after |
+|---|---|---|
+| 1 | sd 6.69 | sd 9.23 |
+| 4 | sd 3.04 | sd 9.24 |
+| 16 | sd 3.04 | sd 9.24 |
+| 96 | sd 3.04 | sd 9.24 |
+
+Fixed by splitting the lift's persistent operating character (scenario-independent,
+σ 12) from a light per-tick jitter. Confirmed against the live stack: per-tick
+sd 9.10 and 9.29, window-average sd **9.12**.
+
+**2. It fabricated `motor_run_hours_cumulative`.** The real formula needs
+`hourly_trips_avg`, which is not in the `GET /api/elevators` response — this
+producer cannot compute it. The column is nullable for exactly that reason: the
+inference service falls back to the lift's own building type, usage and age,
+using the same function the offline script uses. The generator was inventing a
+duty factor of 0.06 and overriding a correct fallback with a worse guess.
+Consumed motor life is the strongest discriminator in this model, so a
+fabricated constant gave every lift the same wear curve. Removing the field
+moved variance from `0.000000` to `0.000065`.
+
+**3. The deterministic gaussian had no tails.** Sum-of-three-uniforms has the
+right mean and σ and is *bounded*: it can never land further than 1.5σ from the
+mean. That is fatal here, because the high-risk signature in this model is **low
+torque with exhausted motor life** — the committed `predictions.json` has ELV-001
+at **9.5 Nm scoring 0.7999**, and 9.5 is a −3σ draw from a mean of 40. The
+truncated distribution never reached it, so the fleet came out uniformly healthy
+while looking statistically reasonable. Replaced with Box–Muller.
+
+| | after fix 1 | after fix 2 | after fix 3 |
+|---|---|---|---|
+| torque range | 22.7..60.6 | 22.7..60.6 | **16.1..64.6** |
+| variance | 0.000000 | 0.000065 | **0.008638** |
+| distinct scores | 12 | 14 | **16** |
+| score range | 0.0000..0.0027 | 0.0000..0.0580 | **0.0000..0.7445** |
+
+The fleet still reads mostly healthy, which is a defensible thing for a
+well-maintained fleet on an ordinary day, and the scores now differentiate.
+Whether to bias the generator toward more units in trouble is a demonstration
+choice, not a correctness one, and is left alone.
+
+## A defect found by using the scripts, not by reading them
+
+Re-importing a **published** workflow into the live instance broke it with
+`Credentials not found`: the export deliberately strips credential blocks. The
+import succeeded and the execution failed, which is exactly what the spec
+scenario describes — but it left the round trip broken for anyone following the
+README. `scripts/n8n-import-workflow.sh` closes it, mapping node types back onto
+the credential ids the bootstrap script creates.
+
+Also fixed while running things: a `ReferenceError: seed is not defined`, from a
+patch that removed the line defining it along with the block it was replacing.
+Three consecutive scheduled executions failed on it before it was noticed —
+which is an argument for watching the execution list, not the file.
+
+## Outcome
+
+**PASS** — step 8 complete, both workflows active and exported.

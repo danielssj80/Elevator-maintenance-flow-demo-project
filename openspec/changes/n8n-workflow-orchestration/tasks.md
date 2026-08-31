@@ -114,12 +114,12 @@
 
 ## 8. Workflow: daily inference and ops digest
 
-- [ ] 8.1 `Schedule Trigger (06:00 Europe/Madrid) + Manual Trigger →
+- [x] 8.1 `Schedule Trigger (06:00 Europe/Madrid) + Manual Trigger →
       POST /api/inference/run → GET /api/elevators → Code (digest facts) →
       AI Agent (ops digest)`
-- [ ] 8.2 Manual trigger present, so a demo never waits a day
-- [ ] 8.3 Same credential on the inference node
-- [ ] 8.4 Verify: scores move, and the trend still holds **exactly six** points
+- [x] 8.2 Manual trigger present, so a demo never waits a day
+- [x] 8.3 Same credential on the inference node
+- [x] 8.4 Verify: scores move, and the trend still holds **exactly six** points
 
 ## 9. Prove the retry guarantee end to end
 
@@ -138,8 +138,8 @@ than assuming it.
       `meta.instanceId` and every `credentials` block via `jq`
 - [x] 10.2 Export both workflows to `n8n/workflows/`
 - [x] 10.3 **Verify a scrubbed definition still imports** into a clean instance
-- [ ] 10.4 Commit a canvas screenshot per workflow — for this audience, that is
-      what actually gets looked at
+- [ ] 10.4 Commit a canvas screenshot per workflow — needs the editor UI at
+      http://localhost:5678; both workflows are imported and active
 - [x] 10.5 `n8n/workflows/README.md`: what each does, its cadence, what it needs
       configured
 
