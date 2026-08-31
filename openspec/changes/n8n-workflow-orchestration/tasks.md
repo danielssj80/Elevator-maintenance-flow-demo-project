@@ -67,7 +67,7 @@
       the `otel` module not enabled, then `N8N_OTEL_ENABLED` unset, then the
       wrong service-name variable. Resolved by reading the running image's
       `otel.constants.js` / `otel.config.js` rather than guessing
-- [ ] 4.5 Under the queue profile, confirm `n8n-worker` appears as its own
+- [x] 4.5 Under the queue profile, confirm `n8n-worker` appears as its own
       service in Tempo
 - [ ] 4.6 Screenshot the service graph — this is the milestone's deliverable image
 
@@ -83,15 +83,17 @@
 
 ## 6. Collector: scrape n8n, and keep the cloud pipeline affordable
 
-- [ ] 6.1 Add an n8n scrape job to `observability/otel-collector-config.yaml`
+- [x] 6.1 Add an n8n scrape job to `observability/otel-collector-config.yaml`
       with an `n8n_role` label distinguishing main from worker
-- [ ] 6.2 Enable `N8N_METRICS` and `N8N_METRICS_INCLUDE_QUEUE_METRICS`;
+- [x] 6.2 Enable `N8N_METRICS` and `N8N_METRICS_INCLUDE_QUEUE_METRICS`;
       **workflow-id and node-type labels off** — cardinality
-- [ ] 6.3 `--force-recreate` the collector: it only reads its mounted config at
+- [x] 6.3 `--force-recreate` the collector: it only reads its mounted config at
       startup
-- [ ] 6.4 **Verify the worker target actually scrapes before building any panel
-      on it** — n8n has a long history of `/metrics` 404ing on workers. Record
-      what answered and what did not
+- [x] 6.4 **Verify the worker target actually scrapes** — it does, 131 series on
+      2.37.6, so the plan's 404 caution does not apply. It found something worse:
+      **two of the dashboard's three metric names do not exist in this version**
+      and would have shown "No data" for ever. See
+      `reports/2026-08-31-step-6-metrics-verification.md`
 - [ ] 6.5 Add a `filter` processor to the **cloud** pipeline only, dropping n8n
       `node.execute` spans; keep them locally where they are useful
 
@@ -143,10 +145,12 @@ than assuming it.
 
 ## 11. Wire up the orchestration dashboard
 
-- [ ] 11.1 Delete the "Not wired up yet" text panel in
+- [x] 11.1 Delete the "Not wired up yet" text panel in
       `observability/grafana/dashboards/orchestration.json`
-- [ ] 11.2 Confirm its three existing queries now return data
-- [ ] 11.3 Add a panel only for what step 6.4 proved actually scrapes
+- [x] 11.2 ~~Confirm its three existing queries now return data~~ — they could
+      not: two named metrics that do not exist. Rewritten against the real names
+      and each of the five queries verified against Prometheus
+- [x] 11.3 Add a panel only for what step 6.4 proved actually scrapes
 
 ## 12. Review and Update Existing Tests (MANDATORY)
 

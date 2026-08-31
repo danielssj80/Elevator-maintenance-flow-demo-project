@@ -30,6 +30,28 @@ receivers:
           static_configs:
             - targets: ["localhost:8888"]
 
+  # n8n's Prometheus endpoint. Both processes are scraped, labelled by role, so
+  # a dashboard can tell main from worker — but only main reports queue depth
+  # (the Bull metrics live there), which is why the orchestration dashboard's
+  # queue panels must not be built against the worker target.
+  #
+  # The worker is listed even though the `queue` profile may not be running:
+  # a target that does not resolve is reported as `up == 0` rather than failing
+  # the Collector, and "the worker is down" is a truthful thing for the metric
+  # to say. It is also how 6.4 gets answered honestly instead of by assumption.
+  prometheus/n8n:
+    config:
+      scrape_configs:
+        - job_name: n8n
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["n8n:5678"]
+              labels:
+                n8n_role: main
+            - targets: ["n8n-worker:5678"]
+              labels:
+                n8n_role: worker
+
 processors:
   # First in every pipeline: refuses data rather than letting the Collector be
   # OOM-killed, which on an 8 GB WSL host is a real risk with LGTM alongside.
@@ -83,7 +105,7 @@ service:
       processors: [memory_limiter, resource/env, batch]
       exporters: [otlp_http/local]
     metrics:
-      receivers: [otlp, prometheus/self]
+      receivers: [otlp, prometheus/self, prometheus/n8n]
       processors: [memory_limiter, resource/env, batch]
       exporters: [otlp_http/local]
     logs:
