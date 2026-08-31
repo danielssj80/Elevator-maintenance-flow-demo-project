@@ -203,3 +203,104 @@ which is an argument for watching the execution list, not the file.
 ## Outcome
 
 **PASS** — step 8 complete, both workflows active and exported.
+
+---
+
+# Addendum 2 — Making the generated data mean something, and what did not work
+
+The calibration target is not aesthetic. `predictions.json` is the same model
+scoring the same 70 lifts, so it is the distribution this generator should
+approximate, and a large divergence is a bug rather than a knob:
+
+| | offline (`predictions.json`) | online, start | online, end |
+|---|---|---|---|
+| levels | 5 high / 5 medium / 60 low | 0 / 1 / 69 | 3 / 0 / 67 |
+| variance | 0.089414 | 0.008638 | **0.039573** |
+| max score | 0.9981 | 0.7445 | **0.9945** |
+
+## What was wrong, and was fixed
+
+**The agent was scoring outside the model's training distribution.** Its schema
+let it pick an ambient temperature anywhere in 5–40 °C, and it chose **19.7 °C**
+for two of three ticks. The model was trained on `gauss(300 K, 2)` — 26.85 °C ± 2
+— so 19.7 °C is 3.5σ below anything it has seen, and XGBoost extrapolating falls
+to the majority (healthy) leaf. The one tick inside the band is the one that
+produced any risk at all. The schema is now 23–31 °C and the system message
+explains why in physical terms.
+
+**Infrastructure machine rooms were 2 K cold.** The offline synthesis adds
+`+2.0 K` for `building_type == "infrastructure"` and the model was trained with
+that term. Omitting it put every infrastructure lift — which is also where the
+worst consumed motor life lives — two degrees off-distribution. Restored.
+
+Both are cases of the same error: the generator has to stay inside the manifold
+the model knows, or every score is an extrapolation and the output is undefined
+rather than wrong.
+
+## What was tried and reverted
+
+**Torque σ conditioned on wear**, and **thermal rise conditioned on wear**. The
+idea reads well — a new machine holds close to nominal, a worn one wanders, so
+the tails are reached by the lifts that earned them — and it moved the variance
+(0.026 → 0.040). It did not move **which** lifts were flagged, at all.
+
+The model's own attribution says why:
+
+```
+ELV-054  high 0.9892   rise 8.00 K  rpm 1168  -> Motor temperature 0.405, Motor speed 0.390
+ELV-001  low  0.0348   rise 6.80 K  rpm 1168  -> Load torque 0.428 (decreases risk)
+```
+
+ELV-001 has a *lower* thermal rise than ELV-054 and still scores low. Risk at
+this operating point is gated by AI4I's heat-dissipation rule — rise < 8.6 K with
+speed < 1380 rpm — and speed sits at the 1168 floor for any lift with torque
+above ~23 Nm, which is nearly the whole fleet. So every lift is one small thermal
+draw from being flagged, and dispersion in torque changes the variance without
+changing the outcome. Worse, tightening young lifts removed the low-torque tail
+that produces the offline fleet's genuine high-risk cases.
+
+Both reverted to the offline synthesis exactly: flat σ 10, flat `gauss(10, 1)`
+rise. **Matching the training synthesis beat improving on it.**
+
+## The uncomfortable finding, stated plainly
+
+**In this model, at this operating point, risk does not track age and usage.**
+
+ELV-001 — infrastructure, 25 years, 45 trips an hour, motor life fully consumed —
+scores 0.0095 online. It scored 0.7999 offline, and not because of its age: its
+offline torque draw was 9.5 Nm, a −3σ value that puts it outside AI4I's
+power band. Online it drew ~31 Nm and is unremarkable.
+
+So the lifts flagged online and offline differ because they are different draws
+from the same distribution, and both are dominated by the draw rather than by
+the machine. Consumed motor life is one feature among several and is not the
+deciding one here.
+
+That is a property of the model and of AI4I's feature space, not of this change,
+and it cannot be fixed in the generator without fabricating a correlation the
+model does not contain — which would be dressing up the demonstration rather
+than driving it. It belongs in the backlog as a modelling question.
+
+## The gap left open
+
+The tail is thinner than offline's: p90 is 0.0046 against offline's 0.788, so
+about 4% of the fleet is in the tail against roughly 14%. Two candidate causes,
+neither confirmed: the inference run averages a 24-hour window while the offline
+score is a single draw, so extremes are diluted; and the scenario's load term
+adds a component offline does not have.
+
+Left as-is deliberately. The instruction was that fewer high-risk lifts is
+acceptable and the number can grow later, and closing this gap by tuning
+constants until the counts match would be exactly the overfitting this report
+has spent its length avoiding.
+
+## What stands
+
+Five changes, each independently justified and each measurably better:
+
+1. Scenario constrained to the training band (was extrapolating at 19.7 °C).
+2. `+2 K` for infrastructure machine rooms, matching the training synthesis.
+3. Box–Muller instead of a bounded sum of uniforms, so the tails exist.
+4. `motor_run_hours_cumulative` not sent, so the backend's own derivation runs.
+5. Lift character split from tick noise, so window averaging does not cancel the
+   spread.
