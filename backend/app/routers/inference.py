@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ingest_auth import require_ingest_token
 from app.database import get_db
 from app.repositories.elevator_repository import ElevatorRepository
 from app.repositories.telemetry_repository import TelemetryRepository
@@ -22,7 +23,11 @@ def get_inference_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Infer
     )
 
 
-@router.post("/run", response_model=InferenceRunResponseSchema)
+@router.post(
+    "/run",
+    response_model=InferenceRunResponseSchema,
+    dependencies=[Depends(require_ingest_token)],
+)
 async def run_inference(
     service: Annotated[InferenceService, Depends(get_inference_service)],
 ) -> InferenceRunResponseSchema:

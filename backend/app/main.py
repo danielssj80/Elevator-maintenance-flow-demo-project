@@ -81,12 +81,21 @@ def build_app(environment: str | None = None) -> FastAPI:
     # re-score the live fleet. They are therefore not registered at all there —
     # not registered-and-guarded, which leaves a route to get the guard wrong on.
     #
-    # Follow-up: an X-Ingest-Token header compared with secrets.compare_digest,
-    # with None meaning open in dev. That is additive; this gate is what removes
-    # the exposure.
+    # Outside production they are registered *and* guarded by an X-Ingest-Token
+    # header (app/core/ingest_auth.py). That guard is fail-open, so an
+    # environment that registers these routers without configuring a token has
+    # to say so out loud rather than look identical to one that did.
     if environment != "production":
         app.include_router(telemetry.router)
         app.include_router(inference.router)
+        if not settings.telemetry_ingest_token:
+            logger.warning(
+                "TELEMETRY_INGEST_TOKEN is not configured: %s and %s are registered "
+                "and accept unauthenticated writes. Expected for a local checkout "
+                "and for the test suite; every deployed environment must set it.",
+                "POST /api/telemetry/readings",
+                "POST /api/inference/run",
+            )
 
     @app.exception_handler(FeatureBuildError)
     async def _feature_build_error(request: Request, exc: FeatureBuildError) -> JSONResponse:

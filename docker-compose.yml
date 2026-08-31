@@ -35,6 +35,14 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: elevator-backend
       DEPLOYMENT_ENVIRONMENT: local
+      # The X-Ingest-Token guard on POST /api/telemetry/readings and
+      # POST /api/inference/run is fail-open: an unset token means open, so
+      # that a fresh checkout and the test suite work with no configuration.
+      # That makes setting it *here* the thing that gives the guard effect in
+      # the only environment that registers those routers. A literal, not a
+      # secret: this is a local development credential for a demo stack, and
+      # production never registers the endpoints it guards.
+      TELEMETRY_INGEST_TOKEN: local-dev-ingest-token
       INFERENCE_URL: http://inference:8001
       # Pinned off, not left to the default: the botocore instrumentation emits
       # GenAI LOG RECORDS alongside its span, and this is what keeps their

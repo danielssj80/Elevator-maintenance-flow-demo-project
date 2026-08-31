@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ingest_auth import require_ingest_token
 from app.database import get_db
 from app.repositories.elevator_repository import ElevatorRepository
 from app.repositories.telemetry_repository import TelemetryRepository
@@ -26,7 +27,14 @@ def get_telemetry_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Telem
     )
 
 
-@router.post("/readings", response_model=TelemetryIngestResponseSchema, status_code=201)
+@router.post(
+    "/readings",
+    response_model=TelemetryIngestResponseSchema,
+    status_code=201,
+    # On the write route only. The read route below answers what telemetry
+    # exists and is not a way to change anything.
+    dependencies=[Depends(require_ingest_token)],
+)
 async def ingest_readings(
     batch: TelemetryBatchSchema,
     service: Annotated[TelemetryService, Depends(get_telemetry_service)],
