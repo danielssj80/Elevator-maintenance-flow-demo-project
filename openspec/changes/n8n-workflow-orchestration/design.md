@@ -58,7 +58,22 @@ continues an incoming `traceparent` — that requirement exists in the
 `observability` spec and is tested. So linkage needs no code: just don't
 override `OTEL_PROPAGATORS`.
 
-Two conditions, both silent when unmet:
+**Three** conditions, all silent when unmet, and all three were wrong on the
+first attempt. Verified against the running 2.37.6 image rather than from
+memory — `dist/modules/otel/otel.constants.js` and `otel.config.js` are the
+authority, and the compose file quotes them:
+
+- **`N8N_OTEL_ENABLED` defaults to `false`**, and OTel ships as an n8n *module*
+  whose `enabledModules` list defaults to **empty**. So `N8N_ENABLED_MODULES=otel`
+  is required *as well*: setting `N8N_OTEL_ENABLED=true` alone configures a
+  module that was never loaded. Nothing is logged in either case.
+- **The variable is `N8N_OTEL_EXPORTER_SERVICE_NAME`**, not
+  `N8N_OTEL_SERVICE_NAME`. The wrong spelling is silently ignored and the
+  service appears in Tempo as the default `n8n`.
+- The endpoint is the **base** URL; n8n appends
+  `N8N_OTEL_EXPORTER_OTLP_TRACING_PATH` (default `/v1/traces`) itself.
+
+And two more, equally silent:
 
 - **Pin the n8n image tag to ≥ 2.19.0.** OTel tracing landed there. An older
   `:latest` pull simply has no tracing, with nothing to indicate why.
@@ -68,6 +83,12 @@ Two conditions, both silent when unmet:
   spans. Set it to `false` in dev, and **verify linkage with an activated
   workflow, not the Test button.** This is the single most likely way to conclude
   the whole feature is broken when it is working.
+
+**Verified, not assumed.** With an activated one-node probe workflow, Tempo
+returns a single trace containing `n8n-main` (`workflow.execute`, `node.execute`)
+*and* `elevator-backend` (`GET /api/elevators` with its `SELECT` spans against
+Postgres). That is the milestone's deliverable image, and it was reached only
+after the three corrections above.
 
 The `X-N8N-Execution-Id` / `X-N8N-Workflow-Id` middleware goes in regardless
 (~30 lines). It is the honest fallback if injection is ever off, and it is

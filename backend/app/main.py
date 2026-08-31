@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.metrics import refresh_snapshot_periodically, register_instruments
+from app.core.orchestration_context import OrchestrationContextMiddleware
 from app.core.telemetry import configure_telemetry, get_tracer, shutdown_telemetry
 from app.database import AsyncSessionLocal
 from app.routers import elevators, inference, telemetry
@@ -65,6 +66,10 @@ def build_app(environment: str | None = None) -> FastAPI:
     # Before middleware and routers: FastAPI instrumentation wraps the ASGI app,
     # so it must be installed before anything else takes a reference to it.
     configure_telemetry(app)
+
+    # After configure_telemetry, so the OTel instrumentation is further out and
+    # its server span is already current when this runs.
+    app.add_middleware(OrchestrationContextMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

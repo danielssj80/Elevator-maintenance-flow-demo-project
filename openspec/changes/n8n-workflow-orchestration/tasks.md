@@ -12,65 +12,72 @@
 
 ## 1. Environment and credentials
 
-- [ ] 1.1 Add the n8n variables to `observability/.env.example`:
+- [x] 1.1 Add the n8n variables to `observability/.env.example`:
       `N8N_ENCRYPTION_KEY`, `N8N_EXECUTIONS_MODE`, `TELEMETRY_INGEST_TOKEN`
-- [ ] 1.2 Generate a real `N8N_ENCRYPTION_KEY` into the git-ignored root `.env`
-- [ ] 1.3 Confirm `.gitignore` covers it and that no key is ever committed
+- [x] 1.2 Generate a real `N8N_ENCRYPTION_KEY` into the git-ignored root `.env`
+- [x] 1.3 Confirm `.gitignore` covers it and that no key is ever committed
 
 ## 2. Compose: n8n in queue-mode shape
 
-- [ ] 2.1 Add `n8n-db-init`: one-shot, `psql ... || CREATE DATABASE n8n`, gated
+- [x] 2.1 Add `n8n-db-init`: one-shot, `psql ... || CREATE DATABASE n8n`, gated
       with `service_completed_successfully`, mirroring the `migrate` service.
       **Not** `docker-entrypoint-initdb.d` — it only runs on an empty data
       directory and `postgres_data` already has data everywhere
-- [ ] 2.2 Add `n8n` (main), pinned to an explicit tag **≥ 2.19.0** — OTel tracing
+- [x] 2.2 Add `n8n` (main), pinned to an explicit tag **≥ 2.19.0** — OTel tracing
       landed there and an older `:latest` has none, silently. `mem_limit: 768m`
-- [ ] 2.3 Add `redis` and `n8n-worker` behind `profiles: [queue]`;
+- [x] 2.3 Add `redis` and `n8n-worker` behind `profiles: [queue]`;
       `EXECUTIONS_MODE` from an env var defaulting to `regular`.
       `n8n-worker` `mem_limit: 640m`
-- [ ] 2.4 Set `DB_POSTGRESDB_POOL_SIZE=4` on every n8n process
-- [ ] 2.5 Set `N8N_ENCRYPTION_KEY` **identically** on main and worker — a
+- [x] 2.4 Set `DB_POSTGRESDB_POOL_SIZE=4` on every n8n process
+- [x] 2.5 Set `N8N_ENCRYPTION_KEY` **identically** on main and worker — a
       mismatch fails every credential-using node with an opaque error
-- [ ] 2.6 Confirm `docker-compose.prod.yml` is untouched
-- [ ] 2.7 Bring the stack up; verify n8n reaches Postgres and (under the profile)
+- [x] 2.6 Confirm `docker-compose.prod.yml` is untouched
+- [x] 2.7 Bring the stack up; verify n8n reaches Postgres and (under the profile)
       Redis, and that the editor loads
 
 ## 3. OpenTelemetry on every n8n process
 
-- [ ] 3.1 Add the OTel env block to `n8n` **and** `n8n-worker`, identical. In
+- [x] 3.1 Add the OTel env block to `n8n` **and** `n8n-worker`, identical — plus
+      **`N8N_ENABLED_MODULES: otel`** and **`N8N_OTEL_ENABLED: "true"`**, neither
+      of which was in the plan. OTel ships as a module whose enabled list is
+      empty by default, so the config var alone loads nothing, silently. And the
+      service-name var is `N8N_OTEL_EXPORTER_SERVICE_NAME`, not
+      `N8N_OTEL_SERVICE_NAME`. In
       queue mode the worker continues the trace; configured on main alone it
       executes everything and emits nothing
-- [ ] 3.2 Set `N8N_OTEL_TRACES_PRODUCTION_ONLY=false` in dev. **It defaults to
+- [x] 3.2 Set `N8N_OTEL_TRACES_PRODUCTION_ONLY=false` in dev. **It defaults to
       `true`**, so editor "Test workflow" runs export zero spans — the single
       most likely way to conclude this is broken when it works
-- [ ] 3.3 Set `N8N_AGENTS_TRACING_RECORD_INPUTS=false` and
+- [x] 3.3 Set `N8N_AGENTS_TRACING_RECORD_INPUTS=false` and
       `N8N_AGENTS_TRACING_RECORD_OUTPUTS=false`; both default to `true` and
       would ship prompts and model output outward
-- [ ] 3.4 Use the **base** OTLP URL, never a full path, and never alongside an
+- [x] 3.4 Use the **base** OTLP URL, never a full path, and never alongside an
       explicit exporter endpoint. Wrong form 404s at DEBUG only
-- [ ] 3.5 Do not override `OTEL_PROPAGATORS` — W3C is the default and is what
+- [x] 3.5 Do not override `OTEL_PROPAGATORS` — W3C is the default and is what
       links the trace
 
 ## 4. Verify trace linkage (do this before building anything on it)
 
-- [ ] 4.1 Build a throwaway workflow with one HTTP node hitting `GET /api/elevators`
-- [ ] 4.2 **Activate** it — do not use the Test button
-- [ ] 4.3 In Tempo, confirm one trace spanning `n8n → elevator-backend → postgresql`
-- [ ] 4.4 If unlinked, in this order: `PRODUCTION_ONLY`, then the image tag, then
-      `OTEL_PROPAGATORS`, then fall back to span links
+- [x] 4.1 Build a throwaway workflow with one HTTP node hitting `GET /api/elevators`
+- [x] 4.2 **Activate** it — do not use the Test button
+- [x] 4.3 In Tempo, confirm one trace spanning `n8n → elevator-backend → postgresql`
+- [x] 4.4 It *was* unlinked, three times. Root causes, in order found:
+      the `otel` module not enabled, then `N8N_OTEL_ENABLED` unset, then the
+      wrong service-name variable. Resolved by reading the running image's
+      `otel.constants.js` / `otel.config.js` rather than guessing
 - [ ] 4.5 Under the queue profile, confirm `n8n-worker` appears as its own
       service in Tempo
 - [ ] 4.6 Screenshot the service graph — this is the milestone's deliverable image
 
 ## 5. Backend: orchestration attribute middleware (TDD)
 
-- [ ] 5.1 Write a **failing** test: a request carrying `X-N8N-Execution-Id` and
+- [x] 5.1 Write a **failing** test: a request carrying `X-N8N-Execution-Id` and
       `X-N8N-Workflow-Id` produces a server span carrying both as attributes
-- [ ] 5.2 Write a **failing** test: a request with neither header is served
+- [x] 5.2 Write a **failing** test: a request with neither header is served
       normally and the span carries no orchestration attributes — not empty ones
-- [ ] 5.3 Implement `app/core/orchestration_context.py` and wire it in `main.py`
-- [ ] 5.4 Tests pass; **mutation-check**: remove the middleware → red
-- [ ] 5.5 Confirm it is a no-op with `otel_enabled` false
+- [x] 5.3 Implement `app/core/orchestration_context.py` and wire it in `main.py`
+- [x] 5.4 Tests pass; **mutation-check**: remove the middleware → red
+- [x] 5.5 Confirm it is a no-op with `otel_enabled` false
 
 ## 6. Collector: scrape n8n, and keep the cloud pipeline affordable
 
