@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.main import app
 from app.models.elevator import Elevator
 from app.models.telemetry import TelemetryReading
 
@@ -205,15 +206,45 @@ async def test_an_unconfigured_token_leaves_ingest_open(
 async def test_the_inference_trigger_is_guarded_by_the_same_token(
     client: AsyncClient, configured_token: str
 ):
-    """No token, no run — and the 401 must come before the service is reached.
-
-    No inference client is stubbed here on purpose: if the guard let the request
-    through, the run would try to reach the scoring service and answer 503 or
-    500, never 401.
-    """
     response = await client.post(RUN_PATH)
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_trigger_starts_no_run(
+    client: AsyncClient, configured_token: str
+):
+    """The spec says "before any inference run is started", so assert that.
+
+    The status code alone does not say it. An unguarded `POST /api/inference/run`
+    against an empty test database answers **200**, not an error: there is no
+    telemetry in the window, so every elevator is skipped and the run completes
+    without ever calling the scorer. So 401-vs-200 is the only thing a status
+    assertion distinguishes, and nothing would notice a guard that rejected the
+    response *after* the run had already rewritten scores.
+
+    A spy in place of the real service is what closes that. It records the call
+    and returns nothing usable — reaching it at all is the failure.
+    """
+    from app.routers.inference import get_inference_service
+
+    started = False
+
+    class SpyInferenceService:
+        async def run(self):
+            nonlocal started
+            started = True
+            raise AssertionError("the run was started despite a rejected token")
+
+    app.dependency_overrides[get_inference_service] = lambda: SpyInferenceService()
+    try:
+        response = await client.post(RUN_PATH)
+    finally:
+        app.dependency_overrides.pop(get_inference_service, None)
+
+    assert response.status_code == 401
+    assert started is False, "the guard resolved after the service, not before it"
 
 
 # ── The startup warning ──────────────────────────────────────────────────────

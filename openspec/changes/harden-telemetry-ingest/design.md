@@ -99,12 +99,24 @@ producers expressing the same moment in different offsets collide correctly.
 **Index bookkeeping.** `ix_telemetry_readings_elevator_recorded` covers
 `(elevator_id, recorded_at DESC)`. The new unique index covers
 `(elevator_id, recorded_at, source)` — the same leading columns, so it covers
-the same predicate and the planner supplies the ordering itself. Verified rather
-than assumed: on a 200,000-row table the per-elevator window query plans as a
-bitmap index scan on `uq_telemetry_readings_identity` (4 buffer hits) followed by
-a 14-row sort, 0.28 ms. Keeping both would pay a second index write on every
-insert into the hottest table in the schema for no read benefit, so the old one
-is dropped in the same migration and recreated on downgrade. `ix_telemetry_readings_recorded`, which the prune and the staleness
+the same predicate and the planner supplies the ordering itself.
+
+**Which query actually wants it.** Only `TelemetryRepository.list_for_elevator`,
+the read endpoint. The inference run's `aggregate_window` filters on
+`recorded_at` alone and groups by `elevator_id`, so it is served by
+`ix_telemetry_readings_recorded` and is unaffected either way. An earlier draft
+of this section, and the comment it came from, credited the index to "the window
+query the inference run issues once per elevator" — a query that does not exist.
+
+Measured rather than assumed, on a 200,000-row table: the read query costs
+**5 buffers / 0.31 ms** against the unique index alone, and **4 buffers /
+0.21 ms** with the old index also present. The exact plan node is data-dependent
+— both `Index Scan Backward` and a bitmap scan plus a small sort have been
+observed on different row distributions — so the figure that carries the
+decision is the difference between those two, not the shape of either. It does
+not justify a second index write on every insert into the hottest table in the
+schema, so the old index is dropped in the same migration and recreated on
+downgrade. `ix_telemetry_readings_recorded`, which the prune and the staleness
 gauge use and which does not lead with `elevator_id`, stays.
 
 ## Decision 5 — the token guard, and where it is proven

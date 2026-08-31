@@ -386,3 +386,61 @@ def test_upgrade_dedups_existing_readings_and_then_constrains(dedup_migration_db
         "a duplicate identity was accepted after the migration; the unique constraint is "
         "not enforcing"
     )
+
+
+# --- Migration/model drift: the whole schema, not one constraint at a time ------------------
+
+
+async def _schema_drift(async_url: str) -> list:
+    """Differences between the migrated database and `Base.metadata`.
+
+    `compare_metadata` is what `alembic revision --autogenerate` uses to decide
+    what a migration should contain. Run against a database already at head it
+    answers the opposite question: what does head still fail to express?
+
+    Driven through `run_sync` because the comparison needs a synchronous
+    Connection and the project's only Postgres driver is asyncpg.
+    """
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.database import Base
+
+    engine = create_async_engine(async_url)
+    try:
+        async with engine.connect() as conn:
+            return await conn.run_sync(
+                lambda sync_conn: compare_metadata(
+                    MigrationContext.configure(sync_conn), Base.metadata
+                )
+            )
+    finally:
+        await engine.dispose()
+
+
+def test_the_migrated_schema_matches_the_orm_models(empty_migration_db: str) -> None:
+    """`alembic upgrade head` must produce exactly what the models declare.
+
+    Nothing else in the suite checks this. `conftest.py` builds the test schema
+    with `Base.metadata.create_all`, so every other test sees the models and
+    never the migrations — a migration that forgets a column, an index or a
+    constraint is invisible until production diverges.
+
+    Concretely: the migration adding `uq_telemetry_readings_identity` also drops
+    `ix_telemetry_readings_elevator_recorded`, which the model stopped
+    declaring. Deleting that `op.drop_index` left the entire suite green before
+    this test existed — the index simply survived in the database and nothing
+    looked. This is the guard for that, and for every migration after it.
+    """
+    result = _alembic_upgrade("head", empty_migration_db)
+    assert result.returncode == 0, f"alembic upgrade head failed:\n{result.stderr}"
+
+    drift = _run(_schema_drift(_MIGRATION_ASYNC_URL))
+
+    assert drift == [], (
+        "the migrated schema does not match the ORM models. Each entry is "
+        "(operation, object) as `alembic revision --autogenerate` would emit it — "
+        "an 'add_index'/'remove_index' pair means a migration forgot the index "
+        f"change its model made:\n{drift}"
+    )

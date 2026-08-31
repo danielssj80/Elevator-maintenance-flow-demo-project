@@ -268,3 +268,40 @@ def test_no_column_carries_a_python_side_default():
         "be written as NULL rather than taking that default — teach it to omit "
         "them, the way it already omits columns with a server default."
     )
+
+
+@pytest.mark.asyncio
+async def test_re_ingesting_the_identical_batch_leaves_the_aggregate_untouched(
+    db_session: AsyncSession,
+):
+    """The spec scenario, literally: the *identical* batch, twice.
+
+    `test_a_duplicated_batch_does_not_move_the_window_aggregate` above re-sends a
+    superset and asserts the aggregate moves by exactly the new reading. That is
+    the realistic retry, but it is not what the scenario says, and the averages
+    of an exactly-doubled batch are unchanged by arithmetic even with no
+    constraint at all — so only `reading_count` discriminates the literal case.
+    Asserting it here means the scenario is covered by the thing it describes.
+    """
+    db_session.add(_make_elevator("ELV-ID08"))
+    await db_session.flush()
+    repo = TelemetryRepository(db_session)
+
+    def payload() -> list[TelemetryReading]:
+        return [
+            _make_reading("ELV-ID08", NOW - timedelta(minutes=15), ambient_c=20.0),
+            _make_reading("ELV-ID08", NOW - timedelta(minutes=30), ambient_c=30.0),
+        ]
+
+    await repo.create_many(payload())
+    await db_session.flush()
+    before = (await repo.aggregate_window(WINDOW_START, NOW))["ELV-ID08"]
+
+    await repo.create_many(payload())
+    await db_session.flush()
+    after = (await repo.aggregate_window(WINDOW_START, NOW))["ELV-ID08"]
+
+    assert after.reading_count == before.reading_count == 2
+    assert after.ambient_temperature_c == pytest.approx(before.ambient_temperature_c)
+    assert after.motor_speed_rpm == pytest.approx(before.motor_speed_rpm)
+    assert after.load_torque_nm == pytest.approx(before.load_torque_nm)

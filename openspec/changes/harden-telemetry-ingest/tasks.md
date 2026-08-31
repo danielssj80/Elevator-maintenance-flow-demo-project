@@ -185,9 +185,18 @@ Each sub-task means: break the implementation, run the suite, confirm it goes
 
 ## 13. Independent Review and Close-out
 
-- [ ] 13.1 Run `/adversarial-review`, fix every finding, and re-run the mutation
+- [x] 13.1 Run `/adversarial-review`, fix every finding, and re-run the mutation
       checks in step 7 afterwards — the previous change's fixes introduced fresh
-      defects of the class they were fixing in three separate rounds
+      defects of the class they were fixing in three separate rounds.
+      **Two passes.** The implementing session's own pass found 3 issues and is
+      recorded in the step 7 report; it is not independent and said so. An
+      independent cold-start session then found 7 more —
+      `reports/2026-08-31-adversarial-review-independent.md`. Verdict PASS WITH
+      GAPS, no Blocker, no Major. F1–F6 and Q2 fixed, mutations re-run (P, Q, R
+      all red). **Q1 is open and needs the author**: confirm
+      `SELECT count(*) FROM telemetry_readings` is 0 on production, since the
+      migration's unbounded DELETE is defended by that assumption and it cannot
+      be verified from here
 - [ ] 13.2 `/archive` the change and sync `openspec/specs/telemetry-ingestion/`
 - [ ] 13.3 `/commit` and open the PR (merge needs approval)
 - [ ] 13.4 Set the Notion task *Make telemetry ingest idempotent before n8n

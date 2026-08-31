@@ -90,6 +90,13 @@ def test_prod_compose_does_not_configure_an_ingest_token():
 
     A token in the production file would suggest those endpoints exist in
     production, which is the misreading the router gate exists to prevent.
+
+    Narrower than its name: this reads the `environment:` block only, and the
+    prod `backend` service also loads `env_file: /etc/elevator/.env`, which lives
+    outside the repository and cannot be checked from here. So it asserts that
+    *this file* declares no token, not that the deployed process has none.
+    Harmless either way — a token would guard routes that production does not
+    register — but the gap is stated rather than implied.
     """
     environment = _service_environment(PROD_COMPOSE, "backend")
 
