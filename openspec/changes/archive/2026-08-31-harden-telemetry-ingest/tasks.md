@@ -198,7 +198,9 @@ Each sub-task means: break the implementation, run the suite, confirm it goes
       migration's unbounded DELETE is defended by that assumption and it cannot
       be verified from here
 - [x] 13.2 `/archive` the change and sync `openspec/specs/telemetry-ingestion/`
-- [ ] 13.3 `/commit` and open the PR (merge needs approval)
-- [ ] 13.4 Set the Notion task *Make telemetry ingest idempotent before n8n
-      starts retrying batches* to Done, and the *X-Ingest-Token* task to Done
-      noting that the n8n-side credential wiring moves to change 3
+- [x] 13.3 `/commit` and open the PR — **PR #33**, CI green (backend, 54s).
+      Merge needs approval and is the only remaining gate
+- [ ] 13.4 Set both Notion tasks to Done — **deliberately not done yet.** Both
+      are at *In progress* with a Resolution section naming PR #33 and the open
+      pre-merge question. Marking work Done while it sits unmerged would make
+      the board say something untrue; they flip on merge
