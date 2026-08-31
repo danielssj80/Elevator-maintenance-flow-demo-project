@@ -172,29 +172,6 @@
           "refId": "A"
         }
       ]
-    },
-    {
-      "type": "timeseries",
-      "title": "AI agent tokens and cost",
-      "description": "Emitted by n8n's own agent instrumentation. Counts only - no prompt or output content leaves the instance.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 23
-      },
-      "targets": [
-        {
-          "expr": "sum by (type) (rate(n8n_instance_ai_tokens_total[5m]))",
-          "legendFormat": "tokens {{type}}",
-          "refId": "A"
-        },
-        {
-          "expr": "rate(n8n_instance_ai_cost_usd_total[5m])",
-          "legendFormat": "usd/s",
-          "refId": "B"
-        }
-      ]
     }
   ]
 }

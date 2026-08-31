@@ -99,18 +99,18 @@
 
 ## 7. Workflow: telemetry ingest (every 15 minutes)
 
-- [ ] 7.1 `Schedule Trigger → GET /api/elevators → AI Agent (Bedrock Nova Lite,
+- [x] 7.1 `Schedule Trigger → GET /api/elevators → AI Agent (Bedrock Nova Lite,
       Structured Output Parser) → Code → POST /api/telemetry/readings`
-- [ ] 7.2 Constrain the agent to **one typed scenario object** — no per-elevator
+- [x] 7.2 Constrain the agent to **one typed scenario object** — no per-elevator
       numbers. Letting it emit readings reintroduces the Kelvin/Celsius
       corruption through the front door
-- [ ] 7.3 The Code node derives readings deterministically from the scenario,
+- [x] 7.3 The Code node derives readings deterministically from the scenario,
       in Celsius/rpm/Nm/hours
-- [ ] 7.4 **Stamp `recorded_at` in the Code node, not the HTTP node.** This is
+- [x] 7.4 **Stamp `recorded_at` in the Code node, not the HTTP node.** This is
       what makes a retry idempotent: n8n re-runs the failed node with the same
       input, so an upstream timestamp survives the retry
-- [ ] 7.5 Attach the `X-Ingest-Token` as an n8n **credential**, never inline
-- [ ] 7.6 Verify a run: 201, rows land, each carrying a `trace_id`
+- [x] 7.5 Attach the `X-Ingest-Token` as an n8n **credential**, never inline
+- [x] 7.6 Verify a run: 201, rows land, each carrying a `trace_id`
 
 ## 8. Workflow: daily inference and ops digest
 
@@ -126,21 +126,21 @@
 This is what `harden-telemetry-ingest` was carved out for; verify it here rather
 than assuming it.
 
-- [ ] 9.1 Run the ingest workflow; record the row count and the fleet scores
-- [ ] 9.2 Force the HTTP node to fail and let n8n retry it — confirm the retry
+- [x] 9.1 Run the ingest workflow; record the row count and the fleet scores
+- [x] 9.2 Force the HTTP node to fail and let n8n retry it — confirm the retry
       answers 201 with `accepted` 0 and the row count is unchanged
-- [ ] 9.3 Re-score; confirm the scores equal those from a single ingest
-- [ ] 9.4 Record the result in `reports/YYYY-MM-DD-step-9-retry-guarantee.md`
+- [x] 9.3 Re-score; confirm the scores equal those from a single ingest
+- [x] 9.4 Record the result in `reports/YYYY-MM-DD-step-9-retry-guarantee.md`
 
 ## 10. Export and publish the definitions
 
-- [ ] 10.1 Write `scripts/export-n8n-workflow.sh` stripping `id`, `versionId`,
+- [x] 10.1 Write `scripts/export-n8n-workflow.sh` stripping `id`, `versionId`,
       `meta.instanceId` and every `credentials` block via `jq`
-- [ ] 10.2 Export both workflows to `n8n/workflows/`
-- [ ] 10.3 **Verify a scrubbed definition still imports** into a clean instance
+- [x] 10.2 Export both workflows to `n8n/workflows/`
+- [x] 10.3 **Verify a scrubbed definition still imports** into a clean instance
 - [ ] 10.4 Commit a canvas screenshot per workflow — for this audience, that is
       what actually gets looked at
-- [ ] 10.5 `n8n/workflows/README.md`: what each does, its cadence, what it needs
+- [x] 10.5 `n8n/workflows/README.md`: what each does, its cadence, what it needs
       configured
 
 ## 11. Wire up the orchestration dashboard
