@@ -5,7 +5,7 @@
 | **Status** | Proposed — artifacts complete, implementation not started |
 | **Milestone** | M5 — Observability & Orchestration (change 3 of 3) |
 | **Notion task** | [n8n workflow orchestration (self-hosted, queue mode)](https://app.notion.com/p/3ca3ada00a9581ecb0bcf606e3ef4814) |
-| **Branch** | `feature/n8n-workflow-orchestration`, stacked on `feature/harden-telemetry-ingest` |
+| **Branch** | `feature/n8n-workflow-orchestration`, from `main` |
 | **Started** | 2026-08-31 |
 
 ## Summary
@@ -15,13 +15,13 @@ shape, two workflows on two trigger types, native OpenTelemetry tracing on every
 process, and Prometheus metrics that finally answer the orchestration dashboard
 shipped in change 1. Last of the three changes in milestone M5.
 
-## Why the branch is stacked
+## What it depends on
 
-The workflows send the `X-Ingest-Token` that `harden-telemetry-ingest` (PR #33)
-made the write endpoints check, and they depend on its ingest idempotency —
-n8n retries a failed node by re-sending the same payload, and without an identity
-for a reading a retried batch would weigh double in the window average. Merge
-order: #33 first, then this.
+`harden-telemetry-ingest` (PR #33, merged 2026-08-31). The workflows send the
+`X-Ingest-Token` it made the write endpoints check, and they depend on its
+ingest idempotency: n8n retries a failed node by re-sending the same payload,
+and without an identity for a reading a retried batch would weigh double in the
+window average. Step 9 proves that end to end rather than assuming it.
 
 ## The three things most likely to waste an afternoon
 

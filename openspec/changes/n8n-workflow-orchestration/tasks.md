@@ -4,9 +4,11 @@
 
 - [x] 0.1 Create branch `feature/n8n-workflow-orchestration`
 - [x] 0.2 Verify current branch with `git branch --show-current`
-- [ ] 0.3 **Stacked on `feature/harden-telemetry-ingest` (PR #33), not on `main`.**
-      This change sends the `X-Ingest-Token` those endpoints check. Record the
-      stack in the README and merge PR #33 first
+- [x] 0.3 ~~Stacked on `feature/harden-telemetry-ingest` (PR #33)~~ — **PR #33 is
+      merged** (squash, `d4dee9a`, 2026-08-31) and this branch is rebased onto
+      `main`. No longer stacked; the `X-Ingest-Token` these workflows send is in
+      `main`. Its open question is closed too: `telemetry_readings` was confirmed
+      empty in production, so the migration's unbounded DELETE was a no-op there
 - [ ] 0.4 Verify change 2's endpoints still respond: `POST /api/telemetry/readings`
       and `POST /api/inference/run` with a token, `GET /api/elevators`
 
