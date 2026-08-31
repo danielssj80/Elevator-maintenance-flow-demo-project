@@ -24,6 +24,14 @@ tags:
     description: Post-visit report submission
   - name: system
     description: Health and system endpoints
+  - name: telemetry
+    description: >
+      Elevator sensor-reading ingest and retrieval. Not registered when
+      DEPLOYMENT_ENVIRONMENT is production — see the note on each operation.
+  - name: inference
+    description: >
+      Fleet re-scoring from persisted telemetry. Not registered when
+      DEPLOYMENT_ENVIRONMENT is production.
 
 paths:
 
@@ -141,6 +149,137 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/ValidationError"
+
+  /api/telemetry/readings:
+    post:
+      tags: [telemetry]
+      summary: Ingest a batch of telemetry readings
+      description: >
+        Persists up to 1000 readings in one request. Readings are stored in the
+        units submitted — degrees Celsius, rpm, Nm, cumulative hours — and are
+        never converted here; the model's Kelvin feature space is reached at one
+        boundary inside the inference path.
+
+
+        A reading referencing an unknown elevator id is filtered out and
+        reported in `rejected_elevator_ids` rather than failing the batch, so a
+        scheduled producer does not lose 99 good readings over one stale id. A
+        batch in which no reading references a known elevator is a misconfigured
+        producer and is rejected with 422.
+
+
+        **Not available in production.** The router is not registered when
+        DEPLOYMENT_ENVIRONMENT is production, and the endpoint returns 404
+        there. The deployed API has no authentication, so an ungated write
+        endpoint would let anyone inject telemetry and re-score the live fleet.
+      operationId: ingest_telemetry_readings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TelemetryBatch"
+      responses:
+        "201":
+          description: Batch accepted, in whole or in part
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryIngestResponse"
+        "404":
+          description: Not registered in this environment (production)
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+    get:
+      tags: [telemetry]
+      summary: List readings for one elevator
+      description: >
+        Readings for one elevator within a time window, newest first. An unknown
+        elevator id returns 200 with an empty list: the caller is asking what
+        telemetry exists, and "none" is an answer rather than an error.
+      operationId: list_telemetry_readings
+      parameters:
+        - name: elevator_id
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            example: ELV-001
+        - name: hours
+          in: query
+          required: false
+          description: Size of the lookback window, in hours.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2160
+            default: 24
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        "200":
+          description: Readings, ordered by recorded_at descending
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TelemetryReading"
+        "404":
+          description: Not registered in this environment (production)
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/inference/run:
+    post:
+      tags: [inference]
+      summary: Re-score the in-scope fleet from persisted telemetry
+      description: >
+        Aggregates each in-scope elevator's readings over the run window, scores
+        them through the dedicated inference service, and rewrites risk score,
+        risk level, explanation, the three top features and the six-day trend.
+
+
+        An in-scope elevator with no readings in the window is skipped entirely
+        — not scored, not trend-shifted, not zeroed — so a unit that stopped
+        reporting reads as stale rather than as low risk. Out-of-scope elevators
+        are never touched.
+
+
+        Returns 503 when the inference service is unreachable. That is the
+        normal state anywhere it is not deployed, so it is reported as a
+        designed absence and never as a 500.
+
+
+        **Not available in production.**
+      operationId: run_inference
+      responses:
+        "200":
+          description: Run completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceRunResponse"
+        "404":
+          description: Not registered in this environment (production)
+        "500":
+          description: >
+            The run could not build a usable feature matrix — for example every
+            temperature column fell outside the plausible absolute-temperature
+            band, which is the signature of a broken Celsius-to-Kelvin
+            conversion. Returned as a described error, never as a traceback.
+        "502":
+          description: The inference service responded, but not with a score
+        "503":
+          description: The inference service is unreachable
 
 components:
 
@@ -375,6 +514,185 @@ components:
         detail:
           type: string
           example: Elevator not found
+
+    TelemetryReadingInput:
+      type: object
+      description: >
+        One sensor reading, in the units the sensor reports. Do not pre-convert
+        temperatures to Kelvin.
+      required:
+        - elevator_id
+        - recorded_at
+        - ambient_temperature_c
+        - motor_temperature_c
+        - motor_speed_rpm
+        - load_torque_nm
+      properties:
+        elevator_id: { type: string, example: ELV-001 }
+        recorded_at:
+          type: string
+          format: date-time
+          description: >
+            When the sensor took the reading. May not be in the future beyond a
+            small clock-skew tolerance: a future-dated reading would sit inside
+            every subsequent inference window and never be reached by the
+            retention prune.
+        ambient_temperature_c:
+          type: number
+          format: float
+          minimum: -60
+          maximum: 120
+          description: >
+            Machine-room ambient temperature in degrees Celsius. Consumed by the
+            model. Bounded so a Kelvin value submitted here (~300) is rejected at
+            the door rather than becoming a row that fails every later run.
+          example: 27.0
+        motor_temperature_c:
+          type: number
+          format: float
+          minimum: -60
+          maximum: 120
+          description: >
+            Motor/process temperature in degrees Celsius. Consumed by the model.
+            Bounded for the same reason as ambient.
+          example: 37.0
+        motor_speed_rpm:
+          type: number
+          format: float
+          minimum: 0
+          description: Consumed by the model.
+        load_torque_nm:
+          type: number
+          format: float
+          minimum: 0
+          description: Consumed by the model.
+        motor_run_hours_cumulative:
+          type: number
+          format: float
+          minimum: 0
+          nullable: true
+          description: >
+            Lifetime run hours. Consumed by the model. When omitted, the run
+            derives motor life from age, average hourly trips and the
+            building-type run parameters, matching the offline generator.
+        vibration_mm_s:
+          type: number
+          format: float
+          minimum: 0
+          nullable: true
+          description: Persisted. NOT consumed by the current model.
+        door_cycles:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Persisted. NOT consumed by the current model.
+        door_errors:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Persisted. NOT consumed by the current model.
+        motor_current_a:
+          type: number
+          format: float
+          minimum: 0
+          nullable: true
+          description: Persisted. NOT consumed by the current model.
+
+    TelemetryBatch:
+      type: object
+      required: [source, readings]
+      properties:
+        source:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Identifies the producer, e.g. the n8n workflow name.
+          example: n8n-telemetry-ingest
+        readings:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/TelemetryReadingInput"
+
+    TelemetryIngestResponse:
+      type: object
+      required: [batch_id, accepted, rejected_elevator_ids, trace_id]
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+          description: Shared by every reading persisted from this request.
+        accepted:
+          type: integer
+          description: How many readings were persisted.
+        rejected_elevator_ids:
+          type: array
+          items: { type: string }
+          description: Submitted elevator ids that do not exist.
+        trace_id:
+          type: string
+          nullable: true
+          description: >
+            W3C trace id of this request as 32 hex characters, recorded on every
+            persisted row. Null when tracing is disabled.
+
+    TelemetryReading:
+      allOf:
+        - $ref: "#/components/schemas/TelemetryReadingInput"
+        - type: object
+          required: [ingested_at, source, batch_id]
+          properties:
+            ingested_at: { type: string, format: date-time }
+            source: { type: string }
+            batch_id: { type: string, format: uuid }
+            trace_id: { type: string, nullable: true }
+
+    InferenceRunResponse:
+      type: object
+      required:
+        - scored
+        - skipped_no_telemetry
+        - skipped_out_of_range
+        - out_of_scope
+        - readings_considered
+        - window_hours
+        - duration_seconds
+        - pruned_readings
+      properties:
+        scored:
+          type: integer
+          description: In-scope elevators re-scored in this run.
+        skipped_no_telemetry:
+          type: integer
+          description: >
+            In-scope elevators with no readings in the window, left untouched.
+            The number to watch: it is how a fleet that quietly stopped
+            reporting becomes visible.
+        skipped_out_of_range:
+          type: integer
+          description: >
+            In-scope elevators excluded because a telemetry value was outside
+            the plausible range. One broken sensor is skipped and reported
+            rather than stopping every other elevator's score.
+        out_of_scope:
+          type: integer
+        readings_considered:
+          type: integer
+          description: Readings that fed the scored elevators.
+        model_version:
+          type: string
+          nullable: true
+          description: Content hash of the model artefact. Null when nothing was scored.
+        window_hours:
+          type: integer
+        duration_seconds:
+          type: number
+          format: float
+        pruned_readings:
+          type: integer
+          description: Readings deleted by the retention prune at the end of the run.
+
 
   responses:
 

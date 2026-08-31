@@ -19,6 +19,7 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 
 from app.database import Base  # noqa: E402
 import app.models.elevator  # noqa: E402, F401 — register models with Base
+import app.models.telemetry  # noqa: E402, F401
 import app.models.visit_report  # noqa: E402, F401
 
 target_metadata = Base.metadata

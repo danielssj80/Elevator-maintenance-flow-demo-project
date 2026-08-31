@@ -5,6 +5,11 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.0
 boto3==1.38.29
+# Runtime, not just dev: inference_client calls the scoring service with it.
+# It was previously only in requirements-dev.txt, which left
+# opentelemetry-instrumentation-httpx installed against a library the runtime
+# image did not have.
+httpx==0.28.1
 # Used directly by briefing_service for the Bedrock thread offload; it would
 # otherwise be present only transitively via Starlette.
 anyio==4.14.2

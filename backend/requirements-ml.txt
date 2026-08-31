@@ -5,5 +5,4 @@
 # Usage: pip install -r requirements.txt -r requirements-ml.txt
 
 xgboost>=2.0
-shap>=0.45
 joblib>=1.3

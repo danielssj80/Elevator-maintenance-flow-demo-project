@@ -4,8 +4,12 @@ Offline prediction generation script.
 Synthesises one feature vector per elevator, runs the trained XGBoost model
 to produce risk_score, computes SHAP explanations, and writes predictions.json.
 
-Usage (from repo root):
-    python backend/ml/generate_predictions.py
+Usage (from backend/):
+    cd backend && python -m ml.generate_predictions
+
+Run as a module, not as a path: `python backend/ml/generate_predictions.py`
+from the repo root leaves `backend/` off sys.path, and the shared
+`app.ml.feature_mapping` import below would fail with ImportError.
 
 Requires:
     backend/ml/model.joblib  (produced by train.py)
@@ -24,7 +28,16 @@ from datetime import date, timedelta
 
 import joblib
 import numpy as np
-import shap
+import xgboost as xgb
+
+from app.ml.feature_mapping import (
+    FEATURE_NAME_MAP,
+    format_value,
+    nl_explanation,
+    risk_level,
+    tool_wear_from_run_hours,
+    type_one_hot,
+)
 
 ROOT = pathlib.Path(__file__).parent
 MODEL_PATH = ROOT / "model.joblib"
@@ -99,63 +112,10 @@ TECHNICIANS = [
 ZONES = ["Madrid", "Barcelona", "Sevilla", "Bilbao", "Valencia",
          "Zaragoza", "A Coruña", "Santander", "Málaga"]
 
-# ── Feature mapping ───────────────────────────────────────────────────────────
-
-# Sanitised column names produced by train.py:
-#   spaces → _, brackets → _, then strip("_") from both ends
-# One-hot on Type (H/L/M sorted alphabetically) with drop_first drops H →
-#   keeps Type_L and Type_M; Type_H is the implicit reference (both = 0)
-FEATURE_NAME_MAP: dict[str, str] = {
-    "Air_temperature__K":      "Ambient temperature",
-    "Process_temperature__K":  "Motor temperature",
-    "Rotational_speed__rpm":   "Motor speed",
-    "Torque__Nm":              "Load torque",
-    "Tool_wear__min":          "Motor useful life remaining",
-    "Type_L":                  "Installation type (residential)",
-    "Type_M":                  "Installation type (commercial)",
-}
-
-# Dataset means (approximate, from AI4I 2020 documentation). Tool_wear is intentionally
-# absent: its feature is displayed as remaining-life %, which needs no dataset mean.
-FEATURE_MEANS: dict[str, float] = {
-    "Air_temperature__K":     300.0,
-    "Process_temperature__K": 310.0,
-    "Rotational_speed__rpm":  1538.8,
-    "Torque__Nm":             39.99,
-    "Type_L":                 0.6,
-    "Type_M":                 0.3,
-}
-
-# ── Motor-life model ──────────────────────────────────────────────────────────
-# AI4I "Tool wear [min]" (0..253, high = worn → failure) is repurposed as a proxy for
-# how much of an elevator motor's rated life has been consumed. Anchored to a motor's
-# maximum run-hours before failure: ~4 h/day actual run × 365 × 25-year life ≈ 40,000 h.
-MAX_MOTOR_HOURS = 40_000.0
-
-# Per building type: (motor run-minutes per trip, active hours/day feeding hourly_trips_avg).
-# Heavy-use buildings (infrastructure = metro/airport/hospital) consume life faster.
-RUN_PARAMS: dict[str, tuple[float, int]] = {
-    "residential":    (0.2, 8),
-    "commercial":     (0.4, 10),
-    "office":         (0.4, 10),
-    "infrastructure": (1.5, 16),
-}
-
-RISK_ADJ = {"high": "High", "medium": "Moderate", "low": "Low"}
-
-
 # ── Helper functions ──────────────────────────────────────────────────────────
 
 def _days_ago(rng: random.Random, n: int) -> str:
     return (date.today() - timedelta(days=n)).isoformat()
-
-
-def _risk_level(score: float) -> str:
-    if score > 0.80:
-        return "high"
-    if score >= 0.50:
-        return "medium"
-    return "low"
 
 
 def _generate_trend(rng: random.Random, risk_score: float, level: str) -> list[float]:
@@ -177,33 +137,6 @@ def _generate_trend(rng: random.Random, risk_score: float, level: str) -> list[f
             trend.append(round(min(0.49, max(0.0, val)), 2))
     trend[-1] = round(risk_score, 2)
     return trend
-
-
-def _format_value(col: str, raw: float, shap_val: float) -> str:
-    mean = FEATURE_MEANS.get(col, 0.0)
-    delta = raw - mean
-    direction = shap_val > 0  # True = pushes toward failure
-
-    if col in ("Air_temperature__K", "Process_temperature__K"):
-        # Convert absolute temperature K -> °C for display. A delta is a difference, so its
-        # magnitude is identical in K and °C — only the absolute reading is offset by 273.15.
-        sign = "+" if delta >= 0 else "−"
-        qualifier = "above avg" if direction else "within range"
-        return f"{raw - 273.15:.0f}°C ({sign}{abs(delta):.1f}°C, {qualifier})"
-    if col == "Rotational_speed__rpm":
-        qualifier = "high RPM" if direction else "normal"
-        return f"{raw:.0f} rpm ({qualifier})"
-    if col == "Torque__Nm":
-        sign = "+" if delta >= 0 else "−"
-        qualifier = "above avg" if direction else "within range"
-        return f"{raw:.1f} Nm ({sign}{abs(delta):.1f} Nm, {qualifier})"
-    if col == "Tool_wear__min":
-        # raw is tool_wear in [0,253]; invert to remaining motor life as a percentage.
-        remaining = round((1.0 - raw / 253.0) * 100)
-        return f"{remaining}% remaining" + (" (critical)" if remaining < 20 else "")
-    if col in ("Type_L", "Type_M"):
-        return "yes" if raw > 0.5 else "no"
-    return f"{raw:.2f}"
 
 
 def _synthesise_features(
@@ -241,17 +174,17 @@ def _synthesise_features(
     # Tool wear — proxy for fraction of the motor's rated life consumed.
     # Cumulative lifetime run-hours (age × usage, scaled per building type) over the
     # rated ~40,000 h before failure, mapped onto the AI4I [0, 253] domain.
-    run_min_per_trip, active_hours = RUN_PARAMS[building_type]
-    life_run_hours = hourly_trips_avg * active_hours * run_min_per_trip / 60.0 * 365 * age_years
-    fraction_consumed = min(1.0, life_run_hours / MAX_MOTOR_HOURS)
     if push_to_failure:
-        fraction_consumed = rng.uniform(0.85, 0.97)
-    tool_wear = fraction_consumed * 253.0
+        tool_wear = rng.uniform(0.85, 0.97) * 253.0
+    else:
+        tool_wear = tool_wear_from_run_hours(
+            None,
+            building_type=building_type,
+            hourly_trips_avg=hourly_trips_avg,
+            age_years=age_years,
+        )
 
-    # Type one-hot: drop_first on sorted H/L/M drops H (infrastructure = reference)
-    # Type_L=1 for residential, Type_M=1 for commercial/office, both=0 for infrastructure
-    type_l = 1.0 if building_type == "residential" else 0.0
-    type_m = 1.0 if building_type in ("commercial", "office") else 0.0
+    type_l, type_m = type_one_hot(building_type)
 
     return {
         "Air_temperature__K":     round(air_temp, 2),
@@ -404,7 +337,7 @@ def _shap_features(
         {
             "name": FEATURE_NAME_MAP.get(col_names[j], col_names[j]),
             "impact": round(float(impacts[k]), 3),
-            "value": _format_value(col_names[j], float(raw_arr[j]), float(shap_vals[j])),
+            "value": format_value(col_names[j], float(raw_arr[j]), float(shap_vals[j])),
             # Sign of the SHAP value: does this factor push the risk score up or down?
             "direction": "increases" if shap_vals[j] > 0 else "decreases",
         }
@@ -412,18 +345,21 @@ def _shap_features(
     ]
 
 
-def _nl_explanation(risk_level: str, features: list[dict]) -> str:
-    f = features
-    return (
-        f"{RISK_ADJ[risk_level]} risk: {f[0]['name']} ({f[0]['value']}) is the primary "
-        f"driver, combined with {f[1]['name']} ({f[1]['value']}) and "
-        f"{f[2]['name']} ({f[2]['value']})."
-    )
-
-
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
+def generate(
+    model_path: pathlib.Path = MODEL_PATH,
+    dump_vectors_path: pathlib.Path | None = None,
+) -> None:
+    """Generate predictions.json.
+
+    ``dump_vectors_path`` additionally writes the final in-scope feature matrix
+    and its scores as a golden fixture. The online scorer is tested against
+    that file, which is how online and offline scoring are held to the same
+    numbers. Regenerate it whenever the model changes:
+
+        cd backend && python -m ml.generate_predictions --dump-vectors
+    """
     if not model_path.exists():
         print(f"ERROR: model not found at {model_path}", file=sys.stderr)
         print("Run backend/ml/train.py first.", file=sys.stderr)
@@ -504,18 +440,25 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
     print(f"  Medium-risk guarantee: steered {steered} units · {med_count} now medium")
 
     # ── SHAP ──────────────────────────────────────────────────────────────────
+    # From the booster itself rather than the `shap` package: pred_contribs
+    # returns exact TreeSHAP, which is the same quantity shap.TreeExplainer was
+    # computing for an XGBoost model. Dropping the dependency removes
+    # shap → numba → llvmlite (~250 MB) from the offline path, and it is the
+    # same call the inference service makes, so the two cannot diverge.
     print("Computing SHAP values …")
-    explainer = shap.TreeExplainer(model)
-    shap_matrix = explainer.shap_values(X)  # shape: (n, n_features)
+    dmatrix = xgb.DMatrix(X, feature_names=col_names)
+    # The trailing column is the bias (the model's expected value), not a
+    # feature, so it is dropped to keep the matrix (n, n_features).
+    shap_matrix = model.get_booster().predict(dmatrix, pred_contribs=True)[:, :-1]
 
     # ── Assemble in-scope predictions ─────────────────────────────────────────
     pred_rng = random.Random(42)
     in_scope_preds: list[dict] = []
     for i, e in enumerate(in_scope):
         score = round(risk_scores[i], 4)
-        level = _risk_level(score)
+        level = risk_level(score)
         feats = _shap_features(col_names, feature_vecs[i], shap_matrix[i])
-        nl = _nl_explanation(level, feats)
+        nl = nl_explanation(level, feats)
         trend = _generate_trend(pred_rng, score, level)
         in_scope_preds.append({
             **e,
@@ -546,6 +489,20 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
 
     assert len(all_preds) == 100, f"Expected 100 elevators, got {len(all_preds)}"
 
+    if dump_vectors_path is not None:
+        dump_vectors_path.write_text(
+            json.dumps(
+                {
+                    "feature_names": col_names,
+                    "rows": [[float(v) for v in row] for row in X],
+                    "expected_scores": [round(s, 10) for s in risk_scores],
+                    "elevator_ids": [e["id"] for e in in_scope],
+                },
+                indent=2,
+            )
+        )
+        print(f"Wrote {len(X)} golden feature vectors to {dump_vectors_path}")
+
     OUTPUT_PATH.write_text(json.dumps(all_preds, indent=2, ensure_ascii=False))
     print(f"\nWrote {len(all_preds)} predictions to {OUTPUT_PATH}")
 
@@ -561,4 +518,5 @@ def generate(model_path: pathlib.Path = MODEL_PATH) -> None:
 
 
 if __name__ == "__main__":
-    generate()
+    dump = ROOT.parent / "inference" / "tests" / "golden_vectors.json" if "--dump-vectors" in sys.argv else None
+    generate(dump_vectors_path=dump)

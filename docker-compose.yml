@@ -35,6 +35,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: elevator-backend
       DEPLOYMENT_ENVIRONMENT: local
+      INFERENCE_URL: http://inference:8001
       # Pinned off, not left to the default: the botocore instrumentation emits
       # GenAI LOG RECORDS alongside its span, and this is what keeps their
       # bodies empty. Briefing prompts carry fleet risk data, technician names
@@ -52,6 +53,40 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+  # --- Inference (M5 · telemetry-ingestion-inference) -----------------------
+  # Dev only. docker-compose.prod.yml is deliberately untouched: production has
+  # no scorer, which is why the backend turns an unreachable one into a 503
+  # rather than an error. The telemetry and inference routers are not even
+  # registered there.
+  #
+  # This is also the third hop of the n8n → backend → inference → postgres
+  # trace, which is what makes the observability work from the previous change
+  # show something a single service cannot.
+  inference:
+    build:
+      context: ./backend
+      dockerfile: inference/Dockerfile
+    ports:
+      # Published so the scorer can be exercised directly with curl while
+      # debugging, without going through the backend.
+      - "8001:8001"
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: elevator-inference
+      DEPLOYMENT_ENVIRONMENT: local
+    # xgboost plus the booster; the limit is generous enough not to OOM on a
+    # 100-row matrix and tight enough to matter next to lgtm's 1500m.
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      otel-collector:
+        condition: service_started
 
   frontend:
     build: ./frontend

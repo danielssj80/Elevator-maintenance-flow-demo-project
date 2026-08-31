@@ -1,5 +1,8 @@
 import os
 
+# The value assumed when DEPLOYMENT_ENVIRONMENT is not set anywhere.
+DEFAULT_DEPLOYMENT_ENVIRONMENT = "production"
+
 
 def _build_db_url(
     user: str = "user",
@@ -42,10 +45,33 @@ class Settings:
     )
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "elevator-backend")
     otel_service_version: str = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
-    deployment_environment: str = os.getenv("DEPLOYMENT_ENVIRONMENT", "local")
+    # Fail-closed on purpose. This value gates the telemetry and inference
+    # routers, which are unauthenticated write endpoints, and the deployed API
+    # has no authentication of any kind. A default of "local" meant that
+    # *forgetting* to set the variable published them: docker-compose.prod.yml
+    # sets it nowhere and loads an out-of-repo env file, so the gate was open in
+    # the one environment it exists to protect. An unset variable must be the
+    # safe answer, not the dangerous one.
+    #
+    # Every non-production environment therefore sets it explicitly:
+    # docker-compose.yml does, and tests/conftest.py does.
+    deployment_environment: str = os.getenv(
+        "DEPLOYMENT_ENVIRONMENT", DEFAULT_DEPLOYMENT_ENVIRONMENT
+    )
     fleet_metrics_refresh_seconds: int = int(
         os.getenv("FLEET_METRICS_REFRESH_SECONDS", "60")
     )
+
+    # --- Inference (M5 - telemetry-ingestion-inference) ---------------------
+    # The scoring service is dev-only; production never has one, which is why
+    # an unreachable service is a 503 rather than an error worth paging on.
+    inference_url: str = os.getenv("INFERENCE_URL", "http://inference:8001")
+    inference_timeout_seconds: int = int(os.getenv("INFERENCE_TIMEOUT_SECONDS", "30"))
+    # Readings older than this are pruned at the end of each successful run, so
+    # an unattended local database stays bounded.
+    telemetry_retention_days: int = int(os.getenv("TELEMETRY_RETENTION_DAYS", "30"))
+    # The window an inference run aggregates over.
+    inference_window_hours: int = int(os.getenv("INFERENCE_WINDOW_HOURS", "24"))
 
 
 settings = Settings()

@@ -23,6 +23,16 @@ services:
   backend:
     image: ghcr.io/danielssj80/elevator-backend:${IMAGE_TAG:-latest}
     env_file: /etc/elevator/.env
+    environment:
+      # Belt and braces. The application already defaults to "production" when
+      # this is unset, so the gate holds even if this line is deleted — but it
+      # is stated here so that reading this file answers the question "are the
+      # telemetry and inference write endpoints exposed?" without having to go
+      # and read app/core/config.py.
+      #
+      # These endpoints are unauthenticated and this stack auto-deploys on merge
+      # to the default branch. Do not set this to anything else.
+      DEPLOYMENT_ENVIRONMENT: production
     # Bedrock env vars — add to /etc/elevator/.env on the EC2 instance:
     #   BEDROCK_REGION=eu-north-1
     #   BEDROCK_MODEL_ID=eu.amazon.nova-lite-v1:0

@@ -473,6 +473,88 @@ The failure is therefore not "no database spans" but "no idea which query ran or
 
 **Metric attributes must be bounded.** `elevator.id` is never a metric attribute: 100 elevators across 4 risk levels is 400 series against a 10,000-series budget. HTTP metrics are labelled by route template, not raw path.
 
+## Machine Learning at Runtime
+
+**The model lives in its own service.** `backend/inference/` is a stateless
+FastAPI app with no database session and no `DATABASE_URL`; it takes a matrix
+and returns scores and contributions. It is the only image carrying
+`model.joblib`. Keeping xgboost out of the runtime image saves ~300 MB on an
+image deployed to a ~916 MB-RAM instance and ~40 s of install on every CI run,
+for a capability production never invokes. It also earns a genuine multi-service
+trace, which is why the observability work has something to show.
+
+**Read column order from the model, never from a literal.** Build the feature
+matrix in the order the booster reports in `feature_names`, and reject a
+mismatch. A transposed or reordered matrix scores without error and returns
+entirely plausible numbers derived from the wrong features.
+
+**Convert units at exactly one boundary, and guard the input.** The booster was
+trained on absolute temperatures in Kelvin; readings are stored in Celsius.
+`K = C + 273.15` is applied while building the matrix and nowhere else, and the
+resulting columns are range-checked before anything is scored.
+
+The instinctive guard — assert the scored fleet has non-zero variance — was
+measured against this model and **does not work**. Celsius input does not
+collapse the fleet: the remaining five features still discriminate, so 51 of 70
+scores stay distinct and the standard deviation lands within 0.002 of correct,
+while 10 of 70 elevators quietly move into the wrong risk band. Output that is
+wrong but survives every distributional check is the reason the guard belongs on
+the input. Generalise the rule: **when a corruption leaves the output
+well-formed, validate the input, not the output.**
+
+**Contributions come from the booster, not from `shap`.**
+`Booster.predict(dmatrix, pred_contribs=True)` returns exact TreeSHAP — verified
+identical to `shap.TreeExplainer` on the committed predictions, max delta 0.0 —
+so the `shap → numba → llvmlite` chain (~250 MB) is not a dependency of this
+project. The trailing column of `pred_contribs` is the bias, not a feature, and
+must be dropped.
+
+**Anything shared between the offline script and the runtime lives in
+`app/ml/`.** `app/ml/feature_mapping.py` holds the feature map, dataset means,
+run parameters, value formatting, the risk-level thresholds and the explanation
+template, imported by both `backend/ml/generate_predictions.py` and the online
+service. Two copies would let the same reading render a different displayed
+value online and offline, with the score agreeing and the text beside it not.
+The module sits under `app/` because the Dockerfile already does
+`COPY app/ ./app/`.
+
+Consequently the offline script runs as a module, from `backend/`:
+
+```bash
+cd backend && python -m ml.generate_predictions
+
+# Regenerate the golden fixture the online scorer is tested against:
+cd backend && python -m ml.generate_predictions --dump-vectors
+```
+
+`python backend/ml/generate_predictions.py` from the repository root leaves
+`backend/` off `sys.path` and the shared import raises `ImportError`.
+
+**`predictions.json` is not byte-reproducible.** `_days_ago()` derives
+`last_visit_date` from `date.today()`, so a regeneration on another day differs
+in that field for every row and no seed can pin it. Verify a refactor field-wise
+against `risk_score`, `risk_level`, `features`, `trend` and `nl_explanation`
+instead.
+
+## Rebuilding Compose Images
+
+`docker compose build backend` is **not enough** before trusting the live stack.
+Services that share a build context still get their own images: `migrate` builds
+from `./backend` but produces `…-migrate`, so building only `backend` leaves it
+running yesterday's `alembic/versions/`, and the stack fails to start with
+`Can't locate revision identified by <rev>` even though the file is right there
+in the source tree.
+
+Rebuild every service whose image is affected:
+
+```bash
+docker compose build backend migrate inference
+```
+
+The general trap: the test suite mounts `backend/` as a volume and always sees
+current code, while compose runs baked images. When the two disagree, the tests
+are right and the stack is stale.
+
 ## Security Basics
 
 - Never log passwords, tokens, or PII.
@@ -480,3 +562,26 @@ The failure is therefore not "no database spans" but "no idea which query ran or
 - Use `HTTPException` with generic messages for auth failures — never reveal internal details.
 - Database credentials only via environment variables.
 - CORS: restrict `allow_origins` to known frontend origins (no `*` in production).
+- **`DEPLOYMENT_ENVIRONMENT` is fail-closed and every non-production
+  environment must declare itself.** It defaults to `production`, which gates
+  the telemetry and inference routers off. `docker-compose.yml` sets `local`
+  and `tests/conftest.py` sets `local`, but a bare
+  `uvicorn app.main:app --reload` from `backend/` inherits the default and will
+  return 404 on those endpoints with no explanation. Run it as:
+
+  ```bash
+  cd backend && DEPLOYMENT_ENVIRONMENT=local uvicorn app.main:app --reload
+  ```
+
+  The default is this way round because `docker-compose.prod.yml` sets the
+  variable nowhere and loads an out-of-repo env file: with a default of `local`,
+  *forgetting* it published two unauthenticated write endpoints. An unset
+  variable has to be the safe answer.
+
+- **Do not register unauthenticated write endpoints in production.** This API
+  has no authentication anywhere, and `docker-compose.prod.yml` auto-deploys on
+  merge to the default branch, so any write route reaching production is a
+  public one. `build_app()` gates the telemetry and inference routers on
+  `deployment_environment != "production"`. Gate at **registration**, not inside
+  the handler: an unregistered route cannot be reached by a guard that was
+  written wrong.
