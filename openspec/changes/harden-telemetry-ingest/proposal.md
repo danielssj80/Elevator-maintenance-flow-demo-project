@@ -37,14 +37,17 @@ token has to exist before n8n can be configured to send one.
 - Give a reading an identity: a unique constraint on
   `(elevator_id, recorded_at, source)`, and an ingest path that inserts with
   `ON CONFLICT DO NOTHING` and reports what it skipped.
-- Deduplicate within a batch as well as across requests, so a producer that
-  repeats a reading inside one payload gets the same guarantee as one that
-  repeats the payload.
+- Hold the guarantee within a batch as well as across requests, so a producer
+  that repeats a reading inside one payload gets the same answer as one that
+  repeats the payload. This needs no extra code: the single multi-row `INSERT`
+  already skips a row conflicting with one inserted earlier in the same
+  statement. A Python pass that restated it was written and removed when
+  deleting it changed no test.
 - Report the outcome honestly: `accepted` becomes the number of rows actually
   inserted, and a new `duplicates_ignored` field carries the rest.
 - Drop `ix_telemetry_readings_elevator_recorded`, which the new unique index
-  subsumes — its columns are a prefix of the unique index and PostgreSQL scans a
-  btree backwards for the `DESC` ordering.
+  subsumes — its columns are the leading columns of the unique index, so that
+  index covers the same predicate and the planner supplies the `DESC` ordering.
 - Require an `X-Ingest-Token` header, compared with `secrets.compare_digest`, on
   the two unauthenticated write endpoints — `POST /api/telemetry/readings` and
   `POST /api/inference/run` — with an unset token meaning open, and a startup
@@ -76,16 +79,22 @@ cost is one shared dependency rather than two.
 ## Impact
 
 - **New files**: `backend/app/core/ingest_auth.py`,
-  `backend/alembic/versions/<rev>_telemetry_readings_unique_identity.py`,
+  `backend/alembic/versions/7c1e4b9a2d33_telemetry_readings_unique_identity.py`,
   `backend/tests/unit/test_ingest_auth.py`,
+  `backend/tests/unit/test_dev_compose.py`,
   `backend/tests/integration/test_telemetry_idempotency.py`.
 - **Modified files**: `backend/app/models/telemetry.py`,
   `backend/app/repositories/telemetry_repository.py`,
   `backend/app/schemas/telemetry.py`,
   `backend/app/services/telemetry_service.py`,
   `backend/app/routers/telemetry.py`, `backend/app/routers/inference.py`,
-  `backend/app/main.py`, `backend/app/core/config.py`, `docker-compose.yml`,
-  `docs/api-spec.yml`, `docs/data-model.md`, and the existing telemetry tests.
+  `backend/app/main.py`, `backend/app/core/config.py`,
+  `backend/requirements-dev.txt` (adds `pyyaml`, which the compose-file tests
+  need and which was previously present only incidentally),
+  `backend/tests/conftest.py`, `backend/tests/integration/test_migrations.py`,
+  `backend/tests/unit/test_telemetry_service.py`,
+  `backend/tests/unit/test_inference_service.py`, `docker-compose.yml`,
+  `docs/api-spec.yml`, `docs/data-model.md`, `docs/backend-standards.md`.
 - **Not modified**: `docker-compose.prod.yml`. The routers are still not
   registered in production, so nothing there changes.
 - **Frontend**: none. No response the dashboard reads is touched. The mandatory

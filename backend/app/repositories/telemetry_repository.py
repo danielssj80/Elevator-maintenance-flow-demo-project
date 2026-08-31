@@ -19,6 +19,14 @@ def _as_insert_values(reading: TelemetryReading) -> dict[str, object]:
     key is left out so the sequence assigns it, and a column that is unset and
     carries a server default is left out too — naming it would insert NULL,
     because a server default only applies to a column the statement omits.
+
+    **The same trap exists for a Python-side default and is not handled here**,
+    because no column on this table has one: every nullable column is
+    ``mapped_column(default=None)``, which is SQLAlchemy's way of saying "no
+    default", so passing None is exactly right. Adding a column with a real
+    Python-side default would silently write NULL instead of that default.
+    ``test_no_column_carries_a_python_side_default`` fails the day that happens,
+    which is better than a branch here that nothing exercises.
     """
     columns = inspect(TelemetryReading).local_table.columns
     values: dict[str, object] = {}

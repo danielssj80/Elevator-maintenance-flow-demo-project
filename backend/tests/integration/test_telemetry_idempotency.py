@@ -211,3 +211,60 @@ async def test_a_duplicated_batch_does_not_move_the_window_aggregate(
     # Three distinct readings, each counted once: 20, 30, 40.
     assert after.reading_count == 3
     assert after.ambient_temperature_c == pytest.approx(30.0)
+
+
+# ── The assumptions `_as_insert_values` rests on ─────────────────────────────
+
+
+def test_a_column_with_a_server_default_is_omitted_when_unset():
+    """`ingested_at` must not be named in the INSERT when nothing set it.
+
+    A server default only applies to a column the statement omits. Naming it
+    with a None value writes NULL into a NOT NULL column, and the failure would
+    surface as an IntegrityError from a code path that looks like it is just
+    copying attributes across.
+    """
+    from app.repositories.telemetry_repository import _as_insert_values
+
+    reading = TelemetryReading(
+        elevator_id="ELV-ID07",
+        recorded_at=NOW,
+        ambient_temperature_c=27.0,
+        motor_temperature_c=37.0,
+        motor_speed_rpm=1500.0,
+        load_torque_nm=40.0,
+        source="test",
+        batch_id="batch-1",
+    )
+
+    values = _as_insert_values(reading)
+
+    assert "ingested_at" not in values
+    assert "id" not in values
+    # A nullable column with no default is still passed through as None: that is
+    # the value, not an omission.
+    assert values["trace_id"] is None
+    assert values["elevator_id"] == "ELV-ID07"
+
+
+def test_no_column_carries_a_python_side_default():
+    """The invariant `_as_insert_values` relies on, asserted rather than assumed.
+
+    It builds the INSERT by naming every non-primary-key column, so a column
+    with a real Python-side default would be written as NULL instead of that
+    default — silently, and only for rows that leave it unset. Every nullable
+    column here is `mapped_column(default=None)`, which SQLAlchemy reads as "no
+    default", so `column.default` is None throughout. This test is what turns
+    adding one into a red suite rather than a data bug.
+    """
+    from sqlalchemy import inspect as sa_inspect
+
+    columns = sa_inspect(TelemetryReading).local_table.columns
+    with_python_default = sorted(c.key for c in columns if c.default is not None)
+
+    assert with_python_default == [], (
+        f"{with_python_default} now carry a Python-side default. "
+        "_as_insert_values names every column explicitly, so an unset one would "
+        "be written as NULL rather than taking that default — teach it to omit "
+        "them, the way it already omits columns with a server default."
+    )

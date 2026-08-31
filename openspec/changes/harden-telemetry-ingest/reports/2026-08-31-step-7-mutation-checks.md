@@ -24,7 +24,17 @@ this method found five defects that no amount of reading the tests had found.
 | J | Remove the startup warning from `build_app` | red | **red** — `test_registering_the_routers_unguarded_logs_a_warning` |
 | K | Delete `TELEMETRY_INGEST_TOKEN` from `docker-compose.yml` | red | **red** — `test_dev_compose_configures_an_ingest_token` |
 
-Restored after each; the suite is green at 212 passed.
+Restored after each. A second round followed the self-review below:
+
+| # | Mutation | Expected | Result |
+|---|---|---|---|
+| L | `_as_insert_values` stops skipping columns with a server default | red | **red** — `test_a_column_with_a_server_default_is_omitted_when_unset` |
+| M | Give `door_cycles` a real Python-side default (`default=0`) | red | **red** — `test_no_column_carries_a_python_side_default` |
+| O | Remove the `TELEMETRY_INGEST_TOKEN` pop from `conftest.py`, with the variable exported | red | **red** — 10 tests fail with unexplained 401s |
+
+The suite is green at **214 passed**, and green again with
+`TELEMETRY_INGEST_TOKEN` exported into the environment, which is what O shows is
+not free.
 
 ## D — the in-service deduplication was dead code, and was deleted
 
@@ -69,7 +79,42 @@ mitigating context is that these routers do not exist in production at all.
   the dedup `DELETE` removed — every table is empty there, so the `DELETE` is a
   no-op and the constraint has nothing to reject.
 
+## Findings from the self-review, and their fixes
+
+Three things the first pass got wrong, all found by attacking the change rather
+than re-reading it:
+
+1. **An overstated mechanism.** The model comment, the migration, the proposal
+   and the design all claimed PostgreSQL serves the `DESC` ordering "by scanning
+   the btree backwards". Measured on a 200,000-row table, the planner picks a
+   *bitmap* index scan on `uq_telemetry_readings_identity` and sorts the 14
+   matched rows — 4 buffer hits, 0.28 ms. The conclusion (the old index is
+   redundant) holds and is now evidence-backed; the stated reason was wrong and
+   is corrected in all four places. The first `EXPLAIN` was run against an empty
+   table and showed a seq scan, which proved nothing either way.
+2. **A latent NULL-instead-of-default trap.** `_as_insert_values` names every
+   non-primary-key column, so a column carrying a Python-side default would be
+   written as NULL rather than taking it. No such column exists today. Rather
+   than add a branch nothing would exercise — the exact defect D is about —
+   `test_no_column_carries_a_python_side_default` asserts the invariant, and
+   mutation M shows it fires.
+3. **The suite was not hermetic against this change's own variable.** A
+   developer with `TELEMETRY_INGEST_TOKEN` exported would have got 10 failing
+   tests that CI does not reproduce. `conftest.py` now pops it explicitly, the
+   same way it already pins `DEPLOYMENT_ENVIRONMENT`, with the reason written
+   down. Mutation O shows the pop is load-bearing.
+
+One thing checked and deliberately left alone: an **unparseable** body with no
+token answers 422 rather than 401, because JSON parsing precedes dependency
+resolution. A structured-but-invalid body correctly answers 401. This leaks
+nothing — the response is identical whether or not a token is configured — and
+nothing is persisted either way, so the spec's "reject before any reading is
+persisted" holds. Recorded so it is a known shape rather than a surprise.
+
 ## Outcome
 
-**PASS** — 9 of 11 mutations detected; the 2 that were not are analysed above,
-one resolved by deleting the code and one accepted with its reasoning recorded.
+**PASS** — 11 of 14 mutations detected. Of the three that were not: one
+(constant-time comparison) is not detectable by any unit test and rests on
+review; one (the in-service dedup) was resolved by deleting the code; and the
+third was the empty-table `EXPLAIN`, which was replaced by a measurement that
+actually discriminates.

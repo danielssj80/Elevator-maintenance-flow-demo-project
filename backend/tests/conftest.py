@@ -9,6 +9,16 @@ from collections.abc import AsyncGenerator
 # job happens to invoke them.
 os.environ.setdefault("DEPLOYMENT_ENVIRONMENT", "local")
 
+# The suite runs with the ingest guard **open**, declared rather than inherited.
+# `telemetry_ingest_token` is fail-open, so most tests post to the write
+# endpoints with no header and expect that to work. A developer with
+# TELEMETRY_INGEST_TOKEN exported in their shell would otherwise get a suite full
+# of unexplained 401s that CI does not reproduce — the same class of divergence
+# between "green here" and "green in CI" that DEPLOYMENT_ENVIRONMENT is pinned
+# for above. `tests/unit/test_ingest_auth.py` configures a token per test where
+# it needs one.
+os.environ.pop("TELEMETRY_INGEST_TOKEN", None)
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient

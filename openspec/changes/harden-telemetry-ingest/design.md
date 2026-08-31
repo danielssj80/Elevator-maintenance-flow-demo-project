@@ -98,11 +98,13 @@ producers expressing the same moment in different offsets collide correctly.
 
 **Index bookkeeping.** `ix_telemetry_readings_elevator_recorded` covers
 `(elevator_id, recorded_at DESC)`. The new unique index covers
-`(elevator_id, recorded_at, source)` — the same prefix, and PostgreSQL serves a
-`DESC` ordering from it by scanning backwards. Keeping both would pay a second
-index write on every insert into the hottest table in the schema for no read
-benefit, so the old one is dropped in the same migration and recreated on
-downgrade. `ix_telemetry_readings_recorded`, which the prune and the staleness
+`(elevator_id, recorded_at, source)` — the same leading columns, so it covers
+the same predicate and the planner supplies the ordering itself. Verified rather
+than assumed: on a 200,000-row table the per-elevator window query plans as a
+bitmap index scan on `uq_telemetry_readings_identity` (4 buffer hits) followed by
+a 14-row sort, 0.28 ms. Keeping both would pay a second index write on every
+insert into the hottest table in the schema for no read benefit, so the old one
+is dropped in the same migration and recreated on downgrade. `ix_telemetry_readings_recorded`, which the prune and the staleness
 gauge use and which does not lead with `elevator_id`, stays.
 
 ## Decision 5 — the token guard, and where it is proven

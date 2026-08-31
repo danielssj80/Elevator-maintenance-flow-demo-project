@@ -50,8 +50,8 @@ def upgrade() -> None:
         ['elevator_id', 'recorded_at', 'source'],
     )
     # Redundant from here on: the unique index leads with (elevator_id,
-    # recorded_at), and PostgreSQL serves the DESC ordering from it by scanning
-    # the btree backwards. Keeping it would pay a second index write on every
+    # recorded_at), so it covers the same predicate and the planner supplies the
+    # DESC ordering itself. Keeping it would pay a second index write on every
     # insert into the hottest table in the schema for no read benefit.
     # ix_telemetry_readings_recorded stays — it does not lead with elevator_id,
     # so nothing subsumes it.
