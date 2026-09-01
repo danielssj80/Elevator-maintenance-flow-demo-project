@@ -198,7 +198,7 @@ than assuming it.
 - [x] 16.2 `docs/deployment.md`: state that n8n is local-only and production
       carries no orchestrator
 - [x] 16.3 `docs/backend-standards.md`: the orchestration-attribute middleware
-- [ ] 16.4 Run `/update-docs` and act on anything 16.1–16.3 missed
+- [x] 16.4 Run `/update-docs` and act on anything 16.1–16.3 missed
 
 ## 17. Milestone acceptance (M5 end to end)
 

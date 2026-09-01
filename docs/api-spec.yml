@@ -740,6 +740,36 @@ components:
           description: Readings deleted by the retention prune at the end of the run.
 
 
+  parameters:
+
+    N8nExecutionId:
+      name: X-N8N-Execution-Id
+      in: header
+      required: false
+      description: >
+        Optional. Recorded on the server span as `n8n.execution.id` so a trace
+        can be taken back to the orchestrator execution that produced it, and a
+        failed execution forward to its trace. Accepted on **every** route, never
+        required, and never used for authorisation or any behaviour a client can
+        observe. Values are trimmed and truncated to 128 characters; an absent or
+        empty value records no attribute at all rather than an empty one.
+      schema:
+        type: string
+        maxLength: 128
+      example: "82"
+
+    N8nWorkflowId:
+      name: X-N8N-Workflow-Id
+      in: header
+      required: false
+      description: >
+        Optional, and the companion to X-N8N-Execution-Id. Recorded as
+        `n8n.workflow.id` under the same rules.
+      schema:
+        type: string
+        maxLength: 128
+      example: elevIngest00001
+
   securitySchemes:
 
     IngestToken:

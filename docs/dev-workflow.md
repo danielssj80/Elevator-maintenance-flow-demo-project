@@ -92,8 +92,35 @@ docker compose version >/dev/null 2>&1 && COMPOSE="docker compose" || COMPOSE="d
 Start the stack:
 
 ```bash
-$COMPOSE up -d             # db → migrate → backend → frontend
+$COMPOSE up -d             # db → migrate → backend → frontend → observability → n8n
 ```
+
+Since M5 that one command also brings up the OpenTelemetry Collector, the
+Grafana/Tempo/Prometheus bundle (`lgtm`, Grafana on **:3001** because the
+frontend owns 3000), the `inference` service and self-hosted **n8n** on
+**:5678**. Queue mode is opt-in and needs **both** halves:
+
+```bash
+N8N_EXECUTIONS_MODE=queue $COMPOSE --profile queue up -d
+```
+
+The profile alone starts a worker while the main process stays in regular mode
+and executes everything itself; nothing reports the mismatch. See
+[orchestration.md](./orchestration.md).
+
+**Two things cache at startup and will waste your afternoon otherwise:**
+
+- The frontend's nginx resolves `backend` **once**. Recreate the `backend`
+  container and it keeps proxying to the old IP, so `localhost:3000` serves a
+  502 — which behind the SPA looks like an empty fleet, not like an outage.
+  `$COMPOSE restart frontend` after any backend recreate.
+- The Collector and Grafana only read their mounted configuration at startup.
+  Edit a collector config or a dashboard JSON and you need
+  `--force-recreate` on that service before the change exists.
+
+Bedrock is optional locally: without AWS credentials in the root `.env` the
+briefing endpoint answers `source: "fallback"` and n8n's agent nodes fall back to
+a fixed scenario. Everything else works.
 
 Run the backend unit suite against a dedicated test database. The production backend
 image ships without dev dependencies (pytest is installed ephemerally — tracked as a
