@@ -222,7 +222,7 @@ than assuming it.
       self-review had touched and got wrong
 - [x] 18.3 Fix every finding, then re-run 18.1 — 6 Major and 10 Minor addressed;
       all five reviewer-identified mutation survivors now go red
-- [ ] 18.4 `/archive` and sync `openspec/specs/workflow-orchestration/`
+- [x] 18.4 `/archive` and sync `openspec/specs/workflow-orchestration/`
 - [ ] 18.5 `/commit` and open the PR (merge needs approval)
 - [ ] 18.6 Set the Notion task *n8n workflow orchestration (self-hosted, queue
       mode)* to Done **on merge**, and close out the M5 milestone

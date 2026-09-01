@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | In progress — implemented and reviewed; steps 10.4 and 14 open |
+| **Status** | Archived — 2026-09-01 |
 | **Milestone** | M5 — Observability & Orchestration (change 3 of 3) |
 | **Notion task** | [n8n workflow orchestration (self-hosted, queue mode)](https://app.notion.com/p/3ca3ada00a9581ecb0bcf606e3ef4814) |
 | **Branch** | `feature/n8n-workflow-orchestration`, from `main` |
@@ -45,9 +45,24 @@ The orchestration tier runs locally. Schedules fire while the stack is up; this
 is not an autonomous pipeline, and every artifact says so. Moving the
 orchestration tier to the cloud is recorded as future work, not quietly faked.
 
+## Deliverables
+
+![n8n to backend to Postgres in one trace](../../../../docs/images/tempo-trace-n8n-to-postgres.png)
+
+23 spans in one trace: `n8n-main` starts the workflow, `n8n-worker` runs the
+nodes, and two of them open server spans on `elevator-backend`, each with its own
+`SELECT` and `INSERT` beneath. Canvas screenshots for both workflows are in
+`n8n/workflows/`.
+
+The Tempo **service graph** deliberately does not show this hop: n8n emits no
+CLIENT-kind spans, and the graph builds edges by pairing CLIENT with SERVER. The
+trace is linked correctly; only the graph's edge inference cannot see it.
+
 ## Artifacts
 
 - [proposal.md](./proposal.md)
 - [design.md](./design.md)
 - [tasks.md](./tasks.md)
 - [specs/workflow-orchestration/spec.md](./specs/workflow-orchestration/spec.md)
+- [specs/observability/spec.md](./specs/observability/spec.md)
+- [reports/2026-09-01-adversarial-review-independent.md](./reports/2026-09-01-adversarial-review-independent.md)
