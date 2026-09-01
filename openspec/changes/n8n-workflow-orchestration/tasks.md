@@ -69,7 +69,13 @@
       `otel.constants.js` / `otel.config.js` rather than guessing
 - [x] 4.5 Under the queue profile, confirm `n8n-worker` appears as its own
       service in Tempo
-- [ ] 4.6 Screenshot the service graph — this is the milestone's deliverable image
+- [ ] 4.6 Screenshot the **trace waterfall**, not the service graph. n8n emits no
+      CLIENT-kind spans (`{resource.service.name="n8n-worker" && kind=client}`
+      returns nothing), and Tempo builds service-graph edges from CLIENT→SERVER
+      pairs — so `n8n → elevator-backend` can never appear there, and the
+      backend's server span is attributed to the pseudo-node `user` instead. The
+      trace view shows the hop the milestone is about; the service graph does
+      not. Save to `docs/images/`
 
 ## 5. Backend: orchestration attribute middleware (TDD)
 

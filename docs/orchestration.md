@@ -109,6 +109,15 @@ the database. This needs no code — just don't override `OTEL_PROPAGATORS`.
 `X-N8N-Workflow-Id` onto the server span, so a failed execution can be reached
 from a trace even if header injection is off.
 
+**The Tempo service graph will not show the `n8n → backend` edge, and this is
+not a misconfiguration.** n8n emits no CLIENT-kind spans — verified with
+`{resource.service.name="n8n-worker" && kind=client}`, which matches nothing —
+and Tempo builds service-graph edges by pairing a CLIENT span with the SERVER
+span it called. With no client side, the backend's server span is attributed to
+the pseudo-node `user`, alongside plain `curl` traffic. The trace itself is
+correctly linked; only the graph's edge inference cannot see it. Use the trace
+view to show the hop.
+
 On the Grafana Cloud pipeline only, a `filter` processor drops n8n's per-node
 `node.execute` spans: n8n emits one per node execution, and at a 15-minute
 schedule they are most of the volume. They stay in the local backend, where they
