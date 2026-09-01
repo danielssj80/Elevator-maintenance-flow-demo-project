@@ -207,7 +207,7 @@ than assuming it.
 
 ## 18. Independent Review and Close-out
 
-- [ ] 18.1 Mutation-check every guard added by this change and record the results
+- [x] 18.1 Mutation-check every guard added by this change and record the results
 - [ ] 18.2 Run `/adversarial-review` **as an independent cold-start agent**, not
       as a self-review — on the previous change the self-review found 3 issues
       and an independent session found 7 more, two of them in things the
