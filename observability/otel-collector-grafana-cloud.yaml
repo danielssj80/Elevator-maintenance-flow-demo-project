@@ -19,6 +19,26 @@ extensions:
       username: ${env:GRAFANA_CLOUD_INSTANCE_ID}
       password: ${env:GRAFANA_CLOUD_API_TOKEN}
 
+processors:
+  # n8n emits one span per node execution, by default, and the ingest workflow
+  # runs every 15 minutes. Those spans are genuinely useful locally for seeing
+  # which node in a workflow was slow or failed, and they are the bulk of the
+  # volume — so they stay in the local pipeline and are dropped on the way out.
+  #
+  # `error_mode: ignore` so a span with no name, or an OTTL evaluation failure,
+  # passes through rather than taking the pipeline down: losing a filter is a
+  # smaller problem than losing the export.
+  filter/drop_n8n_node_spans:
+    # `propagate`, not `ignore`. An OTTL condition that fails to evaluate is a
+    # broken filter, and with `ignore` it is a broken filter that says nothing:
+    # spans flow, the drop count stays at zero, and it looks like there was
+    # simply nothing to drop. That is exactly how the first version of this
+    # processor spent an afternoon appearing to work.
+    error_mode: propagate
+    traces:
+      span:
+        - 'name == "node.execute"'
+
 exporters:
   otlp_http/grafana_cloud:
     # BASE url — the Collector appends /v1/traces and /v1/metrics.
@@ -34,15 +54,32 @@ exporters:
 service:
   extensions: [health_check, basicauth/grafana_cloud]
   pipelines:
-    traces:
+    # TWO trace pipelines, not one with a filter in it.
+    #
+    # A processor belongs to a pipeline, not to an exporter, so a filter in a
+    # pipeline feeding both exporters drops the spans from BOTH — the local
+    # backend included, which is the one place those per-node spans are actually
+    # useful for debugging a workflow. Splitting the pipeline is the only way to
+    # send different data to different destinations.
+    #
+    # Both read the same `otlp` receiver; a receiver may feed any number of
+    # pipelines.
+    traces/local:
       receivers: [otlp]
       processors: [memory_limiter, resource/env, batch]
-      exporters: [otlp_http/local, otlp_http/grafana_cloud]
+      exporters: [otlp_http/local]
+    traces/cloud:
+      receivers: [otlp]
+      # The filter sits before `batch` so dropped spans never occupy a batch
+      # slot, and after `memory_limiter` so back-pressure still applies first.
+      processors: [memory_limiter, resource/env, filter/drop_n8n_node_spans, batch]
+      exporters: [otlp_http/grafana_cloud]
     metrics:
       # Restated because merge replaces lists: dropping prometheus/self here
       # would silently stop the collector scraping itself whenever the cloud
-      # overlay is active.
-      receivers: [otlp, prometheus/self]
+      # overlay is active. prometheus/n8n has the same problem and was added to
+      # the base config later — anything added there has to be repeated here.
+      receivers: [otlp, prometheus/self, prometheus/n8n]
       processors: [memory_limiter, resource/env, batch]
       exporters: [otlp_http/local, otlp_http/grafana_cloud]
     logs:

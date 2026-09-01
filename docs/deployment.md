@@ -18,6 +18,26 @@ The application is deployed to AWS EC2 at **https://elevator.dsaavedra.dev**.
 
 ---
 
+## What is deliberately not deployed
+
+**The orchestration tier (n8n, Redis, the worker) runs locally only.** There is
+no orchestrator on this instance: `docker-compose.prod.yml` defines none, and
+`backend/tests/unit/test_dev_compose.py::test_prod_compose_defines_no_orchestrator`
+fails if one is ever added.
+
+Two reasons, both load-bearing. n8n holds a model-provider credential, and this
+stack auto-deploys on merge to the default branch, so an orchestrator here would
+put a scheduler with credentials on a public host. And the endpoints it drives —
+`POST /api/telemetry/readings` and `POST /api/inference/run` — are not registered
+in production at all, so there would be nothing for it to call.
+
+The consequence is worth stating plainly rather than leaving to be discovered:
+**production serves the risk scores that were seeded from `predictions.json`.**
+The scheduled ingest and re-scoring happen on a developer machine and stay
+there. See [orchestration.md](./orchestration.md).
+
+---
+
 ## Connecting via SSM
 
 ```bash

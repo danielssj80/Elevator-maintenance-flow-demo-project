@@ -101,3 +101,71 @@ def test_prod_compose_does_not_configure_an_ingest_token():
     environment = _service_environment(PROD_COMPOSE, "backend")
 
     assert "TELEMETRY_INGEST_TOKEN" not in environment
+
+
+def test_prod_compose_defines_no_orchestrator():
+    """n8n is local-only, and that has to be checkable rather than asserted in prose.
+
+    The orchestration tier reaches both write endpoints and holds credentials for
+    a model provider. `docker-compose.prod.yml` auto-deploys on merge to the
+    default branch, so an orchestrator service reaching it would put a scheduler
+    with credentials on a public host — and the routers it drives are not even
+    registered there.
+
+    Named services rather than a substring search: `n8n` appears in comments and
+    in image tags, and a grep would go green for the wrong reason.
+    """
+    compose = yaml.safe_load(PROD_COMPOSE.read_text())
+    services = set(compose.get("services", {}))
+
+    forbidden = services & {"n8n", "n8n-worker", "n8n-db-init", "redis"}
+    assert not forbidden, (
+        f"docker-compose.prod.yml defines {sorted(forbidden)}. The orchestration "
+        "tier runs locally only: it holds a model-provider credential and drives "
+        "endpoints production does not register."
+    )
+
+
+def test_dev_compose_keeps_the_queue_tier_behind_a_profile():
+    """Queue mode is opt-in, so `docker compose up` does not cost 700 MB.
+
+    The shape has to be there from the start though — flipping EXECUTIONS_MODE
+    and enabling the profile is meant to be the whole switch, not a rewrite.
+    """
+    compose = yaml.safe_load(DEV_COMPOSE.read_text())
+    services = compose["services"]
+
+    for name in ("redis", "n8n-worker"):
+        assert name in services, f"{name} must exist for queue mode to be one variable away"
+        assert "queue" in (services[name].get("profiles") or []), (
+            f"{name} must sit behind the `queue` profile so a plain `up` does not start it"
+        )
+    assert "profiles" not in services["n8n"], "the n8n main process is not optional"
+
+
+def test_main_and_worker_share_one_encryption_key_and_otel_block():
+    """A mismatch here fails every credential-using node with an opaque error.
+
+    Both processes read the same variables with the same defaults, so they agree
+    by construction — this asserts that nobody has since given one of them its
+    own value. The OTel block matters for the same reason in the other
+    direction: configured on main alone, the worker executes everything and
+    emits nothing, which reads as the workflow never having run.
+    """
+    services = yaml.safe_load(DEV_COMPOSE.read_text())["services"]
+    main = services["n8n"]["environment"]
+    worker = services["n8n-worker"]["environment"]
+
+    assert main["N8N_ENCRYPTION_KEY"] == worker["N8N_ENCRYPTION_KEY"]
+    for key in (
+        "N8N_ENABLED_MODULES",
+        "N8N_OTEL_ENABLED",
+        "N8N_OTEL_EXPORTER_OTLP_ENDPOINT",
+        "N8N_OTEL_TRACES_PRODUCTION_ONLY",
+        "N8N_AGENTS_TRACING_RECORD_INPUTS",
+        "N8N_AGENTS_TRACING_RECORD_OUTPUTS",
+    ):
+        assert main.get(key) == worker.get(key), (
+            f"{key} differs between n8n and n8n-worker; in queue mode the worker "
+            "runs the executions, so a value set only on main configures nothing"
+        )

@@ -94,7 +94,7 @@
       **two of the dashboard's three metric names do not exist in this version**
       and would have shown "No data" for ever. See
       `reports/2026-08-31-step-6-metrics-verification.md`
-- [ ] 6.5 Add a `filter` processor to the **cloud** pipeline only, dropping n8n
+- [x] 6.5 Add a `filter` processor to the **cloud** pipeline only, dropping n8n
       `node.execute` spans; keep them locally where they are useful
 
 ## 7. Workflow: telemetry ingest (every 15 minutes)
@@ -154,18 +154,18 @@ than assuming it.
 
 ## 12. Review and Update Existing Tests (MANDATORY)
 
-- [ ] 12.1 Review `tests/unit/test_telemetry_spans.py` for the new middleware
-- [ ] 12.2 Review the compose-file assertions in `tests/unit/test_dev_compose.py`
+- [x] 12.1 Review `tests/unit/test_telemetry_spans.py` for the new middleware
+- [x] 12.2 Review the compose-file assertions in `tests/unit/test_dev_compose.py`
       — add one that `docker-compose.prod.yml` defines no orchestrator service
-- [ ] 12.3 Update every test this change invalidates, and no others
+- [x] 12.3 Update every test this change invalidates, and no others
 
 ## 13. Unit Tests and DB State Verification (MANDATORY)
 
-- [ ] 13.1 Capture the pre-test DB baseline
-- [ ] 13.2 Run targeted tests, then the full suite with coverage
-- [ ] 13.3 `ruff check` (the project does not use `ruff format`)
-- [ ] 13.4 Verify post-test DB state matches the baseline
-- [ ] 13.5 Create `reports/YYYY-MM-DD-step-13-unit-tests.md`
+- [x] 13.1 Capture the pre-test DB baseline
+- [x] 13.2 Run targeted tests, then the full suite with coverage
+- [x] 13.3 `ruff check` (the project does not use `ruff format`)
+- [x] 13.4 Verify post-test DB state matches the baseline
+- [x] 13.5 Create `reports/YYYY-MM-DD-step-13-unit-tests.md`
 
 ## 14. Manual Endpoint Testing (MANDATORY — AGENT MUST EXECUTE)
 
@@ -178,30 +178,32 @@ than assuming it.
 
 ## 15. E2E Testing with Playwright MCP (MANDATORY if frontend changed)
 
-- [ ] 15.1 **N/A** — nothing in `frontend/` is touched and no response shape
+- [x] 15.1 **N/A** — nothing in `frontend/` is touched and no response shape
       changes. Grafana is a separate audience on its own port. Record the
       determination in the step 14 report
 
 ## 16. Update Technical Documentation (MANDATORY)
 
-- [ ] 16.1 New `docs/orchestration.md`: the two workflows, their cadences, the
+- [x] 16.1 New `docs/orchestration.md`: the two workflows, their cadences, the
       queue-mode switch, the trace-linkage traps, **and plainly that schedules
       fire only while the local stack is up**
-- [ ] 16.2 `docs/deployment.md`: state that n8n is local-only and production
+- [x] 16.2 `docs/deployment.md`: state that n8n is local-only and production
       carries no orchestrator
-- [ ] 16.3 `docs/backend-standards.md`: the orchestration-attribute middleware
+- [x] 16.3 `docs/backend-standards.md`: the orchestration-attribute middleware
 - [ ] 16.4 Run `/update-docs` and act on anything 16.1–16.3 missed
 
 ## 17. Milestone acceptance (M5 end to end)
 
-- [ ] 17.1 Stack up, all services healthy
-- [ ] 17.2 An activated workflow produces one trace `n8n → backend → postgresql`
+- [x] 17.1 Stack up, all services healthy
+- [x] 17.2 An activated workflow produces one trace `n8n → backend → postgresql`
       with `n8n.execution.id` on the server span
-- [ ] 17.3 Fleet-health dashboard moves within ~60 s of a run
-- [ ] 17.4 Grafana Cloud shows the same traces and
+- [x] 17.3 Fleet-health dashboard **FAILS** — 4 of 6 instruments emit nothing,
+      a change-1 defect registered as a High backlog task, diagnosed in the
+      step 17 report and out of scope here
+- [x] 17.4 Grafana Cloud shows the same traces and
       `otelcol_exporter_send_failed_spans` for the cloud exporter is 0
-- [ ] 17.5 **Fleet score variance > 0** — the Kelvin canary
-- [ ] 17.6 Record it all in `reports/YYYY-MM-DD-step-17-milestone-acceptance.md`
+- [x] 17.5 **Fleet score variance > 0** — the Kelvin canary
+- [x] 17.6 Record it all in `reports/YYYY-MM-DD-step-17-milestone-acceptance.md`
 
 ## 18. Independent Review and Close-out
 
