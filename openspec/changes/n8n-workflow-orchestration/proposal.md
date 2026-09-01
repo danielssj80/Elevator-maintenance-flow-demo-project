@@ -87,8 +87,10 @@ testable.
 
 ### Modified Capabilities
 
-- `observability`: the Collector gains an n8n Prometheus scrape target, and the
-  cloud pipeline gains a filter dropping n8n's per-node `node.execute` spans.
+- `observability` (delta in `specs/observability/spec.md`): the Collector gains
+  an n8n Prometheus scrape target, the external pipeline gains a filter dropping
+  n8n's per-node `node.execute` spans, and the backend records the orchestrator's
+  execution identity onto the server span.
   The existing "Incoming trace context is continued" requirement is **not**
   modified — it already covers the backend side of the linkage, and this change
   is what finally exercises it with a real external orchestrator.
@@ -98,8 +100,10 @@ testable.
 - **New files**: `n8n/workflows/telemetry-ingest.json`,
   `n8n/workflows/daily-inference-and-digest.json`,
   `n8n/workflows/README.md`, `scripts/export-n8n-workflow.sh`,
+  `scripts/n8n-import-workflow.sh`, `scripts/n8n-bootstrap-credentials.sh`,
   `backend/app/core/orchestration_context.py` (the attribute-stamping
-  middleware) and its tests, `docs/orchestration.md`.
+  middleware), `backend/tests/unit/test_orchestration_context.py`,
+  `docs/orchestration.md`.
 - **Modified files**: `docker-compose.yml`, `observability/otel-collector-config.yaml`,
   `observability/otel-collector-grafana-cloud.yaml`, `observability/.env.example`,
   `observability/grafana/dashboards/orchestration.json` (replace the "Not wired

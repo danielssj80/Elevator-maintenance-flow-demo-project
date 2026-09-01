@@ -1,7 +1,7 @@
 {
   "uid": "elevator-orchestration",
   "title": "Elevator \u00b7 Orchestration (n8n)",
-  "description": "Placeholder for the n8n workflow-orchestration change. Panels stay empty until n8n is running and scraped.",
+  "description": "Scheduled ingest and re-scoring driven by self-hosted n8n. Local only: the schedules fire while the development stack is up and there is no orchestrator in production. Queue-depth panels need the `queue` compose profile, where those metrics exist on the main process only.",
   "tags": [
     "elevator",
     "n8n",
@@ -169,9 +169,17 @@
         {
           "expr": "up{job=\"n8n\"}",
           "legendFormat": "{{n8n_role}}",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
         }
-      ]
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     }
   ]
 }

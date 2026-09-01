@@ -214,6 +214,13 @@ services:
       # ── Execution mode ────────────────────────────────────────────────────
       # Queue-mode shape from day one: flipping this to `queue` and enabling the
       # profile is the whole switch, rather than a compose rewrite.
+      #
+      # BOTH halves are needed, and compose cannot express that the profile
+      # implies the mode. `docker compose --profile queue up -d` WITHOUT the
+      # variable gives a main process in regular mode executing everything, an
+      # idle worker whose scrape target still reads `up`, and empty queue panels
+      # with nothing to explain why. Always:
+      #   N8N_EXECUTIONS_MODE=queue docker compose --profile queue up -d
       EXECUTIONS_MODE: ${N8N_EXECUTIONS_MODE:-regular}
       QUEUE_BULL_REDIS_HOST: redis
       QUEUE_BULL_REDIS_PORT: "6379"

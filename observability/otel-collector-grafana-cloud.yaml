@@ -64,7 +64,16 @@ service:
     #
     # Both read the same `otlp` receiver; a receiver may feed any number of
     # pipelines.
-    traces/local:
+    # `traces:`, NOT `traces/local:`. Confmap merges maps by KEY, so renaming
+    # this one does not override the base config's `traces:` - it adds a third
+    # pipeline beside it, and both export to otlp_http/local. Every span then
+    # reaches the local backend twice. Measured before this was fixed: a trace
+    # with 46 spans of which 23 were unique, every span id duplicated.
+    #
+    # That is the same merge trap this file's header warns about for lists, one
+    # level up: the header says lists are replaced, and the thing that bites is
+    # that map keys are what decides whether you are replacing at all.
+    traces:
       receivers: [otlp]
       processors: [memory_limiter, resource/env, batch]
       exporters: [otlp_http/local]

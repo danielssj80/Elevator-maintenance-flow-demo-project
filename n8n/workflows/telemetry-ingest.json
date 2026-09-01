@@ -207,12 +207,6 @@
     }
   },
   "nodeGroups": [],
-  "activeVersionId": "e859e4e5-3d8c-4504-8f3c-d0b99e54fccf",
-  "versionCounter": 7,
   "sourceWorkflowId": null,
-  "tags": [],
-  "versionMetadata": {
-    "name": null,
-    "description": null
-  }
+  "tags": []
 }

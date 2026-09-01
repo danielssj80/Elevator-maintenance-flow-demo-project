@@ -9,7 +9,7 @@
       `main`. No longer stacked; the `X-Ingest-Token` these workflows send is in
       `main`. Its open question is closed too: `telemetry_readings` was confirmed
       empty in production, so the migration's unbounded DELETE was a no-op there
-- [ ] 0.4 Verify change 2's endpoints still respond: `POST /api/telemetry/readings`
+- [x] 0.4 Verify change 2's endpoints still respond: `POST /api/telemetry/readings`
       and `POST /api/inference/run` with a token, `GET /api/elevators`
 
 ## 1. Environment and credentials
@@ -99,8 +99,10 @@
 
 ## 7. Workflow: telemetry ingest (every 15 minutes)
 
-- [x] 7.1 `Schedule Trigger → GET /api/elevators → AI Agent (Bedrock Nova Lite,
-      Structured Output Parser) → Code → POST /api/telemetry/readings`
+- [x] 7.1 `Schedule Trigger → AI Agent (Bedrock Nova Lite, Structured Output
+      Parser) → GET /api/elevators → Code → POST /api/telemetry/readings`.
+      The agent runs **first**, on the trigger's single item: placed after the
+      fleet fetch it would run once per lift, 100 model calls a tick
 - [x] 7.2 Constrain the agent to **one typed scenario object** — no per-elevator
       numbers. Letting it emit readings reintroduces the Kelvin/Celsius
       corruption through the front door
@@ -169,12 +171,12 @@ than assuming it.
 
 ## 14. Manual Endpoint Testing (MANDATORY — AGENT MUST EXECUTE)
 
-- [ ] 14.1 `docker compose build backend migrate` — building `backend` alone
+- [x] 14.1 `docker compose build backend migrate` — building `backend` alone
       leaves `migrate` on its old image and it applies nothing, silently
-- [ ] 14.2 Exercise both write endpoints with and without the token
-- [ ] 14.3 Restore DB state afterwards (`docker exec **-i**` for a heredoc —
+- [x] 14.2 Exercise both write endpoints with and without the token
+- [x] 14.3 Restore DB state afterwards (`docker exec **-i**` for a heredoc —
       without `-i` psql gets no stdin and reports success having done nothing)
-- [ ] 14.4 Create `reports/YYYY-MM-DD-step-14-endpoint-testing.md`
+- [x] 14.4 Create `reports/YYYY-MM-DD-step-14-endpoint-testing.md`
 
 ## 15. E2E Testing with Playwright MCP (MANDATORY if frontend changed)
 
@@ -208,11 +210,12 @@ than assuming it.
 ## 18. Independent Review and Close-out
 
 - [x] 18.1 Mutation-check every guard added by this change and record the results
-- [ ] 18.2 Run `/adversarial-review` **as an independent cold-start agent**, not
+- [x] 18.2 Run `/adversarial-review` **as an independent cold-start agent**, not
       as a self-review — on the previous change the self-review found 3 issues
       and an independent session found 7 more, two of them in things the
       self-review had touched and got wrong
-- [ ] 18.3 Fix every finding, then re-run 18.1
+- [x] 18.3 Fix every finding, then re-run 18.1 — 6 Major and 10 Minor addressed;
+      all five reviewer-identified mutation survivors now go red
 - [ ] 18.4 `/archive` and sync `openspec/specs/workflow-orchestration/`
 - [ ] 18.5 `/commit` and open the PR (merge needs approval)
 - [ ] 18.6 Set the Notion task *n8n workflow orchestration (self-hosted, queue

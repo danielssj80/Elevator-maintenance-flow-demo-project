@@ -2,10 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | Proposed — artifacts complete, implementation not started |
+| **Status** | In progress — implemented and reviewed; steps 10.4 and 14 open |
 | **Milestone** | M5 — Observability & Orchestration (change 3 of 3) |
 | **Notion task** | [n8n workflow orchestration (self-hosted, queue mode)](https://app.notion.com/p/3ca3ada00a9581ecb0bcf606e3ef4814) |
 | **Branch** | `feature/n8n-workflow-orchestration`, from `main` |
+| **Reviews** | Independent cold-start session, 2026-09-01: **FAIL**, 6 Major. All addressed — see `reports/` |
 | **Started** | 2026-08-31 |
 
 ## Summary

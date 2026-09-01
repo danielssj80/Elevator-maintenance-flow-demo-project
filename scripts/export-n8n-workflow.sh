@@ -62,9 +62,40 @@ if start == -1:
 data = json.loads(raw[start:])
 workflows = data if isinstance(data, list) else [data]
 
-STRIP_TOP = ("versionId", "meta", "pinData", "shared", "homeProject",
-             "sharedWithProjects", "triggerCount", "createdAt", "updatedAt",
-             "isArchived", "settings.callerPolicy")
+# n8n 2.x does not emit `versionId` at all; it emits `activeVersionId`, a
+# per-instance UUID, plus `versionCounter` and `versionMetadata`. The first
+# version of this script stripped the key that no longer exists and left the one
+# that does, then reported "no versionId" — truthfully and uselessly, because
+# the leak check was a case-sensitive substring and `activeVersionId` does not
+# contain `versionId`.
+STRIP_TOP = ("versionId", "activeVersionId", "versionCounter", "versionMetadata",
+             "meta", "pinData", "shared", "homeProject", "sharedWithProjects",
+             "triggerCount", "createdAt", "updatedAt", "isArchived")
+
+# Node parameter values that carry a secret when someone types a header by hand
+# instead of attaching a credential — which is what the n8n UI produces, and
+# which the credential-block scrub does not touch because there is no credential
+# block to remove.
+SECRET_HEADER_NAMES = {"authorization", "x-ingest-token", "x-api-key", "apikey",
+                       "api-key", "token", "cookie", "proxy-authorization"}
+SECRET_VALUE_HINTS = ("bearer ", "sk-", "akia", "asia", "glc_", "ghp_", "xoxb-")
+
+
+def _secret_findings(node):
+    """Header and query parameter values that must never be published."""
+    found = []
+    params = node.get("parameters", {}) or {}
+    for group in ("headerParameters", "queryParameters", "bodyParameters"):
+        for entry in (params.get(group, {}) or {}).get("parameters", []) or []:
+            name = str(entry.get("name", "")).strip().lower()
+            value = str(entry.get("value", "")).strip()
+            if not value or value.startswith("="):
+                continue  # an expression, not a literal
+            if name in SECRET_HEADER_NAMES:
+                found.append(f"{node.get('name')}: {group}.{entry.get('name')}")
+            elif any(h in value.lower() for h in SECRET_VALUE_HINTS):
+                found.append(f"{node.get('name')}: {group}.{entry.get('name')} (looks like a token)")
+    return found
 
 for wf in workflows:
     for key in STRIP_TOP:
@@ -78,12 +109,30 @@ for wf in workflows:
 
     name = os.environ.get("OUTPUT_NAME") or re.sub(r"[^a-z0-9]+", "-", wf["name"].lower()).strip("-")
     path = out_dir / f"{name}.json"
-    path.write_text(json.dumps(wf, indent=2, ensure_ascii=False) + "\n")
 
-    leaked = [k for k in ("credentials", "instanceId", "versionId") if k in json.dumps(wf)]
-    print(f"wrote {path.relative_to(pathlib.Path.cwd())}")
+    # CHECK BEFORE WRITING. The first version wrote the file and then exited on a
+    # leak, which left the leaked artefact on disk, ready for `git add` — a guard
+    # that announces a refusal and publishes the thing anyway.
+    rendered = json.dumps(wf, indent=2, ensure_ascii=False) + "\n"
+
+    # Key-name check, case-insensitively this time.
+    lowered = rendered.lower()
+    leaked = [k for k in ("credentials", "instanceid", "versionid", "versioncounter")
+              if k in lowered]
+    # Value check. Key names alone pass a real secret straight through: an inline
+    # `Authorization: Bearer sk-...` header has no credential block to strip.
+    for node in wf.get("nodes", []):
+        leaked.extend(_secret_findings(node))
+
+    print(f"would write {path.relative_to(pathlib.Path.cwd())}")
     print(f"  nodes: {len(wf.get('nodes', []))}")
     if leaked:
-        sys.exit(f"  REFUSING: scrubbed export still mentions {leaked}")
-    print("  scrubbed: no credentials, no instanceId, no versionId")
+        sys.exit(
+            f"  REFUSING, and NOT writing: the scrubbed export still carries {leaked}. "
+            "Use an n8n credential instead of an inline header, or extend the scrubber."
+        )
+
+    path.write_text(rendered)
+    print(f"  wrote {path.relative_to(pathlib.Path.cwd())}")
+    print("  scrubbed: no credentials, no instance or version ids, no inline secrets")
 PY

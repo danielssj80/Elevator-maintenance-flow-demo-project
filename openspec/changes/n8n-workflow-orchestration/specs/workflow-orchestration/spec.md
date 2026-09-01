@@ -122,7 +122,13 @@ The system SHALL export workflow definitions through a script that removes crede
 #### Scenario: A scrubbed definition is still importable
 - **WHEN** a scrubbed definition is imported into a fresh orchestrator instance
 - **THEN** it loads with its nodes and connections intact
-- **AND** the missing credentials are reported as needing configuration rather than failing the import
+- **AND** the import succeeds despite carrying no credentials
+
+#### Scenario: A definition imported without credentials fails at execution, not at import
+- **WHEN** a scrubbed definition is imported and run without its credentials attached
+- **THEN** the import reports success
+- **AND** the execution fails on the node that needed a credential
+- **AND** the documented import path attaches the credentials so this does not happen
 
 ### Requirement: The orchestration tier is local-only and says so
 The system SHALL NOT deploy the orchestrator to the production environment, and SHALL state in its documentation that scheduled work runs only while the local stack is up. The production compose definition SHALL remain free of orchestrator services.

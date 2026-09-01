@@ -61,12 +61,17 @@ fault.
 ## Importing one of these
 
 ```bash
-docker compose cp n8n/workflows/telemetry-ingest.json n8n:/tmp/wf.json
-docker compose exec -T n8n n8n import:workflow --input=/tmp/wf.json
-./scripts/n8n-bootstrap-credentials.sh
-docker compose exec -T n8n n8n update:workflow --id=<id> --active=true
-docker compose restart n8n     # activation only takes effect on restart
+./scripts/n8n-bootstrap-credentials.sh                                   # once
+./scripts/n8n-import-workflow.sh n8n/workflows/telemetry-ingest.json --activate
 ```
+
+**Use that script rather than `n8n import:workflow` directly.** The export
+deliberately strips credential blocks, so a raw import leaves the HTTP and model
+nodes with nothing to authenticate with and the workflow fails at execution with
+`Credentials not found` — an error that says nothing about the export having
+done its job correctly. `n8n-import-workflow.sh` maps node types back onto the
+credential ids `n8n-bootstrap-credentials.sh` creates, and restarts n8n, because
+CLI activation does not take effect until it does.
 
 The `id` field is kept in the export on purpose: n8n's importer requires one and
 fails on a NOT NULL constraint without it. The ids here are fixed literals

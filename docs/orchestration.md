@@ -42,7 +42,11 @@ N8N_EXECUTIONS_MODE=queue docker compose --profile queue up -d   # queue mode
 ```
 
 Queue mode is one variable and a profile flag, not a rewrite. That was the point
-of writing the compose in queue-mode shape from the start.
+of writing the compose in queue-mode shape from the start — and **both halves are
+required**. Compose cannot make the profile imply the mode, so
+`docker compose --profile queue up -d` without the variable starts a main
+process in regular mode that executes everything, plus an idle worker whose
+scrape target still reads `up`. Nothing reports the mismatch.
 
 **The `n8n` database is created by a one-shot service, not by
 `docker-entrypoint-initdb.d`.** That recipe runs only when the data directory is
@@ -123,6 +127,19 @@ and how to import one. Two properties are load-bearing and easy to break:
 - **The agent invents a scenario; a Code node generates the numbers.** A model
   asked for "a machine temperature" answers 300 on some runs and 27 on others,
   and both survive the ingest endpoint's validation.
+
+**What the retry guarantee does and does not cover.** It covers node-level retry
+— `retryOnFail`, which re-runs the failed node with the same input, so the
+`recorded_at` computed upstream is carried into the retry unchanged. Verified by
+forcing an HTTP node to fail once: both attempts submitted an identical
+timestamp.
+
+It does **not** cover *"Retry execution → from the beginning"* in the n8n UI.
+That re-runs the Code node, which mints a fresh `recorded_at`, so the readings
+are new identities and are stored. The backend is not wrong to store them — they
+are a genuinely new sample by the identity rule — but a run retried that way
+does contribute a second set of readings to the same window. Retry the failed
+node, not the execution.
 
 ## Generated telemetry and what it is worth
 

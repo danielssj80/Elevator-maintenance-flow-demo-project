@@ -71,7 +71,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Facts, not prose. The agent that follows writes the digest; this node\n// decides what it is allowed to write about.\n//\n// Everything below is computed from the API response. Nothing is invented\n// here and nothing is asked of the model that it could get wrong: the counts,\n// the names and the scores are all facts by the time the prompt is built, so\n// the only thing the model contributes is the wording.\n\nconst run = $('Re-score the fleet').first().json;\nconst fleet = $('Fetch scored fleet').all().map((i) => i.json);\n\nconst inScope = fleet.filter((e) => e.in_model_scope);\nconst byLevel = { high: 0, medium: 0, low: 0 };\nfor (const e of inScope) byLevel[e.risk_level] = (byLevel[e.risk_level] || 0) + 1;\n\nconst top = [...inScope]\n  .sort((a, b) => b.risk_score - a.risk_score)\n  .slice(0, 5)\n  .map((e) => ({\n    id: e.id,\n    building: e.building_name,\n    zone: e.zone,\n    score: Number(e.risk_score.toFixed(4)),\n    level: e.risk_level,\n    age_years: e.age_years,\n    last_visit: e.last_visit_date\n  }));\n\nreturn [{\n  json: {\n    run: {\n      scored: run.scored,\n      skipped_no_telemetry: run.skipped_no_telemetry,\n      out_of_scope: run.out_of_scope,\n      readings_considered: run.readings_considered,\n      window_hours: run.window_hours,\n      model_version: run.model_version\n    },\n    fleet: { in_scope: inScope.length, total: fleet.length, by_level: byLevel },\n    top_risks: top,\n    generated_at: new Date().toISOString()\n  }\n}];"
+        "jsCode": "// Facts, not prose. The agent that follows writes the digest; this node\n// decides what it is allowed to write about.\n//\n// Everything below is computed from the API response. Nothing is invented\n// here and nothing is asked of the model that it could get wrong: the counts,\n// the names and the scores are all facts by the time the prompt is built, so\n// the only thing the model contributes is the wording.\n\nconst run = $('Re-score the fleet').first().json;\nconst fleet = $('Fetch scored fleet').all().map((i) => i.json);\n\n// `risk_score` is null for a lift the run skipped, and `skipped_no_telemetry`\n// is a first-class outcome of the very run this node summarises \u2014 so a lift\n// with no score is expected, not exceptional. Without this filter the sort\n// below and `toFixed(4)` throw a TypeError and the digest fails on exactly the\n// day it has something interesting to say.\nconst inScope = fleet.filter((e) => e.in_model_scope);\nconst scored = inScope.filter((e) => typeof e.risk_score === 'number');\nconst unscored = inScope.length - scored.length;\nconst byLevel = { high: 0, medium: 0, low: 0 };\nfor (const e of scored) byLevel[e.risk_level] = (byLevel[e.risk_level] || 0) + 1;\n\nconst top = [...scored]\n  .sort((a, b) => b.risk_score - a.risk_score)\n  .slice(0, 5)\n  .map((e) => ({\n    id: e.id,\n    building: e.building_name,\n    zone: e.zone,\n    score: Number(e.risk_score.toFixed(4)),\n    level: e.risk_level,\n    age_years: e.age_years,\n    last_visit: e.last_visit_date\n  }));\n\nreturn [{\n  json: {\n    run: {\n      scored: run.scored,\n      skipped_no_telemetry: run.skipped_no_telemetry,\n      out_of_scope: run.out_of_scope,\n      readings_considered: run.readings_considered,\n      window_hours: run.window_hours,\n      model_version: run.model_version\n    },\n    fleet: { in_scope: inScope.length, scored: scored.length, unscored, total: fleet.length, by_level: byLevel },\n    top_risks: top,\n    generated_at: new Date().toISOString()\n  }\n}];"
       },
       "id": "bbbbbbb1-0000-4000-8000-000000000005",
       "name": "Build digest facts",
@@ -201,12 +201,6 @@
     }
   },
   "nodeGroups": [],
-  "activeVersionId": "4d06d1a3-700c-4227-ba59-cce09fa7a343",
-  "versionCounter": 1,
   "sourceWorkflowId": null,
-  "tags": [],
-  "versionMetadata": {
-    "name": null,
-    "description": null
-  }
+  "tags": []
 }
