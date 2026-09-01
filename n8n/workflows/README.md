@@ -11,6 +11,8 @@ other way.
 
 ## `telemetry-ingest.json`
 
+![Telemetry ingest canvas](./telemetry-ingest.png)
+
 `Schedule (15 min) → AI Agent → GET /api/elevators → Code → POST /api/telemetry/readings`
 
 Generates one telemetry reading per in-scope lift and submits it as a batch.
@@ -57,6 +59,30 @@ unavailable degrades the variety of the data; it does not stop the pipeline.
 `.env`, which is less error-prone than retyping them in the editor: a mistyped
 ingest token surfaces as an HTTP 401 inside a node, which reads like a backend
 fault.
+
+## `daily-inference-and-digest.json`
+
+![Daily inference and digest canvas](./daily-inference-and-digest.png)
+
+`Schedule (06:00 Europe/Madrid) + Manual Trigger → POST /api/inference/run → GET /api/elevators → Code → AI Agent`
+
+Both triggers feed the same chain, so a demonstration never waits for 06:00.
+
+The Code node computes every figure the digest is allowed to mention — the level
+counts, the top five by score, and the run's own skip counts — and the agent is
+told to use only what it is given. Nothing in the output is the model's own
+arithmetic.
+
+It filters out lifts with no score before sorting. A lift the run skipped for
+having no telemetry is a first-class outcome of that very run, and without the
+filter the digest throws on exactly the day it has something interesting to say.
+
+### Credentials to attach after importing
+
+| Node | Credential type | What it needs |
+|---|---|---|
+| `Bedrock Nova Lite` | AWS | An IAM user with the `ElevatorBedrockInvokeNova` policy |
+| `Re-score the fleet` | Header Auth | `X-Ingest-Token` = the backend's `TELEMETRY_INGEST_TOKEN` |
 
 ## Importing one of these
 

@@ -123,6 +123,18 @@ On the Grafana Cloud pipeline only, a `filter` processor drops n8n's per-node
 schedule they are most of the volume. They stay in the local backend, where they
 are what makes a slow or failing node visible.
 
+## The distributed trace
+
+![n8n to backend to Postgres in one trace](images/tempo-trace-n8n-to-postgres.png)
+
+One scheduled execution, 23 spans: `n8n-main` starts the workflow, `n8n-worker`
+runs the nodes, and two of them open server spans on `elevator-backend` —
+`GET /api/elevators` and `POST /api/telemetry/readings` — each with its own
+`SELECT` and `INSERT` against Postgres beneath it.
+
+No code makes this happen. n8n injects a W3C `traceparent` into outbound HTTP
+and the backend continues it; the whole hop is configuration.
+
 ## The workflows
 
 See [`n8n/workflows/README.md`](../n8n/workflows/README.md) for what each does

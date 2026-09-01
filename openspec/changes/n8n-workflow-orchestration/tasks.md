@@ -69,7 +69,7 @@
       `otel.constants.js` / `otel.config.js` rather than guessing
 - [x] 4.5 Under the queue profile, confirm `n8n-worker` appears as its own
       service in Tempo
-- [ ] 4.6 Screenshot the **trace waterfall**, not the service graph. n8n emits no
+- [x] 4.6 Screenshot the **trace waterfall**, not the service graph. n8n emits no
       CLIENT-kind spans (`{resource.service.name="n8n-worker" && kind=client}`
       returns nothing), and Tempo builds service-graph edges from CLIENT→SERVER
       pairs — so `n8n → elevator-backend` can never appear there, and the
@@ -146,8 +146,8 @@ than assuming it.
       `meta.instanceId` and every `credentials` block via `jq`
 - [x] 10.2 Export both workflows to `n8n/workflows/`
 - [x] 10.3 **Verify a scrubbed definition still imports** into a clean instance
-- [ ] 10.4 Commit a canvas screenshot per workflow — needs the editor UI at
-      http://localhost:5678; both workflows are imported and active
+- [x] 10.4 Commit a canvas screenshot per workflow — both captured, renamed to
+      match their JSON, and embedded in n8n/workflows/README.md
 - [x] 10.5 `n8n/workflows/README.md`: what each does, its cadence, what it needs
       configured
 
