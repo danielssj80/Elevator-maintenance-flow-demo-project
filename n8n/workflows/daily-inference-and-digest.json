@@ -1,0 +1,206 @@
+{
+  "id": "elevDigest00001",
+  "name": "Elevator daily inference and ops digest",
+  "description": null,
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 6,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "bbbbbbb1-0000-4000-8000-000000000001",
+      "name": "Daily at 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -260,
+        -80
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bbbbbbb1-0000-4000-8000-000000000002",
+      "name": "Run now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/inference/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "bbbbbbb1-0000-4000-8000-000000000003",
+      "name": "Re-score the fleet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "url": "http://backend:8000/api/elevators",
+        "options": {}
+      },
+      "id": "bbbbbbb1-0000-4000-8000-000000000004",
+      "name": "Fetch scored fleet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Facts, not prose. The agent that follows writes the digest; this node\n// decides what it is allowed to write about.\n//\n// Everything below is computed from the API response. Nothing is invented\n// here and nothing is asked of the model that it could get wrong: the counts,\n// the names and the scores are all facts by the time the prompt is built, so\n// the only thing the model contributes is the wording.\n\nconst run = $('Re-score the fleet').first().json;\nconst fleet = $('Fetch scored fleet').all().map((i) => i.json);\n\n// `risk_score` is null for a lift the run skipped, and `skipped_no_telemetry`\n// is a first-class outcome of the very run this node summarises \u2014 so a lift\n// with no score is expected, not exceptional. Without this filter the sort\n// below and `toFixed(4)` throw a TypeError and the digest fails on exactly the\n// day it has something interesting to say.\nconst inScope = fleet.filter((e) => e.in_model_scope);\nconst scored = inScope.filter((e) => typeof e.risk_score === 'number');\nconst unscored = inScope.length - scored.length;\nconst byLevel = { high: 0, medium: 0, low: 0 };\nfor (const e of scored) byLevel[e.risk_level] = (byLevel[e.risk_level] || 0) + 1;\n\nconst top = [...scored]\n  .sort((a, b) => b.risk_score - a.risk_score)\n  .slice(0, 5)\n  .map((e) => ({\n    id: e.id,\n    building: e.building_name,\n    zone: e.zone,\n    score: Number(e.risk_score.toFixed(4)),\n    level: e.risk_level,\n    age_years: e.age_years,\n    last_visit: e.last_visit_date\n  }));\n\nreturn [{\n  json: {\n    run: {\n      scored: run.scored,\n      skipped_no_telemetry: run.skipped_no_telemetry,\n      out_of_scope: run.out_of_scope,\n      readings_considered: run.readings_considered,\n      window_hours: run.window_hours,\n      model_version: run.model_version\n    },\n    fleet: { in_scope: inScope.length, scored: scored.length, unscored, total: fleet.length, by_level: byLevel },\n    top_risks: top,\n    generated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "bbbbbbb1-0000-4000-8000-000000000005",
+      "name": "Build digest facts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'Write today\\'s operations digest from these facts:\\n\\n' + JSON.stringify($json, null, 2) }}",
+        "options": {
+          "systemMessage": "You write a short daily operations digest for a lift maintenance supervisor. Six sentences at most. State the fleet's risk distribution, name the lifts that need attention first and why, and flag anything the run itself reports as skipped. Use only the facts given: never invent a lift, a score or a cause, and if a number is not in the input do not mention it. Plain prose, no bullet points, no headings."
+        }
+      },
+      "id": "bbbbbbb1-0000-4000-8000-000000000006",
+      "name": "Write the digest",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        640,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "modelSource": "inferenceProfile",
+        "model": "eu.amazon.nova-lite-v1:0",
+        "options": {
+          "temperature": 0.4,
+          "maxTokensToSample": 400
+        }
+      },
+      "id": "bbbbbbb1-0000-4000-8000-000000000007",
+      "name": "Bedrock Nova Lite",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAwsBedrock",
+      "typeVersion": 1,
+      "position": [
+        640,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Daily at 06:00": {
+      "main": [
+        [
+          {
+            "node": "Re-score the fleet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Re-score the fleet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-score the fleet": {
+      "main": [
+        [
+          {
+            "node": "Fetch scored fleet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch scored fleet": {
+      "main": [
+        [
+          {
+            "node": "Build digest facts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build digest facts": {
+      "main": [
+        [
+          {
+            "node": "Write the digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bedrock Nova Lite": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write the digest",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {
+    "node:Daily at 06:00": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "sourceWorkflowId": null,
+  "tags": []
+}

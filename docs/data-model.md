@@ -255,6 +255,14 @@ The backend uses **PostgreSQL 16** (managed by SQLAlchemy 2.x async + Alembic mi
 | `visit_reports` | `VisitReport` (FK to `elevators.id`, JSONB for list fields) |
 | `telemetry_readings` | `TelemetryReading` (FK to `elevators.id`, cascade delete; unique on `(elevator_id, recorded_at, source)`, indexed on `(recorded_at DESC)`) |
 
+**A second database on the same instance.** The orchestration tier (M5) keeps its
+own state in a database called `n8n` on this same PostgreSQL server, created by a
+one-shot `n8n-db-init` service and owned entirely by n8n's own migrations. It
+shares nothing with `elevator_db` and no application code reads it — but it
+shares the server's `max_connections`, which is why every n8n process is capped
+at `DB_POSTGRESDB_POOL_SIZE=4`, and it shares the backup and reset story: a
+`docker compose down -v` takes both.
+
 `risk_level` is derived in the service layer from `risk_score` — not stored. `trend` is stored as individual rows and assembled into a sorted array by the service.
 
 **ML-derived fields:** `risk_score`, `nl_explanation`, `features`, and `trend` are pre-calculated offline by `backend/ml/generate_predictions.py` using a trained XGBoost model (AI4I 2020 dataset) and SHAP explanations. Results are committed to `backend/ml/predictions.json` and loaded at startup by `backend/app/seed.py`. No live inference endpoint exists.

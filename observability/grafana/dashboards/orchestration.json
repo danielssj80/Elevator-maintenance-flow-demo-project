@@ -1,7 +1,7 @@
 {
   "uid": "elevator-orchestration",
   "title": "Elevator \u00b7 Orchestration (n8n)",
-  "description": "Placeholder for the n8n workflow-orchestration change. Panels stay empty until n8n is running and scraped.",
+  "description": "Scheduled ingest and re-scoring driven by self-hosted n8n. Local only: the schedules fire while the development stack is up and there is no orchestrator in production. Queue-depth panels need the `queue` compose profile, where those metrics exist on the main process only.",
   "tags": [
     "elevator",
     "n8n",
@@ -17,20 +17,6 @@
     "to": "now"
   },
   "panels": [
-    {
-      "type": "text",
-      "title": "Not wired up yet",
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 24,
-        "h": 6
-      },
-      "options": {
-        "mode": "markdown",
-        "content": "These panels are populated by the `n8n-workflow-orchestration` change:\n\n- n8n is scraped by the Collector at `n8n:5678/metrics`\n- Queue-depth metrics come from the **main** instance only; workers expose their own default metrics but not the Bull queue gauges\n- Workflow traces arrive over OTLP with `service.name` `n8n-main` and `n8n-worker`\n\nEmpty panels below are expected until then."
-      }
-    },
     {
       "type": "timeseries",
       "title": "n8n queue depth",
@@ -50,7 +36,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "n8n_queue_jobs_waiting",
+          "expr": "n8n_scaling_mode_queue_jobs_waiting",
           "legendFormat": "waiting",
           "refId": "A",
           "instant": false
@@ -60,7 +46,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "n8n_queue_jobs_active",
+          "expr": "n8n_scaling_mode_queue_jobs_active",
           "legendFormat": "active",
           "refId": "B",
           "instant": false
@@ -111,7 +97,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status) (rate(n8n_workflow_executions_total[5m]))",
+          "expr": "sum by (status) (rate(n8n_workflow_execution_duration_seconds_count[5m]))",
           "legendFormat": "{{status}}",
           "refId": "A",
           "instant": false
@@ -168,6 +154,32 @@
           "limit": 20
         }
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scrape target up, by role",
+      "description": "worker is 0 unless the `queue` compose profile is running. That is a true statement, not a broken scrape.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"n8n\"}",
+          "legendFormat": "{{n8n_role}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      }
     }
   ]
 }

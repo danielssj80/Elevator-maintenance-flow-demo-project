@@ -35,6 +35,14 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: elevator-backend
       DEPLOYMENT_ENVIRONMENT: local
+      # Bedrock. Production authenticates with the EC2 instance role and needs
+      # none of these; locally there is no role, so boto3 finds nothing and the
+      # briefing endpoint answers source="fallback" with a
+      # NoCredentialsError in the log. Optional on purpose — the stack works
+      # without them, it just never reaches a model.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      BEDROCK_REGION: ${BEDROCK_REGION:-eu-north-1}
       # The X-Ingest-Token guard on POST /api/telemetry/readings and
       # POST /api/inference/run is fail-open: an unset token means open, so
       # that a fresh checkout and the test suite work with no configuration.
@@ -154,6 +162,198 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
 
+  # --- Orchestration (M5) --------------------------------------------------
+  # Local only. docker-compose.prod.yml is deliberately untouched: production
+  # runs no orchestrator, no queue and no worker. Schedules fire only while
+  # this stack is up — see docs/orchestration.md.
+
+  n8n-db-init:
+    # n8n needs its own database on the existing instance. NOT via
+    # docker-entrypoint-initdb.d: that runs only when the data directory is
+    # empty, and postgres_data already has data on every existing dev machine,
+    # so it would silently never run and n8n would fail with "database n8n does
+    # not exist". One-shot service instead, same shape as `migrate` above.
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: password
+    command: >
+      sh -c "psql -h db -U user -d elevator_db -tAc \"SELECT 1 FROM pg_database WHERE datname='n8n'\" | grep -q 1
+      || psql -h db -U user -d elevator_db -c 'CREATE DATABASE n8n'"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  n8n:
+    # Pinned explicitly, and >= 2.19.0 is not optional: n8n's native OpenTelemetry
+    # tracing landed in that release. An older `latest` pull would have no
+    # tracing at all, with nothing in the logs to say why.
+    image: n8nio/n8n:2.37.6
+    ports:
+      - "5678:5678"
+    environment:
+      # ── Database ──────────────────────────────────────────────────────────
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: db
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: user
+      DB_POSTGRESDB_PASSWORD: password
+      # main + worker + their TypeORM pools + SQLAlchemy + inference can
+      # otherwise walk into PostgreSQL's default max_connections=100.
+      DB_POSTGRESDB_POOL_SIZE: "4"
+
+      # ── Identity ──────────────────────────────────────────────────────────
+      # Must be IDENTICAL on main and every worker: a mismatch means workers
+      # cannot decrypt credentials and every node using one fails with an error
+      # that never mentions encryption. Both read this same variable, so they
+      # agree by construction. The default is a local development value, not a
+      # secret — the same reasoning as TELEMETRY_INGEST_TOKEN above. Override it
+      # in the git-ignored root .env.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-local-dev-n8n-encryption-key}
+
+      # ── Execution mode ────────────────────────────────────────────────────
+      # Queue-mode shape from day one: flipping this to `queue` and enabling the
+      # profile is the whole switch, rather than a compose rewrite.
+      #
+      # BOTH halves are needed, and compose cannot express that the profile
+      # implies the mode. `docker compose --profile queue up -d` WITHOUT the
+      # variable gives a main process in regular mode executing everything, an
+      # idle worker whose scrape target still reads `up`, and empty queue panels
+      # with nothing to explain why. Always:
+      #   N8N_EXECUTIONS_MODE=queue docker compose --profile queue up -d
+      EXECUTIONS_MODE: ${N8N_EXECUTIONS_MODE:-regular}
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: "6379"
+      OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: "true"
+
+      # ── Prometheus ────────────────────────────────────────────────────────
+      # Workflow-id and node-type labels stay OFF. 100 elevators already taught
+      # this project what one careless label does to a 10k-series budget.
+      N8N_METRICS: "true"
+      N8N_METRICS_INCLUDE_QUEUE_METRICS: "true"
+      N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL: "false"
+      N8N_METRICS_INCLUDE_NODE_TYPE_LABEL: "false"
+
+      # ── OpenTelemetry ─────────────────────────────────────────────────────
+      # This block must be IDENTICAL on n8n-worker. In queue mode the worker
+      # continues the trace it reads from the database; configured on main
+      # alone, the worker executes everything and emits nothing, and the result
+      # is a parent span with no children — which reads as "the workflow never
+      # ran" rather than as a configuration gap.
+      #
+      # OTel ships as an n8n *module*, and `enabledModules` defaults to empty:
+      # N8N_OTEL_ENABLED=true on its own configures a module that was never
+      # loaded, so nothing initialises and nothing is logged. Verified against
+      # @n8n/backend-common/dist/modules/modules.config.js in the running image.
+      N8N_ENABLED_MODULES: otel
+      # Defaults to FALSE. Omitting it leaves tracing entirely off, with no
+      # line in the log to say so — verified against the running image's
+      # dist/modules/otel/otel.config.js, where `enabled = false`.
+      N8N_OTEL_ENABLED: "true"
+      # BASE url, no /v1/traces suffix: n8n appends N8N_OTEL_EXPORTER_OTLP_TRACING_PATH
+      # (default /v1/traces) itself.
+      N8N_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # N8N_OTEL_EXPORTER_SERVICE_NAME, not N8N_OTEL_SERVICE_NAME. The latter is
+      # not a variable n8n reads, so it is silently ignored and the service
+      # shows up in Tempo as the default "n8n".
+      N8N_OTEL_EXPORTER_SERVICE_NAME: n8n-main
+      # Defaults to TRUE, and this is the nastiest trap in the milestone.
+      # Traces export for *production* executions only, so the editor's "Test
+      # workflow" button — exactly how a workflow gets built — exports zero
+      # spans. Verify linkage with an ACTIVATED workflow, never the Test button.
+      N8N_OTEL_TRACES_PRODUCTION_ONLY: "false"
+      # Injects W3C traceparent into outbound HTTP from nodes. Already the
+      # default; pinned because it is what links n8n to the backend, and the
+      # backend's "incoming trace context is continued" requirement is the other
+      # half. Do NOT override OTEL_PROPAGATORS — W3C is the default and is why
+      # this works with no code.
+      N8N_OTEL_TRACES_INJECT_OUTBOUND: "true"
+      # Both default to TRUE and would ship prompts and model output to Grafana
+      # Cloud — the same mistake the briefing instrumentation avoided in change 1.
+      N8N_AGENTS_TRACING_RECORD_INPUTS: "false"
+      N8N_AGENTS_TRACING_RECORD_OUTPUTS: "false"
+
+      GENERIC_TIMEZONE: Europe/Madrid
+      TZ: Europe/Madrid
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    mem_limit: 768m
+    depends_on:
+      db:
+        condition: service_healthy
+      n8n-db-init:
+        condition: service_completed_successfully
+
+  redis:
+    # Only needed in queue mode, so it costs nothing until the profile is on.
+    image: redis:7-alpine
+    profiles: [queue]
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  n8n-worker:
+    image: n8nio/n8n:2.37.6
+    profiles: [queue]
+    command: worker
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: db
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: user
+      DB_POSTGRESDB_PASSWORD: password
+      DB_POSTGRESDB_POOL_SIZE: "4"
+
+      # Identical to main, by construction — same variable, same default.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-local-dev-n8n-encryption-key}
+
+      EXECUTIONS_MODE: queue
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: "6379"
+
+      N8N_METRICS: "true"
+      N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL: "false"
+      N8N_METRICS_INCLUDE_NODE_TYPE_LABEL: "false"
+
+      # OTel ships as an n8n *module*, and `enabledModules` defaults to empty:
+      # N8N_OTEL_ENABLED=true on its own configures a module that was never
+      # loaded, so nothing initialises and nothing is logged. Verified against
+      # @n8n/backend-common/dist/modules/modules.config.js in the running image.
+      N8N_ENABLED_MODULES: otel
+      # Identical OTel block to main. See the note there for why, and for why
+      # N8N_OTEL_ENABLED and the EXPORTER_SERVICE_NAME spelling are load-bearing.
+      N8N_OTEL_ENABLED: "true"
+      N8N_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      N8N_OTEL_EXPORTER_SERVICE_NAME: n8n-worker
+      N8N_OTEL_TRACES_PRODUCTION_ONLY: "false"
+      N8N_OTEL_TRACES_INJECT_OUTBOUND: "true"
+      N8N_AGENTS_TRACING_RECORD_INPUTS: "false"
+      N8N_AGENTS_TRACING_RECORD_OUTPUTS: "false"
+
+      GENERIC_TIMEZONE: Europe/Madrid
+      TZ: Europe/Madrid
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    env_file:
+      - path: .env
+        required: false
+    mem_limit: 640m
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      n8n-db-init:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:
   lgtm_data:
+  n8n_data:

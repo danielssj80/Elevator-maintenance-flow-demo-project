@@ -611,6 +611,16 @@ are right and the stack is stale.
   `build_app()` logs a warning when it registers those routers without one, and
   `tests/unit/test_dev_compose.py` asserts both against the compose files.
 
+- **Orchestration attributes are recorded, never trusted.**
+  `app/core/orchestration_context.py` reads `X-N8N-Execution-Id` and
+  `X-N8N-Workflow-Id` and stamps them onto the server span, so a trace can be
+  taken back to the execution that produced it. Both values are caller-supplied,
+  so they are trimmed, truncated to 128 characters, and recorded **absent rather
+  than empty** — putting an execution id on every human-made request would make
+  "filter to orchestrated requests" mean nothing. Plain ASGI middleware, and a
+  no-op when the span is not recording, so a deployment with OTel off pays
+  nothing. Nothing else under `app/` knows the orchestrator exists.
+
 - **Assert a guard against the configuration that runs it, not only against a
   fixture.** Round 3 of `telemetry-ingestion-inference` found the production
   gate open in the one environment it existed to protect, after three rounds of

@@ -16,6 +16,10 @@ e2e/test-results/
 e2e/playwright-report/
 .playwright-mcp/
 *.png
+# ...except the documentation images. The M5 deliverables are a Tempo service
+# graph and the n8n canvas, and `*.png` silently refuses to add either.
+!docs/images/*.png
+!n8n/workflows/*.png
 
 # Coverage
 backend/.coverage
