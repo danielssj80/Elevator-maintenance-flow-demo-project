@@ -21,7 +21,6 @@ import pathlib
 import re
 import subprocess
 
-import pytest
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -50,6 +49,20 @@ def _unit_section(path: pathlib.Path, section: str) -> dict[str, str]:
     parser.read_string(path.read_text())
     assert parser.has_section(section), f"{path.name} has no [{section}] section"
     return dict(parser[section])
+
+
+def _code(path: pathlib.Path) -> str:
+    """The file with its comment lines removed.
+
+    A guard that can be satisfied by its own explanatory comment is not a guard.
+    The first mutation run proved it: deleting `exec -T` from the hook's actual
+    command left this file green, because the comment above that command explains
+    why `exec -T` matters and the assertion found it there.
+    """
+    assert path.exists(), f"{path} is missing"
+    return "\n".join(
+        line for line in path.read_text().splitlines() if not line.lstrip().startswith("#")
+    )
 
 
 def _workflow(path: pathlib.Path) -> dict:
@@ -132,8 +145,7 @@ def test_deploy_hook_reloads_nginx_without_requiring_a_tty():
     memory. The live crontab had acquired `-T`; no file in this repository showed
     it, which is the drift this change exists to end.
     """
-    assert HOOK.exists(), f"{HOOK} is missing"
-    hook = HOOK.read_text()
+    hook = _code(HOOK)
 
     assert re.search(r"\bexec\s+-T\b", hook), (
         "the reload must pass `exec -T`: there is no TTY in a systemd timer"
@@ -305,8 +317,7 @@ def test_expiry_threshold_sits_inside_the_renewal_window():
     outage notification. This reads the script's default textually — the live
     behaviour is proven in step 10 against production.
     """
-    assert EXPIRY_SCRIPT.exists(), f"{EXPIRY_SCRIPT} is missing"
-    match = re.search(r"(?i)min_days.*?:-\s*(\d+)", EXPIRY_SCRIPT.read_text())
+    match = re.search(r"(?i)min_days.*?:-\s*(\d+)", _code(EXPIRY_SCRIPT))
     assert match, "the script must define a default day threshold"
 
     default_days = int(match.group(1))
@@ -318,7 +329,7 @@ def test_expiry_threshold_sits_inside_the_renewal_window():
 
 def test_expiry_check_validates_the_chain_without_trust_overrides():
     """An expired certificate is only one of the ways TLS breaks."""
-    script = EXPIRY_SCRIPT.read_text()
+    script = _code(EXPIRY_SCRIPT)
 
     assert "curl" in script, "the check must make a verifying request, not only read dates"
     assert not re.search(r"(?<!\w)-k(?!\w)|--insecure", script), (
@@ -358,9 +369,18 @@ def test_expiry_workflow_is_scheduled_and_can_be_run_on_demand():
     assert triggers.get("schedule"), "the expiry check must run on a schedule"
     assert "workflow_dispatch" in triggers, "it must also be runnable on demand"
 
-    text = EXPIRY_WORKFLOW.read_text()
-    for host in PRODUCTION_HOSTS:
-        assert host in text, f"{host} is served by the same certificate and must be checked"
+    checked = set()
+    for job in _workflow(EXPIRY_WORKFLOW)["jobs"].values():
+        strategy = job.get("strategy") or {}
+        matrix = strategy.get("matrix") or {}
+        checked.update(matrix.get("host") or [])
+        assert strategy.get("fail-fast") is False, (
+            "one host failing must not hide the other's state; they share a "
+            "certificate today and that is exactly what could change"
+        )
+
+    missing = set(PRODUCTION_HOSTS) - checked
+    assert not missing, f"{sorted(missing)} served by the same certificate but not checked"
 
 
 def test_deploy_workflow_installs_the_renewal_after_the_smoke_check():
