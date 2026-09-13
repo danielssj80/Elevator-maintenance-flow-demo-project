@@ -144,7 +144,8 @@
       the baseline exists to prove that
 - [x] 9.2 Targeted run:
       `backend/venv/bin/python -m pytest tests/unit/test_tls_renewal_config.py -v`
-- [ ] 9.3 Full suite — **runs in CI on the PR, not here.** `tests/conftest.py:43`
+- [x] 9.3 Full suite — **ran in CI on PR #35: 245 passed, ruff clean** (run
+      `34775209939`). Not runnable here: `tests/conftest.py:43`
       makes a reachable PostgreSQL a session-scoped autouse requirement for every
       test in the suite; Docker Desktop is not running, and the system interpreter
       is 3.14 while the project pins `pydantic==2.10.3` on `python:3.12-slim`.

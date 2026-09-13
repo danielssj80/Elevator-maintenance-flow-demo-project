@@ -48,7 +48,20 @@ targeted file above was run locally with `--confcutdir=tests/unit`, which is wha
 lets it execute without the database-backed conftest — it needs no database,
 because it reads configuration files and runs a shell script.
 
-**CI result on the PR: see `2026-09-13-step-13-real-configuration.md`.**
+### CI result on PR #35
+
+```
+Lint (ruff)     All checks passed!
+Test (pytest)   245 passed, 1 warning in 9.27s
+```
+
+Run `34775209939`, Python 3.12, `requirements.txt` + `requirements-dev.txt` as
+pinned, `postgres:16-alpine` service, `python -m pytest tests/ -q` — the whole
+suite, not only `tests/unit/`. 245 passed with the 13 new guards among them, so
+nothing in this change disturbs the 232 tests that were already there.
+
+The single warning is unrelated to this branch: GitHub forcing Node 24 on
+`actions/checkout@v4` and `actions/setup-python@v5`.
 
 ## DB state
 
