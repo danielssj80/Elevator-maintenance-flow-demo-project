@@ -198,19 +198,93 @@ curl -s https://elevator.dsaavedra.dev/health
 
 ## TLS Certificate Renewal
 
-Certbot runs automatically via cron at 03:00 daily:
+Certbot runs from a **systemd timer**, and every file that configures it lives in
+`deploy/tls/` in this repository. Nothing here is typed on the instance:
 
-```
-0 3 * * * certbot renew --quiet && docker compose -f /opt/elevator/docker-compose.prod.yml exec nginx nginx -s reload
-```
+| Repository file | Installed to |
+|---|---|
+| `deploy/tls/certbot-renew.service` | `/etc/systemd/system/certbot-renew.service` |
+| `deploy/tls/certbot-renew.timer` | `/etc/systemd/system/certbot-renew.timer` |
+| `deploy/tls/reload-nginx-deploy-hook.sh` | `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh` |
 
-Manual dry-run check:
+The timer checks twice daily (03:00 and 15:00, with up to an hour of jitter) and
+`Persistent=true` runs a trigger that was missed while the instance was off. The
+service invokes certbot by **absolute path**. The nginx reload is a certbot deploy
+hook, so it runs only when a certificate was actually renewed, it runs whoever
+invoked certbot, and it passes `exec -T` because there is no TTY in a timer.
+
+`deploy/tls/install-renewal.sh` installs all three, enables the timer, refuses to
+proceed if the certbot binary the unit names is absent, and removes any legacy
+crontab renewer after backing the crontab up. **`.github/workflows/deploy.yml`
+runs it on every deploy**, after the smoke check — so host configuration is
+restored from the repository continuously, and editing these files on the instance
+accomplishes nothing but a delay until the next deploy.
+
+Certificates are stored at `/etc/letsencrypt/live/dsaavedra.dev/` and mounted
+read-only into the nginx container.
+
+### Verifying it
 
 ```bash
-certbot renew --dry-run
+systemctl list-timers --all certbot-renew.timer   # armed, and when next?
+journalctl -u certbot-renew -n 50                 # did it run, and what did it return?
+sudo systemctl start certbot-renew.service        # run it now, in the unit's own environment
+sudo /usr/local/bin/certbot renew --dry-run --run-deploy-hooks
 ```
 
-Certificates are stored at `/etc/letsencrypt/live/dsaavedra.dev/` and mounted read-only into the nginx container.
+`--run-deploy-hooks` is not optional in that last command. **A plain `--dry-run`
+does not execute deploy hooks**, so it proves the renewal and nothing whatsoever
+about the reload.
+
+### Expiry is watched from outside the host
+
+`scripts/check-tls-expiry.sh <host> [min_days]` reads the certificate a host
+actually **serves** and fails below 21 days — inside certbot's 30-day renewal
+window, so a failure means the mechanism is broken rather than that renewal is
+due. `.github/workflows/tls-expiry-check.yml` runs it daily against
+`elevator.dsaavedra.dev` and `dsaavedra.dev`, and `deploy.yml` runs it on every
+deploy. Run it by hand any time:
+
+```bash
+sh scripts/check-tls-expiry.sh elevator.dsaavedra.dev
+```
+
+It checks the served certificate rather than the file on disk because a file check
+passes in the failure mode where renewal succeeds and the reload does not.
+
+> **The check has a limitation worth knowing.** GitHub disables scheduled
+> workflows after 60 days of repository inactivity, so this is not a monitor with
+> a lifetime independent of the repository. `workflow_dispatch` and the deploy's
+> own run of the script are the mitigations.
+
+### Two traps this mechanism exists because of
+
+**1. cron's `PATH` on Amazon Linux 2023 versus a pip-installed certbot.** On
+2026-09-10 the wildcard certificate expired after 93 days without a single
+renewal, taking down `elevator.dsaavedra.dev` and the co-located `dsaavedra.dev`
+together. The renewal was a crontab line beginning with a bare `certbot`; `cronie`
+runs jobs with `PATH=/usr/bin:/bin`, and `pip3 install certbot` had put the binary
+in `/usr/local/bin`. It exited 127 every night for three months and reported it
+nowhere: `--quiet` suppressed the output, AL2023 ships no MTA so cron's mail to
+root was discarded, and AL2023 keeps no `/var/log/cron` because cronie logs to
+journald. Reproduce the environment, not the command:
+
+```bash
+sudo env PATH=/usr/bin:/bin certbot --version   # what cron actually saw
+```
+
+systemd requires an absolute `ExecStart`, so this defect cannot be written into a
+unit file — which is the substantive reason for the timer, not a preference.
+
+**2. certbot is running on Python 3.9, and that deadline has passed.** certbot
+4.2.0 warns on every run that Python 3.9 support is being dropped in its next
+release, and boto3 — which the `dns-route53` plugin needs — ended Python 3.9
+support in April 2026. An upgrade of either breaks renewal again. The expiry check
+turns that into a 21-day warning rather than an outage; it does not prevent it.
+Moving the certbot runtime is tracked as separate work.
+
+The full incident write-up is
+`openspec/changes/archive/*-harden-tls-renewal/reports/2026-09-13-incident-tls-expiry.md`.
 
 ---
 
