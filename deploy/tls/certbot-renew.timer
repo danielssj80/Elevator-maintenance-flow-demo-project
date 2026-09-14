@@ -1,0 +1,19 @@
+[Unit]
+Description=Twice-daily renewal check for the *.dsaavedra.dev certificate
+
+[Timer]
+# Twice daily is what Let's Encrypt asks of every client. Inside the 30-day
+# renewal window it is sixty chances instead of thirty, and the first success
+# ends the matter; once a day gives no second attempt on a day when something is
+# briefly wrong.
+OnCalendar=*-*-* 03,15:00:00
+# Let's Encrypt asks clients not to fire on the hour. An hour of jitter also
+# means two instances of this project would not queue behind each other.
+RandomizedDelaySec=3600
+# A t3.micro that was powered off at 03:00 renews once it boots, rather than
+# waiting twelve more hours. A crontab line has no equivalent of this.
+Persistent=true
+Unit=certbot-renew.service
+
+[Install]
+WantedBy=timers.target

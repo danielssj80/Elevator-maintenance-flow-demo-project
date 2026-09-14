@@ -14,6 +14,7 @@ alwaysApply: true
 - **Incremental Changes**: Prefer small, focused changes over large modifications.
 - **Question Assumptions**: Always question assumptions. If something is ambiguous, ask before implementing.
 - **Pattern Detection**: Identify and flag repeated code patterns. Don't duplicate logic.
+- **Verify in the environment it runs in**: A guard is verified in the environment it runs in, never in an interactive shell. The certificate renewal of 2026-06-12 was certified by a `certbot renew --dry-run` typed into an SSM session — which inherits the operator's `PATH` and runs no deploy hook — and the mechanism it certified had never once worked. See `openspec/changes/archive/2026-09-14-harden-tls-renewal/`.
 
 ## 2. Language Standards
 

@@ -1,0 +1,43 @@
+name: TLS expiry check
+
+# The *.dsaavedra.dev certificate expired on 2026-09-10 and nothing reported it;
+# the only check in the system that fails on an expired certificate is the deploy
+# smoke step, and no deploy happened inside the renewal window. This workflow is
+# what watches when nobody is deploying.
+#
+# Its own limitation, stated rather than hidden: GitHub disables scheduled
+# workflows after 60 days of repository inactivity. That is why deploy.yml runs
+# the same script and why workflow_dispatch is here. A monitor with a lifetime
+# genuinely independent of this repository is recorded as follow-up.
+on:
+  schedule:
+    # 06:17 UTC. Off the hour, where the runner queues are shortest — a check
+    # that gets skipped for load is not a check.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certificate:
+    name: ${{ matrix.host }}
+    runs-on: ubuntu-latest
+    # A check that hangs is a check that reports nothing, which is the failure
+    # mode this workflow exists to end.
+    timeout-minutes: 10
+    strategy:
+      # Both hostnames are served by one wildcard certificate from one nginx
+      # container today. Checking them separately is how a future split gets
+      # noticed instead of assumed, so neither host may mask the other.
+      fail-fast: false
+      matrix:
+        host:
+          - elevator.dsaavedra.dev
+          - dsaavedra.dev
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Check the served certificate
+        run: sh scripts/check-tls-expiry.sh "${{ matrix.host }}"

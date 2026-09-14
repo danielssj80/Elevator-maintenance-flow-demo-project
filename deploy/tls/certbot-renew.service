@@ -1,0 +1,20 @@
+[Unit]
+Description=Renew the *.dsaavedra.dev Let's Encrypt certificate
+Documentation=https://github.com/danielssj80/Elevator-maintenance-flow-demo-project/blob/main/docs/deployment.md
+# certbot needs the network for the ACME exchange, and the deploy hook in
+# /etc/letsencrypt/renewal-hooks/deploy/ needs the Docker daemon to reload nginx.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Absolute, and this is the whole point of the file. The mechanism this replaces
+# was a crontab line beginning with a bare `certbot`; cronie runs jobs with
+# PATH=/usr/bin:/bin and pip had installed the binary in /usr/local/bin, so every
+# run since 2026-06-12 exited 127 on its first word and the certificate expired
+# with nothing anywhere reporting a failure. systemd refuses a relative ExecStart
+# outright, so that class of defect cannot be expressed here at all.
+ExecStart=/usr/local/bin/certbot renew --quiet
+
+# No [Install] section: the timer activates this unit, and an operator can still
+# run it by hand with `systemctl start certbot-renew.service`.
