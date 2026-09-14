@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Archived — 2026-09-14 |
 | **Milestone** | Unplanned — production incident (certificate expiry, both sites) |
-| **Notion task** | Two follow-ups registered under *Backlog improvements* (see below) |
+| **Notion task** | Two follow-ups under *Backlog improvements*: [certbot off Python 3.9](https://app.notion.com/p/3db3ada00a9581cc91eef85ed5e2ada1) · [TLS monitor independent of GitHub scheduling](https://app.notion.com/p/3db3ada00a95811782c7f292fda2c7ee) |
 | **Branch** | `feature/harden-tls-renewal`, from `origin/main` (`2b5a284`) |
 | **Reviews** | Independent cold-start session, 2026-09-14: **FAIL**, 1 blocker + 5 majors. All addressed — see `reports/` |
 | **Verified on the instance** | 2026-09-14, attended, before the merge — `reports/2026-09-14-step-13-real-configuration.md` |

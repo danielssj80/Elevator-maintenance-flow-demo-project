@@ -284,7 +284,11 @@
       2026-09-14**, the corrections being covered by 9 red mutations, 19 tests,
       green CI and the verification on the instance itself
 - [x] 15.3 `/archive` — archived 2026-09-14 as `2026-09-14-harden-tls-renewal`
-- [ ] 15.4 `/commit` → PR. Merge is the operator's call
-- [ ] 15.5 Register the two follow-ups as Notion tasks under *Backlog
-      improvements*: move the certbot runtime off Python 3.9, and add a TLS
-      monitor that does not depend on GitHub Actions scheduling staying enabled
+- [x] 15.4 `/commit` → PR #35, ready for review, CI green (251 passed). Merge is
+      the operator's call
+- [x] 15.5 Registered both follow-ups as Notion tasks under *Backlog
+      improvements* on 2026-09-14: [Move the certbot runtime off Python
+      3.9](https://app.notion.com/p/3db3ada00a9581cc91eef85ed5e2ada1) (High) and
+      [Add a TLS monitor independent of GitHub Actions
+      scheduling](https://app.notion.com/p/3db3ada00a95811782c7f292fda2c7ee)
+      (Medium)
