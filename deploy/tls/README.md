@@ -37,5 +37,15 @@ timer itself has not fired yet — a manual `systemctl start` does not set them.
 does not execute deploy hooks, so it proves nothing about the reload. That default
 is half of why the original verification certified a broken mechanism.
 
+The crontab that `install-renewal.sh` replaced is backed up to
+`/root/crontab.bak.<UTC timestamp>.<pid>`. List it with the glob expanded as root,
+or you will get a misleading answer:
+
+```bash
+sudo sh -c 'ls -l /root/crontab.bak.*'     # right
+sudo ls -l /root/crontab.bak.*             # wrong: your shell expands the glob, cannot read /root,
+                                           # and passes the pattern through literally
+```
+
 Detection lives off the host, in `.github/workflows/tls-expiry-check.yml` and
 `scripts/check-tls-expiry.sh`.

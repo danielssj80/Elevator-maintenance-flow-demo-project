@@ -229,24 +229,31 @@
       original verification proved nothing
 - [x] 13.4 **(OPERATOR, SSM)** `sudo crontab -l` → no certbot line remains, and
       `ls /root/crontab.bak.*` → the backup exists
-- [ ] 13.5 **(AGENT)** After merge, read the deploy run with `gh run view --log`
-      and confirm the installer step ran and printed the timer's next run
-- [ ] 13.6 **(AGENT)** `gh workflow run tls-expiry-check.yml`, then read the run:
-      both hostnames pass with the expected days remaining
+- [x] 13.5 **(AGENT)** Deploy run `34816961434`: the installer ran unattended,
+      reported `certbot-renew.service ran from its own unit environment`, printed
+      the timer's next run, and — having nothing left to remove — proved itself
+      idempotent against real state
+- [x] 13.6 **(AGENT)** `tls-expiry-check.yml` run `34817092374`: both hostnames
+      pass at 89 days, in 5s and 8s — the `timeout 15` bound holds where it counts
 - [x] 13.7 Create `reports/2026-09-14-step-13-real-configuration.md`, pasting the
       operator output verbatim alongside the agent-collected run logs
-- [ ] 13.8 Two findings came out of the real host, both fixed in the repo and both
+- [x] 13.8 Two findings came out of the real host, both fixed in the repo and both
       about signals a human reads. `journalctl -u certbot-renew` without `sudo`
       prints `-- No entries --` for a unit that ran perfectly, because the SSM user
       is in none of `adm`/`systemd-journal`/`wheel` — silence that reads exactly
       like "renewal never ran". And certbot labels the hook as having "ran with
       error output" because nginx writes its reload notice to stderr, so every
       successful renewal would carry the word "error". Docs corrected; hook now
-      redirects `2>&1`. **Confirm after the merge-time deploy re-installs the
-      corrected hook:** one `certbot renew --dry-run --run-deploy-hooks` should
-      report "ran with output" rather than "ran with error output"
-- [ ] 13.9 Close the three outstanding confirmations: `sudo crontab -l`,
-      `sudo ls -l /root/crontab.bak.*`, `sudo journalctl -u certbot-renew -n 20`
+      redirects `2>&1`. **Confirmed 2026-09-14 after the deploy re-installed the
+      hook:** the same dry-run now reports `Hook 'deploy-hook' ran with output:`
+      for the identical successful reload
+- [x] 13.9 Confirmed: `sudo crontab -l` is empty, and `sudo journalctl -u
+      certbot-renew` shows both runs (04:56 attended, 07:15 from the deploy),
+      each `Deactivated successfully` then `Finished` — exit 0. The backup
+      listing needs `sudo sh -c 'ls -l /root/crontab.bak.*'`: the unprivileged
+      shell expands the glob, matches nothing, and passes the pattern literally,
+      so root then looks for a file called `crontab.bak.*`. Third instance in
+      this change of a command answering a question other than the one asked
 
 ## 14. Update Technical Documentation (MANDATORY)
 
