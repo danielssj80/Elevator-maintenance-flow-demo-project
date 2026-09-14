@@ -13,7 +13,7 @@ backend/venv/bin/shellcheck deploy/tls/*.sh scripts/check-tls-expiry.sh
 
 ## Results
 
-- Targeted tests: **13 passed**, 0 failed, 0 skipped — and no test in the file is
+- Targeted tests: **19 passed** after the adversarial-review round (13 before it), 0 failed, 0 skipped — and no test in the file is
   skippable: the `skipif` guards that would have made a missing installer read as
   a pass were removed before implementation began, because a skipped guard is
   indistinguishable from a passing one and this change exists because of a
@@ -52,10 +52,15 @@ because it reads configuration files and runs a shell script.
 
 ```
 Lint (ruff)     All checks passed!
-Test (pytest)   245 passed, 1 warning in 9.27s
+Test (pytest)   251 passed, 1 warning in 25.69s     (run 34792222265, after the review round)
+Test (pytest)   245 passed, 1 warning in  9.27s     (run 34775209939, before it)
 ```
 
-Run `34775209939`, Python 3.12, `requirements.txt` + `requirements-dev.txt` as
+The six added tests include three that stand up a throwaway `openssl s_server`
+and one that opens a listener which never completes a handshake, so the runner
+image having `openssl` and the 15-second bound both hold in CI, not only here.
+
+Python 3.12, `requirements.txt` + `requirements-dev.txt` as
 pinned, `postgres:16-alpine` service, `python -m pytest tests/ -q` — the whole
 suite, not only `tests/unit/`. 245 passed with the 13 new guards among them, so
 nothing in this change disturbs the 232 tests that were already there.
