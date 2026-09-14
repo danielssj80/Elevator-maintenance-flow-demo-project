@@ -99,9 +99,16 @@ having *"ran with error output"*, and nginx writes its reload notice to stderr �
 every successful renewal from now on would have been logged with the word "error"
 in the one mechanism whose failures already went unnoticed for three months. The
 hook now redirects `2>&1`; the exit status still decides success, only the label
-changes. **The instance is running the version without that redirect**; it is the
-same command with the same semantics, and the next deploy re-installs the corrected
-file.
+changes. **Confirmed after the merge** (task 13.8). The deploy re-installed the corrected
+hook, and the same dry-run now reads:
+
+```
+Hook 'deploy-hook' ran with output:
+ 2026/09/14 10:27:23 [notice] 39#39: signal process started
+```
+
+"ran with output", not "ran with error output", for the identical successful
+reload.
 
 ## 13.4 — One renewer, and the backup
 
@@ -118,13 +125,56 @@ requires. The `ls` failed because `sudo` applied only to the preceding command i
 that line — the operator's copy of the instruction, not a property of the host; the
 backup path is named in the installer's own output above.
 
-**Still to confirm** (three lines, recorded here when they come back):
+### 13.9 — Confirmed, with one command that asked the wrong question
+
+```
+$ sudo crontab -l
+(no output)
+
+$ sudo journalctl -u certbot-renew -n 20 --no-pager
+Sep 14 04:56:51 ... Starting certbot-renew.service - Renew the *.dsaavedra.dev Let's Encrypt certificate...
+Sep 14 04:56:52 ... certbot-renew.service: Deactivated successfully.
+Sep 14 04:56:52 ... Finished certbot-renew.service - Renew the *.dsaavedra.dev Let's Encrypt certificate.
+Sep 14 07:15:32 ... Starting certbot-renew.service - Renew the *.dsaavedra.dev Let's Encrypt certificate...
+Sep 14 07:15:34 ... certbot-renew.service: Deactivated successfully.
+Sep 14 07:15:34 ... Finished certbot-renew.service - Renew the *.dsaavedra.dev Let's Encrypt certificate.
+```
+
+Both runs are there: 04:56 is the attended install, 07:15 is the deploy. Each one
+`Deactivated successfully` then `Finished`, which is systemd for exit 0. This is
+the question cron could not answer on this host — no `/var/log/cron`, no MTA — and
+it is answered, provided the reader has `sudo`, which is why the docs now insist
+on it.
+
+No timer-triggered run appears yet; the first is due at 15:53 UTC.
+
+```
+$ sudo ls -l /root/crontab.bak.*
+ls: cannot access '/root/crontab.bak.*': No such file or directory
+```
+
+**That output does not mean the backup is missing.** The glob is expanded by the
+*calling* shell, which is the unprivileged SSM user and cannot read `/root`;
+matching nothing, it passes the pattern through literally, and `ls` — running as
+root — then looks for a file named exactly `crontab.bak.*`. The day before, the
+same command without `sudo` failed with `Permission denied` for the same reason.
+Expanding as root gives the real answer:
 
 ```bash
-sudo crontab -l; echo "exit: $?"
-sudo ls -l /root/crontab.bak.*
-sudo journalctl -u certbot-renew -n 20 --no-pager
+sudo sh -c 'ls -l /root/crontab.bak.*'
 ```
+
+Worth recording rather than quietly fixing, because it is the third time in this
+change that a command answered a different question than the one being asked —
+after `journalctl` reporting `-- No entries --` without privileges, and certbot
+labelling a successful reload as "error output". All three are the same failure:
+reading a signal produced in a context other than the one you are standing in,
+which is precisely how a renewal that had never worked was certified as working.
+
+**Confirmed by the installer's own output** in 13.1 — it printed the backup path
+it had just written, and under `set -e` the write cannot have failed without
+aborting the script before that line. The one-line re-check above is recorded when
+it comes back.
 
 ## 13.5 — The deploy installs it, unattended
 
