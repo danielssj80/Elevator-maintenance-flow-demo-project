@@ -126,11 +126,66 @@ sudo ls -l /root/crontab.bak.*
 sudo journalctl -u certbot-renew -n 20 --no-pager
 ```
 
-## 13.5 / 13.6 — Post-merge
+## 13.5 — The deploy installs it, unattended
 
-Open by construction: `deploy.yml`'s new steps run on a merge to `main`, and
-`tls-expiry-check.yml` can only be dispatched once it exists on the default branch.
-The agent executes and records both.
+PR #35 merged as `a4ac001`. `Build and push images` → `Deploy to production`
+(run `34816961434`), both green. The remote output of the new step:
+
+```
+##[group]Remote output
+install-renewal: certbot-renew.service ran from its own unit environment
+NEXT                        LEFT    LAST PASSED UNIT                ACTIVATES
+Mon 2026-09-14 15:53:01 UTC 8h left -    -      certbot-renew.timer certbot-renew.service
+1 timers listed.
+install-renewal: ok
+##[endgroup]
+SSM command status: Success
+```
+
+Two things are proven here that the attended run could not prove:
+
+1. **It is idempotent on a host that already has it.** There is no `removed the
+   legacy crontab renewer` line this time, because there was nothing left to
+   remove — the `deploy-pipeline` scenario *"Repeated deployments change nothing"*,
+   verified against real state rather than in a sandbox.
+2. **Every deploy now exercises renewal.** `certbot-renew.service ran from its own
+   unit environment` appears in an unattended run, which is the property the
+   adversarial review asked for: a unit whose `ExecStart` stops resolving, a
+   plugin that breaks, or a credential that is revoked fails this step and turns
+   the run red, rather than waiting to be discovered by an expired certificate.
+
+The next run is 15:53:01 UTC, where the attended install had said 15:49:22 —
+`RandomizedDelaySec=3600` re-rolls its jitter, as it should.
+
+The certificate health step, in the same run:
+
+```
+check-tls-expiry: elevator.dsaavedra.dev: expires Dec 12 16:52:28 2026 GMT (89 days remaining)
+check-tls-expiry: dsaavedra.dev: expires Dec 12 16:52:28 2026 GMT (89 days remaining)
+```
+
+## 13.6 — The scheduled check, dispatched
+
+`tls-expiry-check.yml` run `34817092374`, `workflow_dispatch` on `main`, both jobs
+green:
+
+```
+✓ elevator.dsaavedra.dev in 5s
+✓ dsaavedra.dev in 8s
+
+check-tls-expiry: elevator.dsaavedra.dev: expires Dec 12 16:52:28 2026 GMT (89 days remaining)
+check-tls-expiry: dsaavedra.dev: expires Dec 12 16:52:28 2026 GMT (89 days remaining)
+```
+
+Five and eight seconds: the `timeout 15` bound holds in the environment that
+matters, and one host per job, so neither can mask the other. The daily schedule
+(`17 6 * * *`) is now live on the default branch.
+
+**The detection gap that produced the outage is closed.** From 2026-06-12 to
+2026-09-13 the only thing in this system that would have failed on an expired
+certificate was the deploy smoke check, and no deploy ran inside the renewal
+window. There is now a check that runs whether or not anyone deploys, and a
+renewal that every deploy exercises.
 
 ## Outcome
 

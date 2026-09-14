@@ -229,10 +229,12 @@
       original verification proved nothing
 - [x] 13.4 **(OPERATOR, SSM)** `sudo crontab -l` → no certbot line remains, and
       `ls /root/crontab.bak.*` → the backup exists
-- [ ] 13.5 **(AGENT)** After merge, read the deploy run with `gh run view --log`
-      and confirm the installer step ran and printed the timer's next run
-- [ ] 13.6 **(AGENT)** `gh workflow run tls-expiry-check.yml`, then read the run:
-      both hostnames pass with the expected days remaining
+- [x] 13.5 **(AGENT)** Deploy run `34816961434`: the installer ran unattended,
+      reported `certbot-renew.service ran from its own unit environment`, printed
+      the timer's next run, and — having nothing left to remove — proved itself
+      idempotent against real state
+- [x] 13.6 **(AGENT)** `tls-expiry-check.yml` run `34817092374`: both hostnames
+      pass at 89 days, in 5s and 8s — the `timeout 15` bound holds where it counts
 - [x] 13.7 Create `reports/2026-09-14-step-13-real-configuration.md`, pasting the
       operator output verbatim alongside the agent-collected run logs
 - [ ] 13.8 Two findings came out of the real host, both fixed in the repo and both
