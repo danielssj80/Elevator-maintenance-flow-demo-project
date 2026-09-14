@@ -2,10 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Proposed — 2026-09-13 |
+| **Status** | Archived — 2026-09-14 |
 | **Milestone** | Unplanned — production incident (certificate expiry, both sites) |
-| **Notion task** | Pending — to register under *Backlog improvements* |
+| **Notion task** | Two follow-ups registered under *Backlog improvements* (see below) |
 | **Branch** | `feature/harden-tls-renewal`, from `origin/main` (`2b5a284`) |
+| **Reviews** | Independent cold-start session, 2026-09-14: **FAIL**, 1 blocker + 5 majors. All addressed — see `reports/` |
+| **Verified on the instance** | 2026-09-14, attended, before the merge — `reports/2026-09-14-step-13-real-configuration.md` |
 | **Started** | 2026-09-13 |
 
 ## Summary
@@ -65,6 +67,22 @@ runtime is a separate change with its own verification. The static IAM keys in
 `/root/.aws/credentials` also stay: `design.md` §6 explains why routing DNS-01
 through the instance role would widen the path from the public backend to Route 53
 more than it would improve credential hygiene.
+
+## What the real host added that no test could
+
+Installing it on the instance produced two findings, both about signals a human
+reads rather than a machine:
+
+- `journalctl -u certbot-renew` prints `-- No entries --` without `sudo`, because
+  the SSM user is in none of `adm`/`systemd-journal`/`wheel`. The observability
+  this change argues for answered its own question with silence that reads exactly
+  like "renewal never ran".
+- certbot labels any hook that wrote to stderr as having *"ran with error
+  output"*, and nginx writes its reload notice to stderr — so every successful
+  renewal would have carried the word "error" in the log of the one mechanism
+  whose failures already went unnoticed for three months.
+
+Both fixed. They are the argument for tasks 13.1–13.4 existing at all.
 
 ## Artifacts
 

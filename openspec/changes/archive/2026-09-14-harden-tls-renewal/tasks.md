@@ -260,12 +260,11 @@
       on Python 3.9 with a deadline already past
 - [x] 14.3 `docs/api-spec.yml` — no change required (no endpoint added or altered)
 - [x] 14.4 `docs/data-model.md` — no change required (no entity or field touched)
-- [ ] 14.5 `docs/base-standards.md` — **propose, do not write.** The lesson
-      ("a guard is verified in the environment it runs in, never in an
-      interactive shell") is a candidate core principle, and
-      `docs/documentation-standards.md` requires explicit approval before editing
-      a standards doc. Draft the exact sentence in the PR description and wait
-- [ ] 14.6 Note every `docs/` file touched in the PR description
+- [x] 14.5 `docs/base-standards.md` — proposed, and **approved by the user on
+      2026-09-14**, so added to §1 Core Principles as *"Verify in the environment
+      it runs in"*, with the incident named as its evidence. This is the seventh
+      core principle and the only one that came from an outage
+- [x] 14.6 Note every `docs/` file touched in the PR description
 
 ## 15. Review, Archive, Commit
 
@@ -281,9 +280,10 @@
       have passed all 13 guards. Also: the idempotence test never ran the
       installer twice, and fixing it exposed a backup filename two runs could
       collide on. Now 19 tests, 9 mutations re-run, 9 red
-- [ ] 15.2b Re-run the independent review after this round, once 13.1–13.4 give it
-      a verified host to review rather than an intention
-- [ ] 15.3 `/archive`
+- [x] 15.2b Re-run of the independent review — **declined by the user on
+      2026-09-14**, the corrections being covered by 9 red mutations, 19 tests,
+      green CI and the verification on the instance itself
+- [x] 15.3 `/archive` — archived 2026-09-14 as `2026-09-14-harden-tls-renewal`
 - [ ] 15.4 `/commit` → PR. Merge is the operator's call
 - [ ] 15.5 Register the two follow-ups as Notion tasks under *Backlog
       improvements*: move the certbot runtime off Python 3.9, and add a TLS
