@@ -247,7 +247,11 @@ deploy. Run it by hand any time:
 
 ```bash
 sh scripts/check-tls-expiry.sh elevator.dsaavedra.dev
+sh scripts/check-tls-expiry.sh 127.0.0.1:8443 30   # host:port, for a local test server
 ```
+
+It needs GNU `date` (`date -u -d`), which the instance and the CI runners have; on
+macOS use `gdate` from coreutils.
 
 It checks the served certificate rather than the file on disk because a file check
 passes in the failure mode where renewal succeeds and the reload does not.
@@ -283,8 +287,9 @@ support in April 2026. An upgrade of either breaks renewal again. The expiry che
 turns that into a 21-day warning rather than an outage; it does not prevent it.
 Moving the certbot runtime is tracked as separate work.
 
-The full incident write-up is
-`openspec/changes/archive/*-harden-tls-renewal/reports/2026-09-13-incident-tls-expiry.md`.
+The full incident write-up lives with the change that fixed it, under
+`openspec/changes/harden-tls-renewal/reports/2026-09-13-incident-tls-expiry.md`
+(after archiving, the same file under `openspec/changes/archive/`).
 
 ---
 

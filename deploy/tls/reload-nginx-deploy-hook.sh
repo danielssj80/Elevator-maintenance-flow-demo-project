@@ -22,5 +22,12 @@ set -eu
 # `cd` followed by a relative -f mirrors .github/workflows/deploy.yml exactly, so
 # both derive the same Compose project name and `exec` cannot fail to find the
 # container because the two disagreed about what the project is called.
+# `flock /opt/deploy.lock` is the same lock both deploy pipelines take around
+# `docker compose up` on this shared nginx (docs/deployment.md, "Co-located
+# sites"). Without it a renewal landing while nginx is being recreated loses its
+# reload permanently -- certbot will not run the hook again, because nothing is
+# due any more -- and the container would go on serving the previous certificate.
+# The bounded wait fails loudly rather than hanging.
 cd /opt/elevator
-exec docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload
+exec flock -w 600 /opt/deploy.lock \
+    docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload

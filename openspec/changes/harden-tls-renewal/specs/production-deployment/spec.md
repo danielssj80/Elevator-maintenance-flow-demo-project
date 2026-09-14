@@ -25,7 +25,13 @@ following:
 - Reloading the web server SHALL be performed by certbot on successful renewal,
   not by a shell operator chained to the renewal command, and SHALL require no
   controlling terminal.
-- Exactly one renewal mechanism SHALL be active on the host.
+- Exactly one renewal mechanism SHALL be active in root's crontab and the
+  system timers. `/etc/cron.d`, `/etc/crontab` and other users' crontabs are
+  neither inspected nor claimed.
+- Installation SHALL exercise the mechanism by running it once in the unit's own
+  environment, and SHALL fail when that run fails. Any previous mechanism SHALL
+  be removed only after that run has succeeded, so a host that cannot renew
+  keeps whatever was renewing before rather than being left with nothing.
 
 Verification of this requirement SHALL be performed under the environment the
 scheduler provides, not in an interactive shell. A dry run typed by an operator
@@ -52,8 +58,17 @@ and the certificate then went 93 days without a renewal.
 
 #### Scenario: Only one mechanism renews the certificate
 - **WHEN** the renewal configuration has been installed
-- **THEN** no crontab entry invoking certbot remains on the host
-- **AND** the previous crontab content has been preserved as a backup
+- **THEN** no entry invoking certbot remains in root's crontab, including one
+  reformatted beyond the exact wording of the entry that failed (an absolute
+  path, a reordered flag)
+- **AND** the previous crontab content has been preserved as a backup that a
+  later run cannot overwrite
+
+#### Scenario: Installation proves the unit can renew before trusting it
+- **WHEN** the renewal configuration is installed
+- **THEN** the renewal service is run once, in its own environment, and the
+  installation fails if that run fails
+- **AND** a mechanism that was renewing before is left in place when it does
 
 #### Scenario: A hand edit on the host does not survive
 - **WHEN** the installed unit or hook is edited directly on the instance
@@ -79,6 +94,12 @@ that renewal is merely due. The check SHALL validate the served chain without
 trust overrides, SHALL fail rather than pass when the host cannot be reached, and
 SHALL be runnable both on demand and by the deployment pipeline.
 
+The check SHALL be bounded in time. A host that accepts a connection and then
+never completes the handshake SHALL fail the check rather than block: an
+unbounded check reports nothing, which is the failure mode this requirement
+exists to end, and in a serialized deployment pipeline it would also delay every
+later deployment behind it.
+
 The subject of the check is the served certificate, not the file on disk: a file
 check cannot distinguish a healthy host from one that renewed successfully and is
 still presenting the expired certificate it holds in memory.
@@ -98,6 +119,11 @@ still presenting the expired certificate it holds in memory.
 - **WHEN** the TLS connection cannot be established
 - **THEN** the check fails, reporting that it could not read a certificate
 - **AND** it does not report success for want of an expiry date to compare
+
+#### Scenario: A silent host fails the check instead of hanging
+- **WHEN** a host accepts the TCP connection but never completes the TLS handshake
+- **THEN** the check fails within seconds, reporting that it could not read a
+  certificate
 
 #### Scenario: An untrusted chain fails regardless of the dates
 - **WHEN** the served chain does not validate against the public trust store

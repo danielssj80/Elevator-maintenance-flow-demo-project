@@ -23,6 +23,9 @@ jobs:
   certificate:
     name: ${{ matrix.host }}
     runs-on: ubuntu-latest
+    # A check that hangs is a check that reports nothing, which is the failure
+    # mode this workflow exists to end.
+    timeout-minutes: 10
     strategy:
       # Both hostnames are served by one wildcard certificate from one nginx
       # container today. Checking them separately is how a future split gets

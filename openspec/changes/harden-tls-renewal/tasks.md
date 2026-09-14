@@ -204,6 +204,16 @@
 
 > The step the original change got wrong. Evidence from an interactive shell does
 > not count here.
+>
+> **This section is the archive blocker the independent review raised.** The main
+> specs already assert renewal properties that nothing has verified on the host,
+> which is defensible while the change is open and is not once it is archived.
+> `/archive` does not run until 13.1–13.4 are recorded below.
+>
+> Note that 13.1 now does more than copy files: the installer runs
+> `systemctl start --wait certbot-renew.service`, so a host where renewal cannot
+> actually run makes the install fail — and leaves the hand-patched crontab line
+> in place rather than removing it.
 
 - [ ] 13.1 **(OPERATOR, SSM)** `sudo sh /opt/elevator/deploy/tls/install-renewal.sh`
       after the branch is on the instance — or simply let the post-merge deploy
@@ -247,9 +257,20 @@
 
 ## 15. Review, Archive, Commit
 
-- [ ] 15.1 `/adversarial-review` in a cold-start session — independent review
-      finds materially more than self-review on this project's own measurement
-- [ ] 15.2 Address every finding, updating artifacts before code
+- [x] 15.1 `/adversarial-review` in a cold-start session — **FAIL: 1 blocker, 5
+      majors, 5 minors, 2 questions.** See
+      `reports/2026-09-14-adversarial-review-independent.md`. The first attempt
+      died on a rate limit having read only the spec side and was relaunched with
+      its budget aimed at the diff
+- [x] 15.2 Address every finding, artifacts before code. The two that mattered
+      most were invisible from inside: the detector could hang forever (stalling
+      every later production deploy behind a serialized concurrency group), and
+      nothing ever ran the unit — `ExecStart=... renew --quiet --dry-run` would
+      have passed all 13 guards. Also: the idempotence test never ran the
+      installer twice, and fixing it exposed a backup filename two runs could
+      collide on. Now 19 tests, 9 mutations re-run, 9 red
+- [ ] 15.2b Re-run the independent review after this round, once 13.1–13.4 give it
+      a verified host to review rather than an intention
 - [ ] 15.3 `/archive`
 - [ ] 15.4 `/commit` → PR. Merge is the operator's call
 - [ ] 15.5 Register the two follow-ups as Notion tasks under *Backlog

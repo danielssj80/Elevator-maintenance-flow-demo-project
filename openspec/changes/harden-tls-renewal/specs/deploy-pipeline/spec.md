@@ -8,6 +8,12 @@ configuration onto the production instance on every deployment, so that host
 configuration is continuously restored from the repository rather than typed once
 into an interactive session.
 
+The deploy SHALL also report certificate health by running the same expiry check
+the scheduled workflow runs. That report SHALL retry a transient failure before
+failing the run — a network fault on the runner must not mark a successful
+production deploy as failed — and SHALL fail the run when the certificate is
+genuinely inside its threshold. Neither outcome reverts the deploy.
+
 The installation SHALL be idempotent, SHALL run after the application has been
 confirmed healthy, and SHALL NOT be able to prevent or roll back an application
 deploy. It SHALL nevertheless fail the workflow run when it cannot guarantee
@@ -33,6 +39,17 @@ preceding renewal failure survived thirty consecutive nights.
 - **THEN** the application deploy and its health check have already completed and
   are not reverted
 - **AND** the workflow run fails, reporting the reason
+
+#### Scenario: A transient check failure does not fail a successful deploy
+- **WHEN** the certificate health check fails once because of a network fault on
+  the runner
+- **THEN** it is retried before the run is failed
+- **AND** a deploy that has already passed its health check is not reverted
+
+#### Scenario: A certificate inside the threshold fails the run
+- **WHEN** the served certificate has fewer days remaining than the threshold
+- **THEN** every attempt fails and the workflow run is marked failed
+- **AND** the deployed application keeps running
 
 #### Scenario: Repeated deployments change nothing
 - **WHEN** two deployments run in succession with no change to the renewal files

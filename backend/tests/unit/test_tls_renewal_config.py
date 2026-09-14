@@ -19,7 +19,9 @@ import configparser
 import os
 import pathlib
 import re
+import socket
 import subprocess
+import time
 
 import yaml
 
@@ -155,6 +157,11 @@ def test_deploy_hook_reloads_nginx_without_requiring_a_tty():
         "invoke Compose exactly as deploy.yml does, so both derive the same "
         "project name and `exec` cannot fail to find the container"
     )
+    assert "/opt/deploy.lock" in hook, (
+        "take the same lock both deploy pipelines take around `docker compose up` "
+        "on this shared nginx: a renewal landing mid-recreation loses its reload "
+        "permanently, because certbot will not run the hook again"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -162,21 +169,21 @@ def test_deploy_hook_reloads_nginx_without_requiring_a_tty():
 # --------------------------------------------------------------------------- #
 
 
-def _run_installer(
+def _sandbox(
     tmp_path: pathlib.Path,
     *,
     certbot_present: bool = True,
     crontab_content: str | None = None,
-) -> tuple[subprocess.CompletedProcess, pathlib.Path, str, pathlib.Path]:
-    """Run the real installer against a throwaway filesystem.
-
+) -> dict:
+    """A throwaway filesystem and stubbed commands for the real installer.
 
     `PREFIX` relocates every destination and the binary check; `SYSTEMCTL` and
-    `CRONTAB` are stubs that record how they were called. Nothing here touches
-    the developer's machine, and the script under test is the one the deploy runs
-    — not a copy of its logic.
+    `CRONTAB` are stubs that record how they were called. The sandbox is built
+    once and can be handed to `_install()` repeatedly, which is what makes an
+    idempotence test mean anything.
     """
     assert INSTALLER.exists(), f"{INSTALLER} is missing"
+
     prefix = tmp_path / "rootfs"
     (prefix / "usr/local/bin").mkdir(parents=True)
     (prefix / "root").mkdir(parents=True)
@@ -189,8 +196,17 @@ def _run_installer(
     stub_dir = tmp_path / "stubs"
     stub_dir.mkdir()
 
+    # `is-failed` exits 0 when the unit *is* failed, so a stub that returns 0 for
+    # everything would claim the renewal service is broken.
     systemctl = stub_dir / "systemctl"
-    systemctl.write_text(f'#!/bin/sh\necho "systemctl $*" >> "{calls}"\nexit 0\n')
+    systemctl.write_text(
+        "#!/bin/sh\n"
+        f'echo "systemctl $*" >> "{calls}"\n'
+        'case "$1" in\n'
+        "  is-failed) exit 1 ;;\n"
+        "esac\n"
+        "exit 0\n"
+    )
     systemctl.chmod(0o755)
 
     crontab_file = tmp_path / "crontab.txt"
@@ -200,7 +216,7 @@ def _run_installer(
     crontab.write_text(
         "#!/bin/sh\n"
         f'echo "crontab $*" >> "{calls}"\n'
-        "case \"$1\" in\n"
+        'case "$1" in\n'
         f'  -l) if [ -f "{crontab_file}" ]; then cat "{crontab_file}"; else\n'
         '        echo "no crontab for root" >&2; exit 1; fi ;;\n'
         f'  -) cat > "{crontab_file}" ;;\n'
@@ -209,23 +225,39 @@ def _run_installer(
     )
     crontab.chmod(0o755)
 
-    result = subprocess.run(
-        ["sh", str(INSTALLER)],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env={
+    return {
+        "prefix": prefix,
+        "calls": calls,
+        "crontab_file": crontab_file,
+        "env": {
             **os.environ,
             "PREFIX": str(prefix),
             "SYSTEMCTL": str(systemctl),
             "CRONTAB": str(crontab),
         },
+    }
+
+
+def _install(sandbox: dict) -> subprocess.CompletedProcess:
+    """Run the installer — the real script the deploy runs — in the sandbox."""
+    sandbox["calls"].unlink(missing_ok=True)
+    return subprocess.run(
+        ["sh", str(INSTALLER)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=sandbox["env"],
     )
-    return result, prefix, calls.read_text() if calls.exists() else "", crontab_file
+
+
+def _calls(sandbox: dict) -> str:
+    return sandbox["calls"].read_text() if sandbox["calls"].exists() else ""
 
 
 def test_installer_installs_the_units_and_enables_the_timer(tmp_path):
-    result, prefix, calls, _ = _run_installer(tmp_path)
+    sandbox = _sandbox(tmp_path)
+    result = _install(sandbox)
+    prefix, calls = sandbox["prefix"], _calls(sandbox)
 
     assert result.returncode == 0, result.stderr
     service = prefix / "etc/systemd/system/certbot-renew.service"
@@ -241,8 +273,32 @@ def test_installer_installs_the_units_and_enables_the_timer(tmp_path):
     assert os.access(hook, os.X_OK), "certbot only runs hooks that are executable"
 
     assert "daemon-reload" in calls
-    assert re.search(r"enable .*--now.* certbot-renew\.timer|enable --now certbot-renew\.timer", calls), (
+    assert "enable --now certbot-renew.timer" in calls, (
         f"the timer must be enabled and started, calls were:\n{calls}"
+    )
+
+
+def test_installer_runs_the_unit_rather_than_trusting_it(tmp_path):
+    """An armed timer is not a working one, and only one of those was ever checked.
+
+    `ExecStart=/usr/local/bin/certbot renew --quiet --dry-run` satisfies every
+    file-reading assertion in this module and renews nothing, forever, reporting
+    success to journald throughout. So does a broken dns-route53 plugin, a revoked
+    IAM key, or certbot's Python being upgraded out from under it. The only way to
+    know the unit can renew is to run the unit.
+    """
+    sandbox = _sandbox(tmp_path)
+    result = _install(sandbox)
+    calls = _calls(sandbox)
+
+    assert result.returncode == 0, result.stderr
+    assert "start --wait certbot-renew.service" in calls, (
+        f"the installer must run the service once, in its own environment, rather "
+        f"than only enabling it. Calls were:\n{calls}"
+    )
+    assert "is-failed" in calls, (
+        "and must report whether the last run failed: 'armed' and 'working' are "
+        "different questions, and only the first was ever asked"
     )
 
 
@@ -253,11 +309,12 @@ def test_installer_fails_when_the_binary_the_unit_names_is_missing(tmp_path):
     configuration that was live, and it produced no error anywhere. Here it
     fails, before anything is enabled, and the deploy run goes red.
     """
-    result, _, calls, _ = _run_installer(tmp_path, certbot_present=False)
+    sandbox = _sandbox(tmp_path, certbot_present=False)
+    result = _install(sandbox)
 
     assert result.returncode != 0, "a missing certbot binary must fail the install"
     assert "certbot" in (result.stderr + result.stdout)
-    assert "enable" not in calls, (
+    assert "enable" not in _calls(sandbox), (
         "check the binary before enabling the timer, so a broken install is never "
         "left looking active"
     )
@@ -270,43 +327,204 @@ def test_installer_removes_the_legacy_crontab_renewer_and_keeps_a_backup(tmp_pat
         "-f /opt/elevator/docker-compose.prod.yml exec -T nginx nginx -s reload\n"
         "@daily /usr/local/bin/unrelated-job\n"
     )
-    result, prefix, _, crontab_file = _run_installer(tmp_path, crontab_content=legacy)
+    sandbox = _sandbox(tmp_path, crontab_content=legacy)
+    result = _install(sandbox)
 
     assert result.returncode == 0, result.stderr
-    remaining = crontab_file.read_text()
-    assert "certbot renew" not in remaining, "the legacy renewer must be removed"
+    remaining = sandbox["crontab_file"].read_text()
+    assert "certbot" not in remaining, "the legacy renewer must be removed"
     assert "unrelated-job" in remaining, "unrelated crontab entries must survive"
 
-    backups = list((prefix / "root").glob("crontab.bak.*"))
+    backups = list((sandbox["prefix"] / "root").glob("crontab.bak.*"))
     assert backups, "back the crontab up before rewriting it"
     assert "certbot renew" in backups[0].read_text()
 
 
+def test_installer_removes_a_reformatted_renewer_too(tmp_path):
+    """The line that caused the outage would survive a match on `certbot renew`.
+
+    An absolute path, a reordered flag, a wrapper — any of them defeats a narrower
+    match while still renewing (or failing to renew) behind the timer's back.
+    """
+    reformatted = "30 2 * * * /usr/local/bin/certbot -q renew\n@daily /bin/true\n"
+    sandbox = _sandbox(tmp_path, crontab_content=reformatted)
+    result = _install(sandbox)
+
+    assert result.returncode == 0, result.stderr
+    remaining = sandbox["crontab_file"].read_text()
+    assert "certbot" not in remaining
+    assert "/bin/true" in remaining
+
+
+def test_installer_leaves_the_legacy_renewer_alone_when_it_cannot_arm_the_new_one(tmp_path):
+    """A host that cannot run the new mechanism keeps the old one.
+
+    Removing the crontab line before proving the unit works would turn a broken
+    install into no renewal at all — worse than the state it found.
+    """
+    legacy = "0 3 * * * certbot renew --quiet\n"
+    sandbox = _sandbox(tmp_path, certbot_present=False, crontab_content=legacy)
+    result = _install(sandbox)
+
+    assert result.returncode != 0
+    assert "certbot renew" in sandbox["crontab_file"].read_text(), (
+        "the legacy renewer must survive a failed install"
+    )
+
+
 def test_installer_succeeds_on_a_host_with_no_crontab(tmp_path):
     """`crontab -l` exits 1 when there is no crontab; that is not an error here."""
-    result, _, _, _ = _run_installer(tmp_path, crontab_content=None)
+    result = _install(_sandbox(tmp_path, crontab_content=None))
 
     assert result.returncode == 0, result.stderr
 
 
 def test_installer_running_twice_changes_nothing(tmp_path):
-    """It runs on every deploy, so a second run must be a no-op, not a surprise."""
-    first, prefix, _, _ = _run_installer(tmp_path, crontab_content="@daily /bin/true\n")
-    assert first.returncode == 0, first.stderr
-    installed = (prefix / "etc/systemd/system/certbot-renew.timer").read_text()
+    """Every deploy runs it, so the second run must be a no-op — against the state
+    the first one left, not against a fresh filesystem.
 
-    second_tmp = tmp_path / "again"
-    second_tmp.mkdir()
-    second, second_prefix, calls, _ = _run_installer(second_tmp, crontab_content="@daily /bin/true\n")
+    The first version of this test built two independent prefixes and compared a
+    file to itself, which proved nothing at all: the path that matters is files
+    already present, timer already enabled, crontab already filtered.
+    """
+    sandbox = _sandbox(tmp_path, crontab_content="0 3 * * * certbot renew --quiet\n@daily /bin/true\n")
+
+    first = _install(sandbox)
+    assert first.returncode == 0, first.stderr
+    timer_after_first = (sandbox["prefix"] / "etc/systemd/system/certbot-renew.timer").read_text()
+    crontab_after_first = sandbox["crontab_file"].read_text()
+    backups_after_first = len(list((sandbox["prefix"] / "root").glob("crontab.bak.*")))
+
+    second = _install(sandbox)
 
     assert second.returncode == 0, second.stderr
-    assert (second_prefix / "etc/systemd/system/certbot-renew.timer").read_text() == installed
-    assert "daemon-reload" in calls
+    assert (sandbox["prefix"] / "etc/systemd/system/certbot-renew.timer").read_text() == timer_after_first
+    assert sandbox["crontab_file"].read_text() == crontab_after_first
+    assert len(list((sandbox["prefix"] / "root").glob("crontab.bak.*"))) == backups_after_first, (
+        "a second run must not keep writing crontab backups: there is nothing left "
+        "to remove, so there is nothing to back up"
+    )
+    assert "start --wait certbot-renew.service" in _calls(sandbox), (
+        "and it must still exercise the unit, which is the check that would have "
+        "caught the original defect on any deploy after it appeared"
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Detection off the host
 # --------------------------------------------------------------------------- #
+
+
+def _self_signed_server(tmp_path: pathlib.Path, days: int = 30) -> tuple[subprocess.Popen, int]:
+    """A throwaway HTTPS listener presenting its own certificate.
+
+    It exists so the two paths that matter most in the expiry check — the day
+    comparison and the chain validation — are proven by running them rather than
+    by matching text. Neither needs the internet, and neither may depend on
+    production being up: a unit test that fails when a website is down teaches
+    people to ignore it.
+    """
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+         "-keyout", str(key), "-out", str(cert), "-days", str(days),
+         "-subj", "/CN=localhost"],
+        check=True, capture_output=True, timeout=120,
+    )
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    server = subprocess.Popen(
+        ["openssl", "s_server", "-accept", str(port), "-cert", str(cert),
+         "-key", str(key), "-www", "-quiet"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    for _ in range(50):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                break
+        except OSError:
+            time.sleep(0.1)
+    else:  # pragma: no cover - the listener never came up
+        server.terminate()
+        raise AssertionError("the test TLS server never accepted a connection")
+    return server, port
+
+
+def test_expiry_check_fails_a_certificate_inside_the_threshold(tmp_path):
+    """The comparison itself, run rather than described.
+
+    Until this existed, inverting `-lt` to `-gt` in the script reddened nothing:
+    the threshold was asserted only by reading the default out of the source, and
+    the one behavioural test exited twenty lines earlier on an unreadable
+    certificate. This is the line the whole detector rests on.
+    """
+    server, port = _self_signed_server(tmp_path, days=30)
+    try:
+        result = subprocess.run(
+            ["sh", str(EXPIRY_SCRIPT), f"127.0.0.1:{port}", "99999"],
+            capture_output=True, text=True, timeout=120,
+        )
+    finally:
+        server.terminate()
+
+    assert result.returncode != 0, (
+        "a certificate with fewer days left than the threshold must fail the "
+        f"check:\n{result.stdout}{result.stderr}"
+    )
+    assert "days remaining" in (result.stdout + result.stderr)
+    assert "99999" in (result.stdout + result.stderr), (
+        "the failure should name the threshold it compared against"
+    )
+
+
+def test_expiry_check_fails_an_untrusted_chain_with_time_to_spare(tmp_path):
+    """Dates are not the only way TLS breaks.
+
+    The certificate here has thirty days left, so it passes the day comparison and
+    then fails because nothing trusts it — which is the ordering the script needs:
+    an expired certificate reports its expiry, and a valid-but-untrusted one
+    reports the client failure.
+    """
+    server, port = _self_signed_server(tmp_path, days=30)
+    try:
+        result = subprocess.run(
+            ["sh", str(EXPIRY_SCRIPT), f"127.0.0.1:{port}"],
+            capture_output=True, text=True, timeout=120,
+        )
+    finally:
+        server.terminate()
+
+    assert result.returncode != 0, "an untrusted chain must fail the check"
+    assert "verifying client" in (result.stdout + result.stderr), (
+        f"and must say so, rather than reporting an expiry problem:\n"
+        f"{result.stdout}{result.stderr}"
+    )
+
+
+def test_expiry_check_bounds_the_handshake(tmp_path):
+    """A check that hangs reports nothing, which is the failure mode under repair.
+
+    `openssl s_client` has no handshake timeout of its own: a host that completes
+    the TCP connection and then says nothing blocks forever. In the deploy workflow
+    that would stall a job whose concurrency group is serialized and does not
+    cancel in progress, so every later production deploy would queue behind it.
+    """
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)  # accepts the connection, then says nothing at all
+    port = listener.getsockname()[1]
+    try:
+        result = subprocess.run(
+            ["sh", str(EXPIRY_SCRIPT), f"127.0.0.1:{port}"],
+            capture_output=True, text=True, timeout=90,
+        )
+    finally:
+        listener.close()
+
+    assert result.returncode != 0, "a silent host must fail, not pass"
+    assert "could not read a certificate" in (result.stdout + result.stderr)
 
 
 def test_expiry_threshold_sits_inside_the_renewal_window():
@@ -382,6 +600,19 @@ def test_expiry_workflow_is_scheduled_and_can_be_run_on_demand():
     missing = set(PRODUCTION_HOSTS) - checked
     assert not missing, f"{sorted(missing)} served by the same certificate but not checked"
 
+    # A matrix nothing reads is decoration: hardcoding one host in the `run:` line
+    # keeps every assertion above green while the apex is never actually checked.
+    steps = [
+        step
+        for job in _workflow(EXPIRY_WORKFLOW)["jobs"].values()
+        for step in job["steps"]
+    ]
+    invocations = [str(step.get("run", "")) for step in steps if "check-tls-expiry.sh" in str(step.get("run", ""))]
+    assert invocations, "the workflow must run scripts/check-tls-expiry.sh"
+    assert any("matrix.host" in run for run in invocations), (
+        f"the check must be given the matrix host, not a hardcoded one: {invocations}"
+    )
+
 
 def test_deploy_workflow_installs_the_renewal_after_the_smoke_check():
     """Renewal configuration must not be able to block an application deploy.
@@ -406,6 +637,21 @@ def test_deploy_workflow_installs_the_renewal_after_the_smoke_check():
         "there cannot prevent or revert an application deploy"
     )
 
-    assert any("check-tls-expiry.sh" in body for body in bodies), (
-        "the deploy should also report certificate health"
+    health = next((i for i, body in enumerate(bodies) if "check-tls-expiry.sh" in body), None)
+    assert health is not None, "the deploy should also report certificate health"
+
+    # The job has no checkout of its own historically; the expiry step needs one,
+    # and reordering them turns every deploy red with "cannot open ...".
+    checkout = next(
+        (i for i, step in enumerate(steps) if "actions/checkout" in str(step.get("uses", ""))),
+        None,
+    )
+    assert checkout is not None and checkout < health, (
+        "check out the repository before running a script from it"
+    )
+
+    # Retried for the same reason the smoke check is: a transient network fault on
+    # the runner must not mark a successful production deploy as failed.
+    assert re.search(r"for attempt in|seq 1", bodies[health]), (
+        "the certificate health step must retry before failing the run"
     )

@@ -49,6 +49,27 @@ Four decisions in those six lines:
   invocation and its exit status, `systemctl list-timers` records the last and
   next run, and the expiry check is what actually watches the outcome.
 
+### The installer runs the unit, it does not merely enable it
+
+An independent review made the point that landed hardest: nothing in the original
+version of this change ever ran the thing it installed. `ExecStart=/usr/local/bin/certbot
+renew --quiet --dry-run` would have satisfied every assertion written here and
+renewed nothing for as long as the instance lived, reporting success to journald
+throughout — and so would a broken `dns-route53` plugin, a revoked IAM key, or
+certbot's Python being upgraded out from under it. An executable path is a
+narrower claim than a working mechanism.
+
+So `install-renewal.sh` runs `systemctl start --wait certbot-renew.service` and
+propagates its status. This is cheap — `certbot renew` exits 0 without contacting
+the ACME server when nothing is within thirty days of expiry — and it means every
+deploy exercises renewal in the unit's own environment, which is the only
+environment the spec accepts as evidence. It would have caught the June defect on
+the first deploy after it appeared.
+
+The ordering with §2's crontab removal is deliberate: the run happens **before**
+the legacy renewer is removed, so a host where the new mechanism cannot run keeps
+whatever was renewing before instead of being left with neither.
+
 ### Why not simply keep the corrected crontab line
 
 It works — `sudo env -i PATH=/usr/bin:/bin /usr/local/bin/certbot renew --dry-run`
@@ -94,11 +115,23 @@ exec docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload
   the Compose project name is derived identically in both places and `exec`
   cannot fail to find the container because one of them named the project
   differently.
+- **It takes `flock /opt/deploy.lock`**, the same lock both deploy pipelines take
+  around `docker compose up` on this shared nginx. Without it a renewal landing
+  while nginx is being recreated loses its reload permanently — certbot will not
+  run the hook again, because nothing is due any more — and the container would go
+  on serving the previous certificate. The wait is bounded, so it fails rather
+  than hangs.
 - **It fails loudly.** If nginx is down when a renewal lands, the hook fails, the
   renewal stays done, and nginx keeps serving the old certificate until it is
-  recreated. Certbot will not re-run the hook, because nothing is due any more.
-  This residual hole is real and is the reason §4 checks the served certificate
-  rather than the file.
+  recreated. Certbot will not re-run the hook. This residual hole is real and is
+  the reason §4 checks the served certificate rather than the file.
+- **One narrow window is accepted, knowingly.** `nginx -s reload` exits non-zero
+  when the configuration fails to parse — the signalling process parses it itself,
+  so a broken co-located `portfolio.conf` *is* caught — but the master process
+  re-reads the configuration after the signal is delivered, and a failure there
+  leaves the old workers running behind a hook that already exited 0. That window
+  is not closed here; it is covered by §4 observing the certificate clients are
+  actually served.
 
 ## 4. Detection: the served certificate, from outside
 
@@ -115,6 +148,13 @@ Three deliberate choices:
 - **Off the host.** A checker on the instance cannot report that the instance is
   unreachable. Running it in GitHub Actions also means the alert channel already
   exists: a failing scheduled run notifies the account that owns the workflow.
+- **Bounded in time.** `openssl s_client` has no handshake timeout of its own: a
+  host that completes the TCP connection and then says nothing blocks forever.
+  Wrapped in `timeout 15`. Unbounded, it would have been worse than useless in
+  `deploy.yml`, whose job runs in a serialized `production-deploy` concurrency
+  group with `cancel-in-progress: false` — a check that never returns would have
+  queued every subsequent production deploy behind it. Both jobs also carry
+  `timeout-minutes`.
 - **21 days.** Certbot renews at 30 days remaining. A 21-day threshold leaves 9
   days in which renewal should already have happened, so an alert means "the
   mechanism is broken", not "renewal is due" — a threshold that fires while
@@ -142,9 +182,14 @@ check. Placement and failure semantics:
 - **After the smoke check.** A broken renewal install must never prevent the
   application from deploying; a deploy that has already succeeded is not rolled
   back by it.
+- **The certificate report retries.** Three attempts before the run is failed, for
+  the same reason the adjacent smoke check retries twelve times: a transient
+  network fault on the runner must not mark a successful production deploy as
+  failed. A certificate genuinely inside the threshold fails all three, and the
+  run goes red — which is the point.
 - **It still turns the run red.** The installer exits non-zero if the certbot
-  binary named in `ExecStart` is absent or not executable, or if enabling the
-  timer fails. The alternative — warn and pass — is how the original failure
+  binary named in `ExecStart` is absent or not executable, if the unit's own run
+  fails, or if enabling the timer fails. The alternative — warn and pass — is how the original failure
   survived 30 nights.
 - **Idempotent.** Files are installed with `install -m`, `daemon-reload` and
   `enable --now` are re-run each time, and the crontab filter is a no-op once

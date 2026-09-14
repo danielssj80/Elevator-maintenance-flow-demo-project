@@ -49,22 +49,59 @@ install -m 0755 "${here}/reload-nginx-deploy-hook.sh" "${hook_dir}/reload-nginx.
 "$SYSTEMCTL" daemon-reload
 "$SYSTEMCTL" enable --now certbot-renew.timer
 
-# 4. Exactly one renewer. Certbot's own lock file makes a collision harmless, but
+# 4. Prove the unit can actually renew, by running it. An executable at the end of
+#    ExecStart is not the same claim: `ExecStart=/usr/local/bin/certbot renew
+#    --quiet --dry-run` would satisfy every file-reading check ever written here
+#    and renew nothing for as long as the instance lives, reporting success to
+#    journald the whole time. So does a broken dns-route53 plugin, a revoked IAM
+#    key, or certbot's Python being upgraded out from under it.
+#
+#    This is cheap: `certbot renew` exits 0 without contacting the ACME server
+#    when nothing is within thirty days of expiry. When something is, this renews
+#    it during a deploy, which is when someone is watching.
+#
+#    Under `set -e` a failure here stops the script *before* step 5 removes the
+#    legacy crontab renewer. That ordering is deliberate: a host whose new
+#    mechanism cannot run keeps the old one, even hand-patched, rather than being
+#    left with neither.
+"$SYSTEMCTL" start --wait certbot-renew.service
+echo "install-renewal: certbot-renew.service ran from its own unit environment"
+
+# 5. One renewer in root's crontab. Certbot's own lock file makes a collision
+#    harmless, but
 #    two mechanisms mean nobody can say which one is live — and the crontab one
 #    is the one no deploy can reach.
+#
+#    The match is on `certbot`, not on the exact phrase `certbot renew`: the line
+#    that expired the certificate would have survived a narrower match after any
+#    reformatting (`certbot -q renew`, an absolute path, a wrapper script). This
+#    only ever touches root's crontab — /etc/cron.d, /etc/crontab and other
+#    users' crontabs are neither inspected nor claimed, which is why the spec
+#    scenario says root's crontab and nothing more.
 if current=$("$CRONTAB" -l 2>/dev/null); then
-    if printf '%s\n' "$current" | grep -q 'certbot renew'; then
+    if printf '%s\n' "$current" | grep -q 'certbot'; then
         mkdir -p "$backup_dir"
-        backup="${backup_dir}/crontab.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+        # The PID is part of the name because a timestamp to the second is not
+        # unique: two runs inside the same second would otherwise write to the
+        # same path, and the second would overwrite the only copy of what the
+        # first removed.
+        backup="${backup_dir}/crontab.bak.$(date -u +%Y%m%dT%H%M%SZ).$$"
         printf '%s\n' "$current" > "$backup"
         # `|| true`: when the certbot line was the only entry, grep -v matches
         # nothing and would take the script down with it under `set -e`.
-        filtered=$(printf '%s\n' "$current" | grep -v 'certbot renew' || true)
+        filtered=$(printf '%s\n' "$current" | grep -v 'certbot' || true)
         printf '%s\n' "$filtered" | "$CRONTAB" -
         echo "install-renewal: removed the legacy crontab renewer (backup: ${backup})"
     fi
 fi
 
-# 5. What the deploy log should carry away: when this will next actually run.
+# 6. What the deploy log should carry away: whether the last run succeeded, and
+#    when the next one is. "Armed" and "working" are different questions, and the
+#    outage happened because only the first was ever asked.
 "$SYSTEMCTL" list-timers --all certbot-renew.timer || true
+if "$SYSTEMCTL" is-failed --quiet certbot-renew.service; then
+    echo "install-renewal: WARNING certbot-renew.service is in a failed state" >&2
+    "$SYSTEMCTL" status --no-pager --lines=20 certbot-renew.service || true
+    exit 1
+fi
 echo "install-renewal: ok"
