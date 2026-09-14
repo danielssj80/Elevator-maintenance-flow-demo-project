@@ -24,10 +24,14 @@ certified while it had never once worked. Check it the way it actually runs:
 
 ```bash
 systemctl list-timers --all certbot-renew.timer      # armed? when next?
-journalctl -u certbot-renew -n 50                    # did it run, and what did it return?
+sudo journalctl -u certbot-renew -n 50               # did it run, and what did it return?
 sudo systemctl start certbot-renew.service           # run it now, from the unit's own environment
 sudo /usr/local/bin/certbot renew --dry-run --run-deploy-hooks
 ```
+
+`sudo` matters on the journal line: without it the SSM user sees `-- No entries --`
+for a unit that ran fine. And `LAST`/`PASSED` of `-` in `list-timers` only means the
+timer itself has not fired yet — a manual `systemctl start` does not set them.
 
 `--run-deploy-hooks` is not optional in that last command: a plain `--dry-run`
 does not execute deploy hooks, so it proves nothing about the reload. That default

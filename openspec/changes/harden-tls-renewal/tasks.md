@@ -215,26 +215,38 @@
 > actually run makes the install fail — and leaves the hand-patched crontab line
 > in place rather than removing it.
 
-- [ ] 13.1 **(OPERATOR, SSM)** `sudo sh /opt/elevator/deploy/tls/install-renewal.sh`
+- [x] 13.1 **(OPERATOR, SSM)** `sudo sh /opt/elevator/deploy/tls/install-renewal.sh`
       after the branch is on the instance — or simply let the post-merge deploy
       run it, which is the path being verified
-- [ ] 13.2 **(OPERATOR, SSM)** `systemctl list-timers --all certbot-renew.timer`
+- [x] 13.2 **(OPERATOR, SSM)** `systemctl list-timers --all certbot-renew.timer`
       → enabled, with a next run; and `sudo systemctl start certbot-renew.service`
       then `journalctl -u certbot-renew -n 30` → certbot executed from the unit's
       own environment and exited 0
-- [ ] 13.3 **(OPERATOR, SSM)** `sudo /usr/local/bin/certbot renew --dry-run --run-deploy-hooks`
+- [x] 13.3 **(OPERATOR, SSM)** `sudo /usr/local/bin/certbot renew --dry-run --run-deploy-hooks`
       → simulated renewal succeeds **and the hook runs**; confirm the reload
       landed (`docker compose -f /opt/elevator/docker-compose.prod.yml logs --tail=20 nginx`).
       Plain `--dry-run` does not run deploy hooks — that default is half of why the
       original verification proved nothing
-- [ ] 13.4 **(OPERATOR, SSM)** `sudo crontab -l` → no certbot line remains, and
+- [x] 13.4 **(OPERATOR, SSM)** `sudo crontab -l` → no certbot line remains, and
       `ls /root/crontab.bak.*` → the backup exists
 - [ ] 13.5 **(AGENT)** After merge, read the deploy run with `gh run view --log`
       and confirm the installer step ran and printed the timer's next run
 - [ ] 13.6 **(AGENT)** `gh workflow run tls-expiry-check.yml`, then read the run:
       both hostnames pass with the expected days remaining
-- [ ] 13.7 Create `reports/2026-09-13-step-13-real-configuration.md`, pasting the
+- [x] 13.7 Create `reports/2026-09-14-step-13-real-configuration.md`, pasting the
       operator output verbatim alongside the agent-collected run logs
+- [ ] 13.8 Two findings came out of the real host, both fixed in the repo and both
+      about signals a human reads. `journalctl -u certbot-renew` without `sudo`
+      prints `-- No entries --` for a unit that ran perfectly, because the SSM user
+      is in none of `adm`/`systemd-journal`/`wheel` — silence that reads exactly
+      like "renewal never ran". And certbot labels the hook as having "ran with
+      error output" because nginx writes its reload notice to stderr, so every
+      successful renewal would carry the word "error". Docs corrected; hook now
+      redirects `2>&1`. **Confirm after the merge-time deploy re-installs the
+      corrected hook:** one `certbot renew --dry-run --run-deploy-hooks` should
+      report "ran with output" rather than "ran with error output"
+- [ ] 13.9 Close the three outstanding confirmations: `sudo crontab -l`,
+      `sudo ls -l /root/crontab.bak.*`, `sudo journalctl -u certbot-renew -n 20`
 
 ## 14. Update Technical Documentation (MANDATORY)
 

@@ -28,6 +28,16 @@ set -eu
 # reload permanently -- certbot will not run the hook again, because nothing is
 # due any more -- and the container would go on serving the previous certificate.
 # The bounded wait fails loudly rather than hanging.
+# `2>&1` because nginx writes its reload notice to stderr, and certbot reports any
+# hook that wrote to stderr as "Hook 'deploy-hook' ran with error output". Verified
+# on the instance on 2026-09-14: a perfectly successful reload was logged as
+#
+#     Hook 'deploy-hook' ran with error output:
+#      2026/09/14 04:57:32 [notice] 31#31: signal process started
+#
+# Every future renewal would carry the word "error" in the log of the one
+# mechanism whose failures went unnoticed for ninety-three days. The exit status
+# still decides success or failure; only the label changes.
 cd /opt/elevator
 exec flock -w 600 /opt/deploy.lock \
-    docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload
+    docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload 2>&1

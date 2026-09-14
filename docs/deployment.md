@@ -226,11 +226,20 @@ read-only into the nginx container.
 ### Verifying it
 
 ```bash
-systemctl list-timers --all certbot-renew.timer   # armed, and when next?
-journalctl -u certbot-renew -n 50                 # did it run, and what did it return?
-sudo systemctl start certbot-renew.service        # run it now, in the unit's own environment
+systemctl list-timers --all certbot-renew.timer    # armed, and when next?
+sudo journalctl -u certbot-renew -n 50             # did it run, and what did it return?
+sudo systemctl start certbot-renew.service         # run it now, in the unit's own environment
 sudo /usr/local/bin/certbot renew --dry-run --run-deploy-hooks
 ```
+
+**`sudo` on the `journalctl` line is not optional.** The SSM shell user is not in
+`adm`, `systemd-journal` or `wheel`, so without it journald prints `-- No entries --`
+for a unit that ran perfectly — which reads exactly like "renewal has never run",
+the conclusion this whole mechanism exists to make impossible to reach by accident.
+
+In `list-timers`, a `LAST` and `PASSED` of `-` means the *timer* has not fired yet.
+A run started by hand with `systemctl start` does not set them, so `-` there is not
+evidence of anything either way; the journal is.
 
 `--run-deploy-hooks` is not optional in that last command. **A plain `--dry-run`
 does not execute deploy hooks**, so it proves the renewal and nothing whatsoever
