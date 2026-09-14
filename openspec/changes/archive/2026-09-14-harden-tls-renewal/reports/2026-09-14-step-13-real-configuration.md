@@ -171,10 +171,23 @@ labelling a successful reload as "error output". All three are the same failure:
 reading a signal produced in a context other than the one you are standing in,
 which is precisely how a renewal that had never worked was certified as working.
 
-**Confirmed by the installer's own output** in 13.1 — it printed the backup path
-it had just written, and under `set -e` the write cannot have failed without
-aborting the script before that line. The one-line re-check above is recorded when
-it comes back.
+```
+$ sudo sh -c 'ls -l /root/crontab.bak.*'
+-rw-r--r--. 1 root root 149 Sep 14 04:56 /root/crontab.bak.20260914T045652Z.3213611
+```
+
+There it is: 149 bytes, written at 04:56 by the attended install, carrying the PID
+suffix that exists because a step-12 mutation stayed green when two runs inside the
+same second collided on one filename. The scenario *"the previous crontab content
+has been preserved as a backup that a later run cannot overwrite"* is satisfied on
+the host, and the subsequent deploy did not write a second one, because there was
+nothing left to remove.
+
+Mode `0644` is the ambient umask rather than a decision; `/root` is not traversable
+by the SSM user — the `Permission denied` in the first attempt above is the proof —
+so the file is root-only in practice. Tightening the write to `0600` would be
+defence in depth, not a fix, and is left alone rather than churned into an archived
+change.
 
 ## 13.5 — The deploy installs it, unattended
 
