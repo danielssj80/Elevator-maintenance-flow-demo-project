@@ -21,3 +21,14 @@ The token guard decides *who* may write; the limit bounds how fast anyone — in
 #### Scenario: The proxy configuration is valid
 - **WHEN** the production nginx configuration is checked with `nginx -t`
 - **THEN** it reports the configuration as valid
+
+### Requirement: API redirects keep the client on HTTPS
+The production reverse proxy SHALL rewrite any `Location` header returned by the API from `http://` to `https://`, so that a redirect issued by the application (for example Starlette's trailing-slash redirect, which builds its URL from the plain-HTTP hop between the proxy and the backend) never sends a client — and any `X-Ingest-Token` header the client re-sends on redirect — to the cleartext port.
+
+#### Scenario: A trailing-slash request is redirected to HTTPS
+- **WHEN** a client sends `POST https://elevator.dsaavedra.dev/api/telemetry/readings/`
+- **THEN** the response is a redirect whose `Location` begins with `https://`
+
+#### Scenario: The cleartext server only redirects
+- **WHEN** the production proxy configuration is inspected
+- **THEN** the server listening on port 80 contains nothing but a redirect to HTTPS

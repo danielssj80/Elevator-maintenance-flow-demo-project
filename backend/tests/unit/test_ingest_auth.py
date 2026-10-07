@@ -198,10 +198,15 @@ async def test_an_unconfigured_token_leaves_ingest_open(
     assert response.status_code == 201
 
 
+@pytest.mark.parametrize("environment", ["production", "prod", "staging", ""])
 @pytest.mark.parametrize("empty", [None, ""])
 @pytest.mark.asyncio
 async def test_an_empty_token_in_production_rejects_everything(
-    client: AsyncClient, db_session: AsyncSession, monkeypatch, empty: str | None
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch,
+    empty: str | None,
+    environment: str,
 ):
     """Fail-closed in production — the second, independent reason.
 
@@ -210,7 +215,9 @@ async def test_an_empty_token_in_production_rejects_everything(
     future registration path that forgets the gate. The app under test was built
     as `local`, so the routes exist and only the guard stands in the way.
     """
-    monkeypatch.setattr(settings, "deployment_environment", "production")
+    # Every spelling the allow-list classifies as production, not just the
+    # literal: a guard comparing `== "production"` would pass with that one alone.
+    monkeypatch.setattr(settings, "deployment_environment", environment)
     monkeypatch.setattr(settings, "telemetry_ingest_token", empty)
     db_session.add(_elevator("ELV-A08"))
     await db_session.flush()

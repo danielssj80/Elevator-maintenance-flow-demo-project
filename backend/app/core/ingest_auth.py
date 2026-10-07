@@ -38,6 +38,10 @@ async def require_ingest_token(
     """
     configured = settings.telemetry_ingest_token
     if not configured:
+        # Reads the settings, not build_app's `environment` argument: in a
+        # deployed process both come from DEPLOYMENT_ENVIRONMENT, and only tests
+        # pass build_app a different value. Tests that build a production app
+        # and exercise this guard set `settings.deployment_environment` too.
         if is_production(settings.deployment_environment):
             raise HTTPException(status_code=401, detail=UNAUTHORIZED_DETAIL)
         return

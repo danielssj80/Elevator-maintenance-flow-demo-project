@@ -111,7 +111,8 @@ def test_production_without_a_token_says_why_the_routes_are_absent(caplog, no_to
 
 
 def test_a_short_token_does_not_open_production(caplog, monkeypatch):
-    short = "s3cr3t-but-only-31-characters!!"
+    # Fragments chosen so none can occur by accident in an honest log line.
+    short = "Zq8#Vw2!Kp5$Xr9@Lm3&Tn7*Hb4^Jd6"[:31]
     assert len(short) == MIN_PRODUCTION_INGEST_TOKEN_LENGTH - 1
     monkeypatch.setattr(settings, "telemetry_ingest_token", short)
 
@@ -122,8 +123,12 @@ def test_a_short_token_does_not_open_production(caplog, monkeypatch):
         assert path not in registered
     messages = " ".join(caplog.messages)
     assert "too short" in messages
-    # Never the token, and never its length: both narrow a guess.
-    assert short not in messages
+    # Never the token, any fragment of it, or its length: each narrows a guess.
+    # Every 4-character window is checked, so a log line carrying `token[:4]`
+    # fails here, not only one carrying the whole value.
+    fragments = {short[i : i + 4] for i in range(len(short) - 3)}
+    leaked = sorted(f for f in fragments if f in messages)
+    assert not leaked, f"token fragments in the log: {leaked}"
     assert str(len(short)) not in messages
 
 
@@ -234,3 +239,31 @@ def test_a_declared_local_environment_still_registers_them():
 
     for _method, path in GATED_ROUTES:
         assert path in registered
+
+
+def test_the_suite_pins_its_environment_against_the_shell():
+    """`conftest` assigns DEPLOYMENT_ENVIRONMENT instead of `setdefault`.
+
+    With `setdefault`, a developer who exported DEPLOYMENT_ENVIRONMENT=production
+    would silently run a different suite than CI. Executed in a fresh
+    interpreter with that export in place, because in this process conftest has
+    already run.
+    """
+    env = dict(os.environ, DEPLOYMENT_ENVIRONMENT="production")
+    probe = textwrap.dedent(
+        """
+        import os, runpy
+        runpy.run_path("tests/conftest.py")
+        print(os.environ["DEPLOYMENT_ENVIRONMENT"])
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd=pathlib.Path(__file__).parents[2],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "local"

@@ -78,8 +78,8 @@
 
 ## 12. Independent Adversarial Review (MANDATORY before archive)
 
-- [ ] 12.1 Cold-start agent in a worktree, mutation-first, given branch + base commit only
-- [ ] 12.2 Address findings; record them in `reports/`
+- [x] 12.1 Cold-start agent in a worktree, mutation-first, given branch + base commit only
+- [x] 12.2 Address findings; record them in `reports/` — PASS WITH GAPS, 5 minors + 3 nits, all resolved: `reports/2026-10-07-step-12-adversarial-review.md`
 
 ## 13. Archive and PR
 
