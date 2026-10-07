@@ -17,7 +17,7 @@
 - [x] 1.3 Step: build+push `elevator-backend` from `./backend` tagged `ghcr.io/danielssj80/elevator-backend:latest` and `:${{ github.sha }}`
 - [x] 1.4 Step: build+push `elevator-frontend` from `./frontend` tagged `ghcr.io/danielssj80/elevator-frontend:latest` and `:${{ github.sha }}`
 - [x] 1.5 Step: retention cleanup using `actions/delete-package-versions` — keep `latest` + 10 most recent SHA-tagged versions per package
-- [ ] 1.6 Validate workflow syntax (actionlint via Docker — exit 0, no findings)
+- [x] 1.6 Validate workflow syntax (actionlint via Docker — exit 0, no findings) — done under 9.5
 
 ## 2. Compose: Reference GHCR Images
 
@@ -31,7 +31,7 @@
 - [x] 3.2 Add job-level `if: github.event.workflow_run.conclusion == 'success'` guard
 - [x] 3.3 Update deploy step's remote SSM command from `docker compose $CF up --build -d` to `docker compose $CF pull && docker compose $CF up -d` (wrapped in `sh -c '...'` under the existing `flock`)
 - [x] 3.4 Update `--comment` in `send-command` to reference `github.event.workflow_run.head_sha` (the `push` event's `github.sha` is no longer available directly under `workflow_run`)
-- [ ] 3.5 Validate workflow syntax (actionlint via Docker — exit 0, no findings)
+- [x] 3.5 Validate workflow syntax (actionlint via Docker — exit 0, no findings) — done under 9.5
 
 ## 4. Review and Update Existing Tests (MANDATORY)
 
@@ -72,6 +72,6 @@
 - [x] 9.2 `docker-compose.prod.yml`: `migrate`/`backend`/`frontend` images use `${IMAGE_TAG:-latest}` instead of a hardcoded `:latest`
 - [x] 9.3 `.github/workflows/deploy.yml`: export `IMAGE_TAG=${{ github.event.workflow_run.head_sha }}` in the SSM command before `docker compose pull`/`up -d`, so the deploy always resolves to the exact commit's image pair
 - [x] 9.4 Update `design.md` (D3, D4, D5, Risks) and both spec deltas (`specs/deploy-pipeline/spec.md` here and `openspec/specs/deploy-pipeline/spec.md`) to document the concurrency guard and SHA pinning
-- [ ] 9.5 Validate workflow syntax for `build-images.yml` and `deploy.yml` (actionlint via Docker — exit 0, no findings) — covers pending 1.6/3.5 as well. **Blocked in this sandbox**: no Docker daemon available (`docker version` connects but `docker run` fails — no `/var/run/docker.sock`) and no network access to fetch the actionlint binary outside the scoped GitHub repo. Substituted `python3 -c "import yaml; yaml.safe_load(...)"` on both files — both parse as valid YAML — but this does not check GitHub Actions-specific semantics (expression syntax, context/type checking) the way actionlint does. Needs a real actionlint run in an environment with Docker or direct internet access before this can be marked `[x]`.
-- [ ] 9.6 Re-verify end-to-end on a real push to `main` (AGENT MUST EXECUTE): confirm `build-images.yml` still succeeds with the new `concurrency` block, confirm the SSM deploy log shows the pulled image tag matching the commit SHA (not `latest`), confirm smoke check passes with no outage
-- [ ] 9.7 Create report `openspec/changes/2026-07-17-docker-images-to-ghcr/reports/<date>-step-9-blocker-fix-verification.md`
+- [x] 9.5 Validate workflow syntax for `build-images.yml` and `deploy.yml` (actionlint via Docker — exit 0, no findings) — covers pending 1.6/3.5 as well. **Blocked in this sandbox**: no Docker daemon available (`docker version` connects but `docker run` fails — no `/var/run/docker.sock`) and no network access to fetch the actionlint binary outside the scoped GitHub repo. Substituted `python3 -c "import yaml; yaml.safe_load(...)"` on both files — both parse as valid YAML — but this does not check GitHub Actions-specific semantics (expression syntax, context/type checking) the way actionlint does. **Resolved 2026-10-07:** actionlint 1.7.12 (via `actionlint-py`) on both workflows — exit 0, no findings.
+- [x] 9.6 Re-verify end-to-end on a real push to `main` (AGENT MUST EXECUTE): confirm `build-images.yml` still succeeds with the new `concurrency` block, confirm the SSM deploy log shows the pulled image tag matching the commit SHA (not `latest`), confirm smoke check passes with no outage — verified on the `a4ac001` deploy (runs 34816789639 / 34816961434): pulled `:a4ac0012…`, health check passed on attempt 1
+- [x] 9.7 Create report `openspec/changes/2026-07-17-docker-images-to-ghcr/reports/2026-10-07-step-9-blocker-fix-verification.md`
