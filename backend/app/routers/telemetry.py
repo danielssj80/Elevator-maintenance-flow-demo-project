@@ -31,8 +31,6 @@ def get_telemetry_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Telem
     "/readings",
     response_model=TelemetryIngestResponseSchema,
     status_code=201,
-    # On the write route only. The read route below answers what telemetry
-    # exists and is not a way to change anything.
     dependencies=[Depends(require_ingest_token)],
 )
 async def ingest_readings(
@@ -42,7 +40,13 @@ async def ingest_readings(
     return await service.ingest(batch)
 
 
-@router.get("/readings", response_model=list[TelemetryReadingSchema])
+@router.get(
+    "/readings",
+    response_model=list[TelemetryReadingSchema],
+    # Same guard as the write: nothing consumes this read, and production now
+    # registers the router, so open it would publish raw telemetry.
+    dependencies=[Depends(require_ingest_token)],
+)
 async def list_readings(
     service: Annotated[TelemetryService, Depends(get_telemetry_service)],
     elevator_id: Annotated[str, Query(min_length=1)],

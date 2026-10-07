@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
+from app.core.config import is_production, settings
 from app.core.metrics import refresh_snapshot_periodically, register_instruments
 from app.core.orchestration_context import OrchestrationContextMiddleware
 from app.core.telemetry import configure_telemetry, get_tracer, shutdown_telemetry
@@ -19,6 +19,50 @@ from app.services.inference_service import FeatureBuildError
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
+
+# The shortest ingest token that opens the write endpoints in production. An
+# accidental `TELEMETRY_INGEST_TOKEN=x` must land on the closed side; the
+# intended value is `secrets.token_urlsafe(32)`, which is 43 characters.
+MIN_PRODUCTION_INGEST_TOKEN_LENGTH = 32
+
+INGEST_ROUTES = ("POST /api/telemetry/readings", "GET /api/telemetry/readings", "POST /api/inference/run")
+
+
+def _ingest_routers_allowed(environment: str) -> bool:
+    """Whether the telemetry and inference routers may be registered.
+
+    Outside production: always, with a warning when they are unguarded.
+    In production: only behind a configured token long enough to be deliberate.
+    The reason for withholding them is logged; the token and its length never are.
+    """
+    token = settings.telemetry_ingest_token
+    if not is_production(environment):
+        if not token:
+            logger.warning(
+                "TELEMETRY_INGEST_TOKEN is not configured: %s are registered and "
+                "accept unauthenticated requests. Expected for a local checkout and "
+                "for the test suite; every deployed environment must set it.",
+                ", ".join(INGEST_ROUTES),
+            )
+        return True
+
+    if not token:
+        logger.warning(
+            "Ingest and inference routers not registered: the deployment "
+            "environment %r is treated as production and TELEMETRY_INGEST_TOKEN is "
+            "not configured.",
+            environment,
+        )
+        return False
+    if len(token) < MIN_PRODUCTION_INGEST_TOKEN_LENGTH:
+        logger.error(
+            "Ingest and inference routers not registered: the deployment "
+            "environment %r is treated as production and TELEMETRY_INGEST_TOKEN is "
+            "too short to be accepted there.",
+            environment,
+        )
+        return False
+    return True
 
 
 @asynccontextmanager
@@ -80,27 +124,15 @@ def build_app(environment: str | None = None) -> FastAPI:
 
     app.include_router(elevators.router)
 
-    # The telemetry and inference routers are unauthenticated write endpoints,
-    # and docker-compose.prod.yml auto-deploys on merge to the default branch.
-    # Registering them in production would let anyone inject telemetry and
-    # re-score the live fleet. They are therefore not registered at all there —
-    # not registered-and-guarded, which leaves a route to get the guard wrong on.
-    #
-    # Outside production they are registered *and* guarded by an X-Ingest-Token
-    # header (app/core/ingest_auth.py). That guard is fail-open, so an
-    # environment that registers these routers without configuring a token has
-    # to say so out loud rather than look identical to one that did.
-    if environment != "production":
+    # The telemetry and inference routers write to the database and start
+    # inference runs, and docker-compose.prod.yml auto-deploys on merge to the
+    # default branch. They are gated at *registration*, not only inside the
+    # handler, so a guard written wrong cannot be reached at all: production gets
+    # them only behind a configured token (see _ingest_routers_allowed), and every
+    # request to them passes require_ingest_token (app/core/ingest_auth.py).
+    if _ingest_routers_allowed(environment):
         app.include_router(telemetry.router)
         app.include_router(inference.router)
-        if not settings.telemetry_ingest_token:
-            logger.warning(
-                "TELEMETRY_INGEST_TOKEN is not configured: %s and %s are registered "
-                "and accept unauthenticated writes. Expected for a local checkout "
-                "and for the test suite; every deployed environment must set it.",
-                "POST /api/telemetry/readings",
-                "POST /api/inference/run",
-            )
 
     @app.exception_handler(FeatureBuildError)
     async def _feature_build_error(request: Request, exc: FeatureBuildError) -> JSONResponse:

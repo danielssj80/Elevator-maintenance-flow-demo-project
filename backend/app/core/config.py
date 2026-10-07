@@ -3,6 +3,20 @@ import os
 # The value assumed when DEPLOYMENT_ENVIRONMENT is not set anywhere.
 DEFAULT_DEPLOYMENT_ENVIRONMENT = "production"
 
+# The only names that are *not* production. Everything else is — unset, empty,
+# `prod`, `Production`, `staging`, a typo. The previous rule compared against the
+# one string "production", so every other spelling opened the write endpoints.
+#
+# Exact match, deliberately: no lower(), no strip(). Each normalisation is one
+# more way for an unexpected value to land on the open side, and `Local`
+# reaching the closed side costs a log line, not an incident.
+NON_PRODUCTION_ENVIRONMENTS = frozenset({"local", "test", "ci"})
+
+
+def is_production(environment: str) -> bool:
+    """Whether ``environment`` must be treated as production."""
+    return environment not in NON_PRODUCTION_ENVIRONMENTS
+
 
 def _build_db_url(
     user: str = "user",

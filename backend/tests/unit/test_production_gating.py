@@ -11,6 +11,7 @@ rather than in production.
 """
 
 import json
+import logging
 import os
 import pathlib
 import subprocess
@@ -20,13 +21,27 @@ import textwrap
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.main import build_app
+from app.core.config import settings
+from app.main import MIN_PRODUCTION_INGEST_TOKEN_LENGTH, build_app
 
 GATED_ROUTES = [
     ("POST", "/api/telemetry/readings"),
     ("GET", "/api/telemetry/readings"),
     ("POST", "/api/inference/run"),
 ]
+
+
+@pytest.fixture
+def no_token(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "telemetry_ingest_token", None)
+
+
+@pytest.fixture
+def production_token(monkeypatch) -> str:
+    token = "t" * MIN_PRODUCTION_INGEST_TOKEN_LENGTH
+    monkeypatch.setattr(settings, "telemetry_ingest_token", token)
+    monkeypatch.setattr(settings, "deployment_environment", "production")
+    return token
 
 
 def _paths(app) -> set[str]:
@@ -67,13 +82,79 @@ def test_existing_routes_are_unaffected_in_production():
     assert "/api/elevators/{elevator_id}/report" in registered
 
 
-@pytest.mark.parametrize("environment", ["local", "staging", "development"])
+@pytest.mark.parametrize("environment", ["local", "test", "ci"])
 def test_gated_routes_are_present_outside_production(environment: str):
     app = build_app(environment=environment)
     registered = _paths(app)
 
     for _method, path in GATED_ROUTES:
         assert path in registered, f"{path} must be registered in {environment}"
+
+
+@pytest.mark.parametrize(
+    "environment", ["prod", "Production", "PRODUCTION", "staging", "development", "", "local "]
+)
+def test_an_unrecognised_environment_is_gated_like_production(environment: str, no_token):
+    """The bug this change exists for: `!= "production"` opened all of these."""
+    registered = _paths(build_app(environment=environment))
+
+    for _method, path in GATED_ROUTES:
+        assert path not in registered, f"{path} must not be registered for {environment!r}"
+
+
+def test_production_without_a_token_says_why_the_routes_are_absent(caplog, no_token):
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        build_app(environment="production")
+
+    assert "not registered" in caplog.text
+    assert "TELEMETRY_INGEST_TOKEN is not configured" in caplog.text
+
+
+def test_a_short_token_does_not_open_production(caplog, monkeypatch):
+    short = "s3cr3t-but-only-31-characters!!"
+    assert len(short) == MIN_PRODUCTION_INGEST_TOKEN_LENGTH - 1
+    monkeypatch.setattr(settings, "telemetry_ingest_token", short)
+
+    with caplog.at_level(logging.WARNING, logger="app.main"):
+        registered = _paths(build_app(environment="production"))
+
+    for _method, path in GATED_ROUTES:
+        assert path not in registered
+    messages = " ".join(caplog.messages)
+    assert "too short" in messages
+    # Never the token, and never its length: both narrow a guess.
+    assert short not in messages
+    assert str(len(short)) not in messages
+
+
+def test_a_token_of_exactly_the_minimum_length_opens_production(production_token):
+    registered = _paths(build_app(environment="production"))
+
+    for _method, path in GATED_ROUTES:
+        assert path in registered
+
+
+@pytest.mark.asyncio
+async def test_production_with_a_token_registers_the_routes_behind_the_guard(production_token):
+    """Registered is not the same as open: the guard has to hold on the wire.
+
+    The guard reads ``settings.deployment_environment`` per request, so the
+    fixture sets it to production as well — both halves agree, as they do in
+    the deployed process.
+    """
+    app = build_app(environment="production")
+    headers = {"X-Ingest-Token": production_token}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.post("/api/telemetry/readings", json={})).status_code == 401
+        assert (await client.post("/api/inference/run")).status_code == 401
+        assert (
+            await client.get("/api/telemetry/readings", params={"elevator_id": "ELV-001"})
+        ).status_code == 401
+        # Past the guard: an empty batch is a validation error, not an auth one.
+        assert (
+            await client.post("/api/telemetry/readings", json={}, headers=headers)
+        ).status_code == 422
 
 
 def test_an_unset_deployment_environment_gates_the_routes_off():
