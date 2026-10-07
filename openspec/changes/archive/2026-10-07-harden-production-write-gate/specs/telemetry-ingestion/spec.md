@@ -32,7 +32,7 @@ In production the guard SHALL be fail-closed: when the configured token is unset
 - **THEN** the response status is 401
 - **AND** no readings are returned
 
-#### Scenario: An unconfigured token leaves the endpoints open outside production and says so
+#### Scenario: An unconfigured token leaves the endpoints open and says so
 - **WHEN** the application starts in a non-production environment with no ingest token configured
 - **THEN** the write endpoints accept a request with no `X-Ingest-Token` header
 - **AND** a warning is logged naming those endpoints as unguarded
@@ -45,14 +45,14 @@ In production the guard SHALL be fail-closed: when the configured token is unset
 - **WHEN** the development compose file is inspected
 - **THEN** it sets an ingest token for the backend service
 
-### Requirement: The ingest and inference endpoints are unreachable in production
+### Requirement: The ingest and inference endpoints are reachable in production only behind a token
 The system SHALL classify the deployment environment against an allow-list of non-production names — `local`, `test` and `ci`, matched exactly — and SHALL treat every other value as production, including an unset or empty value, a different letter case, an abbreviation such as `prod`, and any name not on the list. Forgetting or mistyping the setting SHALL therefore produce the safe outcome rather than the dangerous one.
 
 In production the system SHALL NOT register the telemetry or inference routers unless an ingest token is configured and is at least 32 characters long. When the routers are withheld for that reason, the application SHALL log why at startup. When a token meeting that rule is configured, the routers SHALL be registered and every request to them SHALL be subject to the ingest token guard.
 
 `docker-compose.prod.yml` auto-deploys on merge to the default branch and the deployed API has no user authentication, so a write route reaching production without a guard would let anyone inject telemetry and re-score the live fleet. Gating at registration, rather than only inside the handler, means a misconfigured guard cannot be reached at all.
 
-#### Scenario: Routers are absent in production without a token
+#### Scenario: Routers are absent in production
 - **WHEN** the application starts with the deployment environment set to `production` and no ingest token configured
 - **THEN** `POST /api/telemetry/readings` returns HTTP 404
 - **AND** `POST /api/inference/run` returns HTTP 404
@@ -87,3 +87,8 @@ In production the system SHALL NOT register the telemetry or inference routers u
 #### Scenario: The test suite does not inherit the environment from the shell
 - **WHEN** the backend test suite runs in a shell that exports `DEPLOYMENT_ENVIRONMENT=production`
 - **THEN** the suite still runs with the deployment environment declared by the suite itself
+
+## RENAMED Requirements
+
+- FROM: `### Requirement: The ingest and inference endpoints are unreachable in production`
+- TO: `### Requirement: The ingest and inference endpoints are reachable in production only behind a token`

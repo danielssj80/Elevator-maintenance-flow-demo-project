@@ -83,6 +83,6 @@
 
 ## 13. Archive and PR
 
-- [ ] 13.1 Sync delta specs into `openspec/specs/`, archive the change
-- [ ] 13.2 Commit, push, open PR (merge needs user approval)
+- [x] 13.1 Sync delta specs into `openspec/specs/`, archive the change (CLI; requirement renamed to "…reachable in production only behind a token")
+- [x] 13.2 Commit, push, open PR (merge needs user approval)
 - [ ] 13.3 After merge and deploy: verify production still answers 404 on `POST /api/telemetry/readings` and the startup log names the reason
