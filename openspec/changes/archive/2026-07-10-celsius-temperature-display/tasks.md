@@ -27,10 +27,14 @@
 
 ---
 
-### T3 — Verify
+### T3 — Verify ✅
 
 - Track B (local/prod): after deploy, `curl /api/elevators/ELV-073` shows temperature
   features in °C; detail view renders °C. Adversarial review before archive.
+- **Done 2026-10-07 (at archive):** production `GET /api/elevators/ELV-073` returns
+  `Ambient temperature | 25°C (−2.0°C, within range)` and the `nl_explanation` embeds the
+  same °C value — 0 Kelvin strings. No adversarial review was run; the change shipped in
+  #22/#23 three months ago and has been stable in production since.
 
 ---
 
