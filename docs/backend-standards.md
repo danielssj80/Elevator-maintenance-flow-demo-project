@@ -572,44 +572,52 @@ are right and the stack is stale.
 - Use `HTTPException` with generic messages for auth failures — never reveal internal details.
 - Database credentials only via environment variables.
 - CORS: restrict `allow_origins` to known frontend origins (no `*` in production).
-- **`DEPLOYMENT_ENVIRONMENT` is fail-closed and every non-production
-  environment must declare itself.** It defaults to `production`, which gates
-  the telemetry and inference routers off. `docker-compose.yml` sets `local`
-  and `tests/conftest.py` sets `local`, but a bare
-  `uvicorn app.main:app --reload` from `backend/` inherits the default and will
-  return 404 on those endpoints with no explanation. Run it as:
+- **`DEPLOYMENT_ENVIRONMENT` is an allow-list, and everything else is
+  production.** Only `local`, `test` and `ci` are non-production
+  (`app/core/config.py: NON_PRODUCTION_ENVIRONMENTS`), matched exactly — unset,
+  empty, `prod`, `Production`, `staging` or a typo are all production. Matching
+  is deliberately not case- or whitespace-insensitive: every normalisation is
+  one more way for an unexpected value to land on the open side.
+  `docker-compose.yml` and `tests/conftest.py` set `local` (conftest assigns it,
+  so a shell export cannot change what the suite tests). A bare
+  `uvicorn app.main:app --reload` from `backend/` inherits the production
+  default and returns 404 on the ingest routes, with a log line saying why. Run
+  it as:
 
   ```bash
   cd backend && DEPLOYMENT_ENVIRONMENT=local uvicorn app.main:app --reload
   ```
 
-  The default is this way round because `docker-compose.prod.yml` sets the
-  variable nowhere and loads an out-of-repo env file: with a default of `local`,
-  *forgetting* it published two unauthenticated write endpoints. An unset
-  variable has to be the safe answer.
+- **Gate write endpoints at registration, not only in the handler.**
+  `build_app()` registers the telemetry and inference routers outside
+  production always, and in production only when `TELEMETRY_INGEST_TOKEN` is
+  configured and at least 32 characters long (`MIN_PRODUCTION_INGEST_TOKEN_LENGTH`;
+  generate it with `secrets.token_urlsafe(32)`). Otherwise the routers are not
+  registered and the startup log states the reason — never the token or its
+  length. An unregistered route cannot be reached by a guard that was written
+  wrong. `docker-compose.prod.yml` auto-deploys on merge to the default branch,
+  so any write route reaching production is a public one.
 
-- **Do not register unauthenticated write endpoints in production.** This API
-  has no authentication anywhere, and `docker-compose.prod.yml` auto-deploys on
-  merge to the default branch, so any write route reaching production is a
-  public one. `build_app()` gates the telemetry and inference routers on
-  `deployment_environment != "production"`. Gate at **registration**, not inside
-  the handler: an unregistered route cannot be reached by a guard that was
-  written wrong.
-
-- **`X-Ingest-Token` guards the write endpoints outside production.**
+- **`X-Ingest-Token` guards the telemetry and inference endpoints.**
   `app/core/ingest_auth.py` holds `require_ingest_token`, applied as a route
-  dependency on `POST /api/telemetry/readings` and `POST /api/inference/run`.
-  It compares with `secrets.compare_digest` and answers one 401 for both an
-  absent and an incorrect token, so the endpoint cannot be used to discover
-  whether a guard is configured.
+  dependency on `POST /api/telemetry/readings`, `GET /api/telemetry/readings` and
+  `POST /api/inference/run`. It compares with `secrets.compare_digest` and
+  answers one 401 for both an absent and an incorrect token, so the endpoint
+  cannot be used to discover whether a guard is configured.
 
-  This one is **fail-open** — unset means open — which is the opposite of
-  `DEPLOYMENT_ENVIRONMENT` above and deliberately so. It only ever runs on
-  routers production does not register, and a fail-closed default would break
-  `pytest` and a bare `uvicorn` run for anyone with no configuration. The safety
-  comes from the other end: `docker-compose.yml` sets `TELEMETRY_INGEST_TOKEN`,
-  `build_app()` logs a warning when it registers those routers without one, and
-  `tests/unit/test_dev_compose.py` asserts both against the compose files.
+  Outside production it is **fail-open** — unset means open — so `pytest` and a
+  bare `uvicorn` run work with no configuration; `docker-compose.yml` sets a
+  token, `build_app()` warns when it registers the routers without one, and
+  `tests/unit/test_dev_compose.py` asserts both against the compose files. In
+  production it is **fail-closed**: an unset or empty token at request time
+  rejects every request. That is a second, independent reason beside the
+  registration rule, so a token cleared after startup cannot open the routes.
+
+- **Rate-limit expensive public endpoints at the proxy, not in the app.**
+  `nginx/prod.conf` limits the three ingest/inference routes per client
+  (`zone=elevator_ingest`, exact-match locations) and answers 429 before the
+  request costs the backend a database session. The generic `/api/` location is
+  never limited; `tests/unit/test_nginx_prod_conf.py` pins that shape.
 
 - **Orchestration attributes are recorded, never trusted.**
   `app/core/orchestration_context.py` reads `X-N8N-Execution-Id` and

@@ -2,12 +2,13 @@ import asyncio
 import os
 from collections.abc import AsyncGenerator
 
-# Before any app import. `deployment_environment` is fail-closed — it defaults
-# to "production", which gates the telemetry and inference routers off — so the
-# suite has to say what it is. Setting it here rather than in the pytest command
-# means the declaration lives with the tests instead of in whatever shell or CI
-# job happens to invoke them.
-os.environ.setdefault("DEPLOYMENT_ENVIRONMENT", "local")
+# Before any app import. `deployment_environment` is fail-closed — anything but
+# local/test/ci is production, which gates the telemetry and inference routers
+# off — so the suite has to say what it is. Assigned, not `setdefault`: a shell
+# with DEPLOYMENT_ENVIRONMENT=production exported would otherwise silently change
+# what the suite tests. Tests that need another environment pass it explicitly
+# to `build_app(environment=...)` or run a subprocess with their own.
+os.environ["DEPLOYMENT_ENVIRONMENT"] = "local"
 
 # The suite runs with the ingest guard **open**, declared rather than inherited.
 # `telemetry_ingest_token` is fail-open, so most tests post to the write

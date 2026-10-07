@@ -1,15 +1,14 @@
-"""The shared secret on the two unauthenticated write endpoints.
+"""The shared secret on the telemetry and inference endpoints.
 
-The production gate stops these routers being registered at all when the
-deployment environment is production. That says nothing about who may write in
-the environments where they *are* registered, and the next change introduces
-exactly such a producer — a scheduled n8n workflow posting telemetry and
-triggering runs. This is the guard for those environments.
+`build_app` decides whether these routers exist: outside production always, in
+production only behind a configured token (see `test_production_gating.py`).
+This file tests the guard on every request once they do — fail-open outside
+production when no token is configured, fail-closed in production.
 
-The suite runs with **no token configured**, so every other test keeps posting
-without a header and the fail-open default is exercised by default. These tests
-configure one explicitly, which is also the only shape in which a 401 can be
-asserted at all.
+The suite runs with **no token configured** and as `local`, so every other test
+keeps posting without a header and the non-production default is exercised by
+default. These tests configure a token, or the production environment,
+explicitly — which is also the only shape in which a 401 can be asserted at all.
 """
 
 import pytest

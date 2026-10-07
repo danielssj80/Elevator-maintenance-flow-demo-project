@@ -28,8 +28,10 @@ fails if one is ever added.
 Two reasons, both load-bearing. n8n holds a model-provider credential, and this
 stack auto-deploys on merge to the default branch, so an orchestrator here would
 put a scheduler with credentials on a public host. And the endpoints it drives —
-`POST /api/telemetry/readings` and `POST /api/inference/run` — are not registered
-in production at all, so there would be nothing for it to call.
+`POST /api/telemetry/readings` and `POST /api/inference/run` — are registered in
+production only when `TELEMETRY_INGEST_TOKEN` (at least 32 characters) is set in
+`/etc/elevator/.env`. No token is provisioned there today, so they answer 404.
+When one is, every request also needs it, and nginx rate-limits those routes.
 
 The consequence is worth stating plainly rather than leaving to be discovered:
 **production serves the risk scores that were seeded from `predictions.json`.**
