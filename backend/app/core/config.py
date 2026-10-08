@@ -58,6 +58,11 @@ class Settings:
         "OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318"
     )
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "elevator-backend")
+    # Per-signal switches under OTEL_ENABLED. Local exports all three and lets
+    # the Collector choose what leaves the machine; production exports straight
+    # to Grafana Cloud with no Collector, so it turns metrics and logs off here.
+    otel_metrics_enabled: bool = os.getenv("OTEL_METRICS_ENABLED", "true").lower() == "true"
+    otel_logs_enabled: bool = os.getenv("OTEL_LOGS_ENABLED", "true").lower() == "true"
     otel_service_version: str = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
     # Fail-closed on purpose: classified by is_production(), so anything but
     # local/test/ci — including unset — is production. This value decides

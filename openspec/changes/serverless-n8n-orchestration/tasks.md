@@ -56,10 +56,10 @@
 
 ## 3. Production OTel settings (TDD)
 
-- [ ] 3.1 Write failing tests for each switch (`OTEL_METRICS_ENABLED=false`, `OTEL_LOGS_ENABLED=false`): with the switch off, no exporter or provider is installed for that signal and traces are still installed. Both default to `true`.
-- [ ] 3.2 Verify against the installed SDK that `OTLPSpanExporter(endpoint=…)` reads `OTEL_EXPORTER_OTLP_HEADERS` from the environment; record the source lines. If it does not, pass the headers explicitly and test that.
-- [ ] 3.3 Implement D10 in `app/core/telemetry.py` + `config.py`.
-- [ ] 3.4 Tests pass. Mutation: ignore the metrics switch → red.
+- [x] 3.1 Write failing tests for each switch (`test_telemetry_signal_switches.py`, fresh interpreter per case; 3 red before the change) (`OTEL_METRICS_ENABLED=false`, `OTEL_LOGS_ENABLED=false`): with the switch off, no exporter or provider is installed for that signal and traces are still installed. Both default to `true`.
+- [x] 3.2 Verify against the installed SDK that `OTLPSpanExporter(endpoint=…)` reads `OTEL_EXPORTER_OTLP_HEADERS` from the environment; record the source lines. If it does not, pass the headers explicitly and test that. — Verified in `opentelemetry-exporter-otlp-proto-http` 1.44.0, `trace_exporter/__init__.py:111-114`: `self._headers = headers or parse_env_headers(environ.get(OTEL_EXPORTER_OTLP_TRACES_HEADERS, environ.get(OTEL_EXPORTER_OTLP_HEADERS, "")))`.
+- [x] 3.3 Implement D10 in `app/core/telemetry.py` + `config.py`.
+- [x] 3.4 Tests pass. Mutation: ignore the metrics switch → red (2 failed). Extra mutations: ignore the logs switch → 2 failed; never attach the handler → 1 failed. Existing `test_telemetry_spans.py` still green (33 passed together).
 
 ## 4. Workflow definitions
 
