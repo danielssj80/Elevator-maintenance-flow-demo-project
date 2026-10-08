@@ -158,3 +158,26 @@ export async function runInvocation({ event, requestId, deps }) {
     ms: deps.now() - started,
   };
 }
+
+// One CloudWatch Embedded Metric Format line per finished run. Lambda turns it
+// into metrics with no API call. `Invocations` cannot tell the two workflows
+// apart — ingest every 30 minutes would keep a "daily run missing" alarm quiet
+// forever — so success is counted per workflow here.
+export function workflowMetricLine({ workflow, degraded, timestamp }) {
+  return JSON.stringify({
+    _aws: {
+      Timestamp: timestamp,
+      CloudWatchMetrics: [{
+        Namespace: 'Elevator/Orchestrator',
+        Dimensions: [['Workflow']],
+        Metrics: [
+          { Name: 'WorkflowSucceeded', Unit: 'Count' },
+          { Name: 'WorkflowDegraded', Unit: 'Count' },
+        ],
+      }],
+    },
+    Workflow: workflow,
+    WorkflowSucceeded: 1,
+    WorkflowDegraded: degraded ? 1 : 0,
+  });
+}

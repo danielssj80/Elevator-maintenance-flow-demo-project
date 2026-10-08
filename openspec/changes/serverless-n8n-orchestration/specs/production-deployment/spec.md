@@ -43,6 +43,8 @@ Neither the repository, nor any image, nor any workflow definition SHALL contain
 ### Requirement: The application host may invoke only the scoring function
 The system SHALL grant the instance role `lambda:InvokeFunction` on the scoring function's ARN only, as a customer-managed policy. The grant SHALL NOT use a wildcard resource, and SHALL NOT allow invoking the orchestrator.
 
+The instance role SHALL additionally read exactly the three production parameters (`ssm:GetParameter`, no wildcard). The host env file is then written from SSM on the host itself, so the values never pass through an operator's machine or a Run Command parameter.
+
 The orchestrator function role SHALL be limited to:
 - `bedrock:InvokeModel` on the same pinned EU Nova Lite ARNs the backend uses;
 - reading its own SSM parameters;
@@ -73,5 +75,6 @@ The 70 % alarm is the agreed trigger to redesign before the free tier is exhaust
 - **THEN** the usage alarm enters ALARM
 
 #### Scenario: Silence is not health
-- **WHEN** no daily-run invocation happened in the last 26 hours
+- **WHEN** no successful daily run was recorded in the last 26 hours
 - **THEN** an alarm enters ALARM rather than INSUFFICIENT_DATA
+- **AND** frequent ingest runs cannot keep that alarm quiet, because success is counted per workflow

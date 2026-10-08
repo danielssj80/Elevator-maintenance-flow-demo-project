@@ -247,3 +247,22 @@ test('a readiness failure still stops n8n', async () => {
   await assert.rejects(runInvocation({ event: { workflow: 'telemetry-ingest' }, requestId: 'r', deps }), /not ready/);
   assert.equal(log.at(-1), 'stop');
 });
+
+// ── workflowMetricLine ───────────────────────────────────────────────────────
+
+test('a finished run emits one EMF line per workflow, degraded runs flagged', async () => {
+  const { workflowMetricLine } = await import('./lib.mjs');
+  const line = JSON.parse(workflowMetricLine({ workflow: 'daily-inference-and-digest', degraded: true, timestamp: 1_700_000_000_000 }));
+
+  const [directive] = line._aws.CloudWatchMetrics;
+  assert.equal(line._aws.Timestamp, 1_700_000_000_000);
+  assert.equal(directive.Namespace, 'Elevator/Orchestrator');
+  assert.deepEqual(directive.Dimensions, [['Workflow']]);
+  assert.deepEqual(directive.Metrics.map((m) => m.Name).sort(), ['WorkflowDegraded', 'WorkflowSucceeded']);
+  assert.equal(line.Workflow, 'daily-inference-and-digest');
+  assert.equal(line.WorkflowSucceeded, 1);
+  assert.equal(line.WorkflowDegraded, 1);
+
+  const clean = JSON.parse(workflowMetricLine({ workflow: 'telemetry-ingest', degraded: false, timestamp: 1 }));
+  assert.equal(clean.WorkflowDegraded, 0);
+});

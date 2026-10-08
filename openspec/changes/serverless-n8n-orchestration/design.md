@@ -104,7 +104,7 @@ finally:
   SIGTERM; await exit (deadline 20 s, then SIGKILL and report spans lost)
 log the workflow's final output (digest) and timings; return them
 ```
-Function settings: 2048 MB, 120 s timeout (worst measured run ×4), no VPC, reserved concurrency 1. With reserved concurrency of 1, the two schedules can never run concurrently. A throttled schedule shows up as an error-alarm candidate rather than a parallel run.
+Function settings: 2048 MB, 120 s timeout (worst measured run ×4), no VPC, reserved concurrency 1 where the account quota allows it. A new account's concurrency quota is 10, all of which must stay unreserved, and AWS then refuses the reservation. The script warns and continues: parallel invocations run in separate sandboxes, each with its own `/tmp` and n8n, so an overlap costs GB-s but corrupts nothing (ingest is idempotent and inference runs are atomic and non-overlapping in the backend).
 
 ### D3 — Webhook Trigger beside the existing triggers; Schedule disabled only in the image
 Each workflow gains `Webhook` (POST, path = workflow slug, respond with the last node's output) wired to the same first node as the Schedule Trigger. The repository JSON keeps the Schedule enabled for local use, and the image build disables it (D1).
@@ -191,7 +191,8 @@ The threshold is 70 % × 400,000 / 30 ≈ 9,333 GB-s per day.
 
 **Other alarms:**
 - **Errors.** `Errors > 0`, per function, 1-hour period. Missing data is treated as not breaching, because there are no errors when nothing runs.
-- **Missed daily run.** The orchestrator's `Invocations` over 26 hours is < 1, with missing data treated as **breaching**. A schedule that silently stops then raises an alarm instead of going quiet.
+- **Missed daily run.** `Invocations` cannot tell the workflows apart: ingest every 30 minutes would keep it above zero forever. The handler therefore emits one CloudWatch Embedded Metric Format line per finished run (`Elevator/Orchestrator` · `WorkflowSucceeded`, `WorkflowDegraded`, dimension `Workflow`). The alarm fires when `WorkflowSucceeded{Workflow=daily-inference-and-digest}` is < 1 in each of 26 hourly periods, with missing data treated as **breaching**. A schedule that silently stops then raises an alarm instead of going quiet.
+- **Degraded runs.** `WorkflowDegraded` (an agent node failed and the run continued, e.g. no digest) is recorded but does not page. It is visible on the metric and in the log line.
 
 ### D10 — Production OTel: traces only, direct, best-effort
 **Backend** (`docker-compose.prod.yml`):

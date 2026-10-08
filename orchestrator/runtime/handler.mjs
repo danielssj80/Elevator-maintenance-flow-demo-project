@@ -5,7 +5,7 @@ import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 
 import { GetParametersCommand, SSMClient } from '@aws-sdk/client-ssm';
 
-import { runInvocation } from './lib.mjs';
+import { runInvocation, workflowMetricLine } from './lib.mjs';
 
 const N8N_PORT = 5678;
 const STOP_DEADLINE_MS = 20_000;
@@ -108,6 +108,7 @@ export async function handler(event, context) {
     // "succeeds" (the re-score happened; the digest did not). Say so in the log.
     const degraded = Boolean(result.output && typeof result.output === 'object' && 'error' in result.output);
     console.log(JSON.stringify({ ...result, degraded, memoryPeakMb: memoryPeakMb() }));
+    console.log(workflowMetricLine({ workflow: result.workflow, degraded, timestamp: Date.now() }));
     return result;
   } catch (err) {
     const tail = logTail.split('\n').filter((l) => /error|warn/i.test(l)).slice(-6).join(' / ');

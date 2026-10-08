@@ -120,10 +120,10 @@
 
 ## 7. AWS provisioning scripts (local, dry-run only)
 
-- [ ] 7.1 Write `deploy/aws/00-env.sh` … `70-host-env.sh` per D8/D9 with `--dry-run`, describe-before-create and no secret echo.
-- [ ] 7.2 Write the IAM policy documents as JSON files under `deploy/aws/policies/`. Write a test that no policy has `"Resource": "*"` for lambda, ssm, ecr or bedrock actions, and that the instance policy names only the scorer ARN.
-- [ ] 7.3 `shellcheck` clean. A `--dry-run` of every script prints the expected calls (output captured in the step-9 report).
-- [ ] 7.4 Mutation: give the instance policy a wildcard resource → the policy test goes red.
+- [x] 7.1 Write `deploy/aws/00-env.sh` … `70-host-env.sh` per D8/D9 with `--dry-run`, describe-before-create and no secret echo. — `lib.sh` (sourced) replaces `00-env.sh`. The EMF metric `WorkflowSucceeded` per workflow was added to the handler (TDD) because `Invocations` cannot tell the daily run from ingest; `70-host-env.sh` reads SSM on the host with the instance role, so values never transit a Run Command parameter.
+- [x] 7.2 Write the IAM policy documents as JSON files under `deploy/aws/policies/`. Write a test that no policy has `"Resource": "*"` for lambda, ssm, ecr or bedrock actions, and that the instance policy names only the scorer ARN. — `test_aws_policies.py`, 12 tests; `ecr:GetAuthorizationToken` is the one documented `*` (no resource-level permission exists).
+- [x] 7.3 `shellcheck` clean. A `--dry-run` of every script prints the expected calls (output captured in the step-11 report). — shellcheck v0.10.0 clean; 39 mutating calls printed. The dry run found three bugs, fixed: creation calls were silenced by `>/dev/null` (print now on stderr); `put K "$(get …)"` on the host would write an empty token if SSM failed (now assigned and checked); recreating the backend without `IMAGE_TAG` would pull `:latest` (now the deployed SHA). Reserved concurrency made best-effort (new-account quota).
+- [x] 7.4 Mutation: give the instance policy a wildcard resource → the policy test goes red. (2 failed; extra: scorer granted the ingest token → 1 failed)
 
 ## 8. Production compose and docs-adjacent config
 
