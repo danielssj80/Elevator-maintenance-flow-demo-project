@@ -142,11 +142,11 @@
 
 ## 10. Unit Tests and DB State Verification (MANDATORY)
 
-- [ ] 10.1 Capture the pre-test DB baseline (table counts in the test database).
-- [ ] 10.2 Run the targeted tests: inference client, Lambda handler, telemetry settings, workflow definitions, compose, policies, and `node --test`.
-- [ ] 10.3 Run the full backend suite + `ruff check .` the way CI does (Python 3.12, `postgres:16-alpine`).
-- [ ] 10.4 Verify the post-test DB state matches the baseline.
-- [ ] 10.5 Create report `openspec/changes/serverless-n8n-orchestration/reports/YYYY-MM-DD-step-10-unit-tests.md`.
+- [x] 10.1 Capture the pre-test DB baseline (table counts in the test database).
+- [x] 10.2 Run the targeted tests: inference client, Lambda handler, telemetry settings, workflow definitions, compose, policies, and `node --test`.
+- [x] 10.3 Run the full backend suite + `ruff check .` the way CI does (Python 3.12, `postgres:16-alpine`).
+- [x] 10.4 Verify the post-test DB state matches the baseline.
+- [x] 10.5 Create report `openspec/changes/serverless-n8n-orchestration/reports/2026-10-08-step-10-unit-tests.md` — 354 passed, ruff clean, node 22 passed, scorer 23 passed.
 
 ## 11. Manual Endpoint and Function Testing (MANDATORY — AGENT MUST EXECUTE)
 
