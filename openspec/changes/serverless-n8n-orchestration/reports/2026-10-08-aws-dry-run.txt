@@ -1,0 +1,106 @@
+######## 10-ecr.sh --dry-run
+== ECR repository elevator-orchestrator
+? aws ecr describe-repositories --repository-names elevator-orchestrator
++ aws ecr create-repository --repository-name elevator-orchestrator --image-scanning-configuration scanOnPush=true --image-tag-mutability MUTABLE
++ aws ecr put-lifecycle-policy --repository-name elevator-orchestrator --lifecycle-policy-text file:///home/user/Personal/Elevator-maintenance-flow-demo-project/deploy/aws/policies/ecr-lifecycle.json
+== ECR repository elevator-scorer
+? aws ecr describe-repositories --repository-names elevator-scorer
++ aws ecr create-repository --repository-name elevator-scorer --image-scanning-configuration scanOnPush=true --image-tag-mutability MUTABLE
++ aws ecr put-lifecycle-policy --repository-name elevator-scorer --lifecycle-policy-text file:///home/user/Personal/Elevator-maintenance-flow-demo-project/deploy/aws/policies/ecr-lifecycle.json
+######## 20-iam.sh --dry-run
+== policy ElevatorOrchestratorFunction
+? aws iam get-policy --policy-arn arn:aws:iam::123456789012:policy/ElevatorOrchestratorFunction
++ aws iam create-policy --policy-name ElevatorOrchestratorFunction --policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Sid": "ReadItsOwnSecrets",\n      "Effect": "Allow",\n      "Action": ["ssm:GetParameters"],\n      "Resource": [\n        "arn:aws:ssm:eu-north-1:123456789012:parameter/elevator/orchestrator/ingest-token",\n        "arn:aws:ssm:eu-north-1:123456789012:parameter/elevator/otel/grafana-otlp-endpoint",\n        "arn:aws:ssm:eu-north-1:123456789012:parameter/elevator/otel/grafana-otlp-auth"\n      ]\n    },\n    {\n      "Sid": "WriteItsOwnLogs",\n      "Effect": "Allow",\n      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],\n      "Resource": "arn:aws:logs:eu-north-1:123456789012:log-group:/aws/lambda/elevator-orchestrator:*"\n    }\n  ]\n}'
+== policy ElevatorScorerFunction
+? aws iam get-policy --policy-arn arn:aws:iam::123456789012:policy/ElevatorScorerFunction
++ aws iam create-policy --policy-name ElevatorScorerFunction --policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Sid": "ReadTheOtlpSettingsOnly",\n      "Effect": "Allow",\n      "Action": ["ssm:GetParameter"],\n      "Resource": [\n        "arn:aws:ssm:eu-north-1:123456789012:parameter/elevator/otel/grafana-otlp-endpoint",\n        "arn:aws:ssm:eu-north-1:123456789012:parameter/elevator/otel/grafana-otlp-auth"\n      ]\n    },\n    {\n      "Sid": "WriteItsOwnLogs",\n      "Effect": "Allow",\n      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],\n      "Resource": "arn:aws:logs:eu-north-1:123456789012:log-group:/aws/lambda/elevator-scorer:*"\n    }\n  ]\n}'
+== policy ElevatorInvokeScorer
+? aws iam get-policy --policy-arn arn:aws:iam::123456789012:policy/ElevatorInvokeScorer
++ aws iam create-policy --policy-name ElevatorInvokeScorer --policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Sid": "InvokeTheScorerOnly",\n      "Effect": "Allow",\n      "Action": ["lambda:InvokeFunction"],\n      "Resource": "arn:aws:lambda:eu-north-1:123456789012:function:elevator-scorer"\n    }\n  ]\n}'
+== policy ElevatorHostReadSecrets
+? aws iam get-policy --policy-arn arn:aws:iam::123456789012:policy/ElevatorHostReadSecrets
++ aws iam create-policy --policy-name ElevatorHostReadSecrets --policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Sid": "WriteTheHostEnvFileFromSsm",\n      "Effect": "Allow",\n      "Action": ["ssm:GetParameter"],\n      "Resource": [\n        "arn:aws:ssm:eu-north-1:123456789012:parameter/elevator/orchestrator/ingest-token",\n        "arn:aws:ssm:eu-north-1:123456789012:parameter/elevator/otel/grafana-otlp-endpoint",\n        "arn:aws:ssm:eu-north-1:123456789012:parameter/elevator/otel/grafana-otlp-auth"\n      ]\n    }\n  ]\n}'
+== policy ElevatorSchedulerInvoke
+? aws iam get-policy --policy-arn arn:aws:iam::123456789012:policy/ElevatorSchedulerInvoke
++ aws iam create-policy --policy-name ElevatorSchedulerInvoke --policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Sid": "InvokeTheOrchestratorOnly",\n      "Effect": "Allow",\n      "Action": ["lambda:InvokeFunction"],\n      "Resource": "arn:aws:lambda:eu-north-1:123456789012:function:elevator-orchestrator"\n    }\n  ]\n}'
+== policy ElevatorLambdaImagesDeploy
+? aws iam get-policy --policy-arn arn:aws:iam::123456789012:policy/ElevatorLambdaImagesDeploy
++ aws iam create-policy --policy-name ElevatorLambdaImagesDeploy --policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Sid": "EcrLoginHasNoResourceLevelPermission",\n      "Effect": "Allow",\n      "Action": ["ecr:GetAuthorizationToken"],\n      "Resource": "*"\n    },\n    {\n      "Sid": "PushTheTwoImages",\n      "Effect": "Allow",\n      "Action": [\n        "ecr:BatchCheckLayerAvailability",\n        "ecr:BatchGetImage",\n        "ecr:InitiateLayerUpload",\n        "ecr:UploadLayerPart",\n        "ecr:CompleteLayerUpload",\n        "ecr:PutImage"\n      ],\n      "Resource": [\n        "arn:aws:ecr:eu-north-1:123456789012:repository/elevator-orchestrator",\n        "arn:aws:ecr:eu-north-1:123456789012:repository/elevator-scorer"\n      ]\n    },\n    {\n      "Sid": "MoveTheTwoFunctions",\n      "Effect": "Allow",\n      "Action": ["lambda:UpdateFunctionCode", "lambda:GetFunction"],\n      "Resource": [\n        "arn:aws:lambda:eu-north-1:123456789012:function:elevator-orchestrator",\n        "arn:aws:lambda:eu-north-1:123456789012:function:elevator-scorer"\n      ]\n    }\n  ]\n}'
+== role elevator-orchestrator-function
+? aws iam get-role --role-name elevator-orchestrator-function
++ aws iam create-role --role-name elevator-orchestrator-function --assume-role-policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    { "Effect": "Allow", "Principal": { "Service": "lambda.amazonaws.com" }, "Action": "sts:AssumeRole" }\n  ]\n}'
++ aws iam attach-role-policy --role-name elevator-orchestrator-function --policy-arn arn:aws:iam::123456789012:policy/ElevatorOrchestratorFunction
++ aws iam attach-role-policy --role-name elevator-orchestrator-function --policy-arn arn:aws:iam::123456789012:policy/ElevatorBedrockInvokeNova
+== role elevator-scorer-function
+? aws iam get-role --role-name elevator-scorer-function
++ aws iam create-role --role-name elevator-scorer-function --assume-role-policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    { "Effect": "Allow", "Principal": { "Service": "lambda.amazonaws.com" }, "Action": "sts:AssumeRole" }\n  ]\n}'
++ aws iam attach-role-policy --role-name elevator-scorer-function --policy-arn arn:aws:iam::123456789012:policy/ElevatorScorerFunction
+== role elevator-scheduler-invoke
+? aws iam get-role --role-name elevator-scheduler-invoke
++ aws iam create-role --role-name elevator-scheduler-invoke --assume-role-policy-document $'{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Effect": "Allow",\n      "Principal": { "Service": "scheduler.amazonaws.com" },\n      "Action": "sts:AssumeRole",\n      "Condition": { "StringEquals": { "aws:SourceAccount": "123456789012" } }\n    }\n  ]\n}'
++ aws iam attach-role-policy --role-name elevator-scheduler-invoke --policy-arn arn:aws:iam::123456789012:policy/ElevatorSchedulerInvoke
+== existing roles
++ aws iam attach-role-policy --role-name elevator-ssm-role --policy-arn arn:aws:iam::123456789012:policy/ElevatorInvokeScorer
++ aws iam attach-role-policy --role-name elevator-ssm-role --policy-arn arn:aws:iam::123456789012:policy/ElevatorHostReadSecrets
++ aws iam attach-role-policy --role-name github-actions-deploy --policy-arn arn:aws:iam::123456789012:policy/ElevatorLambdaImagesDeploy
+######## 30-ssm.sh --dry-run
+== /elevator/orchestrator/ingest-token
++ aws ssm put-parameter --name /elevator/orchestrator/ingest-token --type SecureString --overwrite=false --value <redacted>
+== /elevator/otel/grafana-otlp-endpoint
++ aws ssm put-parameter --name /elevator/otel/grafana-otlp-endpoint --type SecureString --overwrite=false --value <redacted>
+== /elevator/otel/grafana-otlp-auth
++ aws ssm put-parameter --name /elevator/otel/grafana-otlp-auth --type SecureString --overwrite=false --value <redacted>
+######## 40-lambda.sh --dry-run
+== function elevator-orchestrator
++ aws logs put-retention-policy --log-group-name /aws/lambda/elevator-orchestrator --retention-in-days 14
+? aws lambda get-function --function-name elevator-orchestrator
++ aws lambda create-function --function-name elevator-orchestrator --package-type Image --code ImageUri=123456789012.dkr.ecr.eu-north-1.amazonaws.com/elevator-orchestrator:f6f2f02bd7bfbe123657b331847d7da7e6074f64 --role arn:aws:iam::123456789012:role/elevator-orchestrator-function --memory-size 2048 --timeout 120 --architectures x86_64 --environment Variables=\{INGEST_TOKEN_PARAMETER=/elevator/orchestrator/ingest-token\,OTEL_ENDPOINT_PARAMETER=/elevator/otel/grafana-otlp-endpoint\,OTEL_HEADERS_PARAMETER=/elevator/otel/grafana-otlp-auth\}
++ aws lambda wait function-active-v2 --function-name elevator-orchestrator
++ aws lambda put-function-concurrency --function-name elevator-orchestrator --reserved-concurrent-executions 1
++ aws lambda put-function-event-invoke-config --function-name elevator-orchestrator --maximum-retry-attempts 0 --maximum-event-age-in-seconds 900
+== function elevator-scorer
++ aws logs put-retention-policy --log-group-name /aws/lambda/elevator-scorer --retention-in-days 14
+? aws lambda get-function --function-name elevator-scorer
++ aws lambda create-function --function-name elevator-scorer --package-type Image --code ImageUri=123456789012.dkr.ecr.eu-north-1.amazonaws.com/elevator-scorer:f6f2f02bd7bfbe123657b331847d7da7e6074f64 --role arn:aws:iam::123456789012:role/elevator-scorer-function --memory-size 1024 --timeout 30 --architectures x86_64 --environment Variables=\{OTEL_ENABLED=true\,OTEL_ENDPOINT_PARAMETER=/elevator/otel/grafana-otlp-endpoint\,OTEL_HEADERS_PARAMETER=/elevator/otel/grafana-otlp-auth\,OTEL_SERVICE_NAME=elevator-scorer\,DEPLOYMENT_ENVIRONMENT=production\}
++ aws lambda wait function-active-v2 --function-name elevator-scorer
+######## 50-schedules.sh --dry-run
+== schedule elevator-telemetry-ingest
+? aws scheduler get-schedule --name elevator-telemetry-ingest
++ aws scheduler create-schedule --name elevator-telemetry-ingest --schedule-expression rate\(30\ minutes\) --schedule-expression-timezone Europe/Madrid --flexible-time-window Mode=OFF --target \{\"Arn\":\"arn:aws:lambda:eu-north-1:123456789012:function:elevator-orchestrator\"\,\"RoleArn\":\"arn:aws:iam::123456789012:role/elevator-scheduler-invoke\"\,\"Input\":\"\{\\\"workflow\\\":\\\"telemetry-ingest\\\"\}\"\,\"RetryPolicy\":\{\"MaximumRetryAttempts\":0\}\} --state DISABLED
+   state: DISABLED
+== schedule elevator-daily-inference
+? aws scheduler get-schedule --name elevator-daily-inference
++ aws scheduler create-schedule --name elevator-daily-inference --schedule-expression cron\(0\ 6\ \*\ \*\ \?\ \*\) --schedule-expression-timezone Europe/Madrid --flexible-time-window Mode=OFF --target \{\"Arn\":\"arn:aws:lambda:eu-north-1:123456789012:function:elevator-orchestrator\"\,\"RoleArn\":\"arn:aws:iam::123456789012:role/elevator-scheduler-invoke\"\,\"Input\":\"\{\\\"workflow\\\":\\\"daily-inference-and-digest\\\"\}\"\,\"RetryPolicy\":\{\"MaximumRetryAttempts\":0\}\} --state DISABLED
+   state: DISABLED
+######## 60-alarms.sh --dry-run
+== SNS topic elevator-alarms
++ aws sns create-topic --name elevator-alarms
++ aws sns subscribe --topic-arn arn:aws:sns:eu-north-1:123456789012:elevator-alarms --protocol email --notification-endpoint alarms@example.invalid
+== alarm elevator-orchestrator-errors
++ aws cloudwatch put-metric-alarm --alarm-name elevator-orchestrator-errors --namespace AWS/Lambda --metric-name Errors --dimensions Name=FunctionName\,Value=elevator-orchestrator --statistic Sum --period 3600 --evaluation-periods 1 --threshold 0 --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching --alarm-actions arn:aws:sns:eu-north-1:123456789012:elevator-alarms
+== alarm elevator-scorer-errors
++ aws cloudwatch put-metric-alarm --alarm-name elevator-scorer-errors --namespace AWS/Lambda --metric-name Errors --dimensions Name=FunctionName\,Value=elevator-scorer --statistic Sum --period 3600 --evaluation-periods 1 --threshold 0 --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching --alarm-actions arn:aws:sns:eu-north-1:123456789012:elevator-alarms
+== alarm elevator-lambda-daily-gbs
++ aws cloudwatch put-metric-alarm --alarm-name elevator-lambda-daily-gbs --metrics $'[\n  {"Id": "orch", "ReturnData": false, "MetricStat": {"Metric": {"Namespace": "AWS/Lambda", "MetricName": "Duration",\n    "Dimensions": [{"Name": "FunctionName", "Value": "elevator-orchestrator"}]}, "Period": 86400, "Stat": "Sum"}},\n  {"Id": "scorer", "ReturnData": false, "MetricStat": {"Metric": {"Namespace": "AWS/Lambda", "MetricName": "Duration",\n    "Dimensions": [{"Name": "FunctionName", "Value": "elevator-scorer"}]}, "Period": 86400, "Stat": "Sum"}},\n  {"Id": "gbs", "ReturnData": true, "Label": "GB-seconds per day",\n    "Expression": "(FILL(orch,0) * 2048 + FILL(scorer,0) * 1024) / 1024 / 1000"}\n]' --evaluation-periods 1 --threshold 9333 --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching --alarm-actions arn:aws:sns:eu-north-1:123456789012:elevator-alarms
+== alarm elevator-daily-run-missing
++ aws cloudwatch put-metric-alarm --alarm-name elevator-daily-run-missing --namespace Elevator/Orchestrator --metric-name WorkflowSucceeded --dimensions Name=Workflow\,Value=daily-inference-and-digest --statistic Sum --period 3600 --evaluation-periods 26 --datapoints-to-alarm 26 --threshold 1 --comparison-operator LessThanThreshold --treat-missing-data breaching --alarm-actions arn:aws:sns:eu-north-1:123456789012:elevator-alarms --no-actions-enabled
+== alarm elevator-ingest-missing
++ aws cloudwatch put-metric-alarm --alarm-name elevator-ingest-missing --namespace Elevator/Orchestrator --metric-name WorkflowSucceeded --dimensions Name=Workflow\,Value=telemetry-ingest --statistic Sum --period 3600 --evaluation-periods 2 --datapoints-to-alarm 2 --threshold 1 --comparison-operator LessThanThreshold --treat-missing-data breaching --alarm-actions arn:aws:sns:eu-north-1:123456789012:elevator-alarms --no-actions-enabled
+######## 70-host-env.sh --dry-run
+== host env on i-01b732fefb1dd6303
++ aws ssm send-command --instance-ids i-01b732fefb1dd6303 --document-name AWS-RunShellScript --parameters <commands below>
+    set -eu
+    umask 077
+    F=/etc/elevator/.env
+    get() { aws ssm get-parameter --region eu-north-1 --name "$1" --with-decryption --query Parameter.Value --output text; }
+    put() { grep -v "^$1=" "$F" > "$F.new" || true; printf '%s=%s\n' "$1" "$2" >> "$F.new"; chmod --reference="$F" "$F.new"; mv "$F.new" "$F"; }
+    token=$(get /elevator/orchestrator/ingest-token); endpoint=$(get /elevator/otel/grafana-otlp-endpoint); auth=$(get /elevator/otel/grafana-otlp-auth)
+    [ -n "$token" ] && [ -n "$endpoint" ] && [ -n "$auth" ]
+    put TELEMETRY_INGEST_TOKEN "$token"
+    put OTEL_EXPORTER_OTLP_ENDPOINT "$endpoint"
+    put OTEL_EXPORTER_OTLP_HEADERS "$(printf '%s' "$auth" | sed 's/ /%20/g')"
+    cd /opt/elevator
+    IMAGE_TAG=$(git rev-parse HEAD)
+    export IMAGE_TAG
+    flock -w 600 /opt/deploy.lock docker compose -f docker-compose.prod.yml up -d --no-deps backend
+    echo written: $(grep -c -E '^(TELEMETRY_INGEST_TOKEN|OTEL_EXPORTER_OTLP_ENDPOINT|OTEL_EXPORTER_OTLP_HEADERS)=' "$F") of 3

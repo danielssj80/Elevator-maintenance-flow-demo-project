@@ -46,3 +46,49 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://user:password@localhost:5432/elevator_test_db
         run: python -m pytest tests/ -q
+
+  orchestrator:
+    name: orchestrator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Handler tests
+        run: node --test "orchestrator/**/*.test.mjs"
+
+      - name: Build orchestrator image
+        run: docker build -f orchestrator/Dockerfile -t elevator-orchestrator:ci .
+
+      # Seeded workflows, empty credential placeholders, no secrets, baked
+      # privacy settings — asserted from inside the built image.
+      - name: Image tests
+        env:
+          ORCHESTRATOR_IMAGE: elevator-orchestrator:ci
+        run: node --test "orchestrator/**/*.test.mjs"
+
+      - name: Shellcheck AWS provisioning scripts
+        # -x follows `source lib.sh`; deploy/aws/.shellcheckrc resolves it
+        # relative to each script, so this works from the repository root.
+        run: shellcheck -x deploy/aws/*.sh
+
+  scorer:
+    name: scorer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The backend job has no xgboost, so the scorer's tests (golden vectors,
+      # Lambda handler) run in the image production runs.
+      - name: Build scorer Lambda image
+        run: docker build -f backend/inference/Dockerfile.lambda -t elevator-scorer:ci backend
+
+      - name: Scorer tests
+        run: |
+          docker run --rm -v "$PWD/backend:/src:ro" --entrypoint sh elevator-scorer:ci -c \
+            "pip install -q pytest==8.3.4 && cp -r /src /tmp/w && cd /tmp/w \
+             && cp ml/model.joblib inference/model.joblib \
+             && python -m pytest -q -p no:cacheprovider inference/tests"

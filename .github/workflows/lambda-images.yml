@@ -1,0 +1,71 @@
+name: Publish Lambda images
+
+# The orchestrator (n8n) and the scorer run as AWS Lambda functions. Lambda
+# pulls only from private ECR, so these two images do not go to GHCR.
+#
+# A workflow of its own on purpose: deploy.yml runs when "Build and push
+# images" succeeds, and a failure here (say, functions not provisioned yet)
+# must not block the application deploy.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: lambda-images
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      ORCHESTRATOR_REPO: elevator-orchestrator
+      SCORER_REPO: elevator-scorer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Lambda accepts a single image manifest, not an index. BuildKit wraps the
+      # image in an index whenever it attaches provenance or SBOM attestations,
+      # which Docker 29 with the containerd store does by default, even for a
+      # plain `docker build`. Both flags, on every build of a Lambda image.
+      - name: Build and push orchestrator image
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/elevator-orchestrator:${{ github.sha }}
+        run: |
+          docker build --provenance=false --sbom=false -f orchestrator/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Build and push scorer image
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/elevator-scorer:${{ github.sha }}
+        run: |
+          docker build --provenance=false --sbom=false -f backend/inference/Dockerfile.lambda -t "$IMAGE" backend
+          docker push "$IMAGE"
+
+      # Both images exist before either function moves, so a failed build above
+      # leaves both functions on their previous image.
+      - name: Point the functions at this commit
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          SHA: ${{ github.sha }}
+        run: |
+          aws lambda update-function-code --function-name elevator-orchestrator \
+            --image-uri "$REGISTRY/elevator-orchestrator:$SHA" >/dev/null
+          aws lambda update-function-code --function-name elevator-scorer \
+            --image-uri "$REGISTRY/elevator-scorer:$SHA" >/dev/null
+          aws lambda wait function-updated-v2 --function-name elevator-orchestrator
+          aws lambda wait function-updated-v2 --function-name elevator-scorer

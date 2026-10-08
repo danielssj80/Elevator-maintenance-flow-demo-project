@@ -1,0 +1,2 @@
+# Resolve `source lib.sh` next to each script, whatever the working directory.
+source-path=SCRIPTDIR

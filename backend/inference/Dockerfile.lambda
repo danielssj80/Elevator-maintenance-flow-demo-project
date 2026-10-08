@@ -1,0 +1,14 @@
+# The scorer as an AWS Lambda function (production). Same code and model as
+# inference/Dockerfile (the local HTTP service); only the entry point differs.
+#
+# The AWS base image ships the Lambda runtime interface client and the
+# emulator, so `docker run -p 9000:8080` serves the Lambda Invoke API locally.
+FROM public.ecr.aws/lambda/python:3.12
+
+COPY inference/requirements.txt ${LAMBDA_TASK_ROOT}/inference/requirements.txt
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/inference/requirements.txt
+
+COPY inference/ ${LAMBDA_TASK_ROOT}/inference/
+COPY ml/model.joblib ${LAMBDA_TASK_ROOT}/inference/model.joblib
+
+CMD ["inference.lambda_handler.handler"]
