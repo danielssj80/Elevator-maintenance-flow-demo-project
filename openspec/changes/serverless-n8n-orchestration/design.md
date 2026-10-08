@@ -205,16 +205,17 @@ The SDK's OTLP exporters read `OTEL_EXPORTER_OTLP_HEADERS` from the environment 
 
 **Lambdas.** The n8n Lambda gets `N8N_OTEL_EXPORTER_OTLP_ENDPOINT` and `N8N_OTEL_EXPORTER_OTLP_HEADERS`, set by the handler in the child environment from SSM at invocation, never baked in.
 
-### D11 — CI: one more job after GHCR
-`build-images.yml` gains a job, `lambda-images`, that runs after `build`:
+### D11 — CI: a separate Lambda image workflow
+A new workflow, `lambda-images.yml`, runs on every push to `main`. It is **not** a job inside `build-images.yml`: `deploy.yml` runs on that workflow's success, so a failing Lambda job there would block the application deploy. The new workflow has its own concurrency group. It:
 - `permissions: id-token: write`;
 - assumes `vars.AWS_DEPLOY_ROLE_ARN`;
+- builds with the classic `docker build` (no buildx attestations: Lambda rejects an image index carrying provenance manifests);
 - logs in to ECR;
 - builds and pushes both images by SHA;
 - calls `aws lambda update-function-code` on both;
 - runs `aws lambda wait function-updated-v2` on both.
 
-The job is a no-op that **fails** if the functions do not exist yet. A merge before provisioning should be loud, not silently skipped.
+The workflow **fails** if the functions do not exist yet. A merge before provisioning should be loud, not silently skipped, and it no longer endangers the application deploy.
 
 **Rollout order.** Merge happens only after provisioning, and with the user's approval.
 
@@ -232,7 +233,7 @@ The job is a no-op that **fails** if the functions do not exist yet. A merge bef
 
 ## Migration Plan
 
-1. Merge nothing to `main` until steps 2–4 have been approved and run, because the ECR job fails loudly without functions (D11).
+1. Merge nothing to `main` until steps 2–4 have been approved and run, because the Lambda image workflow fails loudly without functions (D11). The application deploy is unaffected either way.
 2. With the user's go-ahead, run `deploy/aws/` scripts 10–40 and 60–70 against the account. Schedules stay disabled.
 3. Invoke each function once by hand:
    - the scorer through a production `POST /api/inference/run` with the token;

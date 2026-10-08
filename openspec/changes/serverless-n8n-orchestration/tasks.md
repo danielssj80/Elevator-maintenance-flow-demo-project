@@ -114,9 +114,9 @@
 
 ## 6. CI
 
-- [ ] 6.1 Add the `lambda-images` job to `build-images.yml` (D11): OIDC, ECR login, build/push both images by SHA, `update-function-code` + `wait function-updated-v2`. Pin the action versions as the existing jobs do.
-- [ ] 6.2 Add CI checks: `node --test orchestrator/`, `shellcheck deploy/aws/*.sh`, and the image tests from 5.4.
-- [ ] 6.3 Write a static test that the job runs only on `main` after `build`, has `id-token: write`, and references no long-lived AWS secret.
+- [x] 6.1 Add the `lambda-images.yml` workflow (D11; separate from `build-images.yml` so it cannot block `deploy.yml`): OIDC, ECR login, build/push both images by SHA, `update-function-code` + `wait function-updated-v2`. Pin the action versions as the existing jobs do.
+- [x] 6.2 Add CI checks: `node --test orchestrator/`, `shellcheck deploy/aws/*.sh`, and the image tests from 5.4. — `ci.yml` gains `orchestrator` (handler tests, image build, image tests, shellcheck) and `scorer` (scorer tests inside the Lambda image; reproduced locally: 23 passed). The shellcheck step goes green once task 7 adds the scripts.
+- [x] 6.3 Write a static test that the workflow runs only on pushes to `main`, has `id-token: write`, references no long-lived AWS secret, updates and waits for both functions, and is not part of `build-images.yml`. — `test_lambda_images_workflow.py`: 5 red before the workflow existed, 5 green after.
 
 ## 7. AWS provisioning scripts (local, dry-run only)
 

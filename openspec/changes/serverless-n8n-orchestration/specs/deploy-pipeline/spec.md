@@ -1,7 +1,9 @@
 ## ADDED Requirements
 
 ### Requirement: Lambda images are published to private ECR and the functions follow them
-The system SHALL build the orchestrator and scorer images in CI on every push to `main`, after the GHCR images. It SHALL push them to their private ECR repositories tagged with the commit SHA, because Lambda pulls neither from GHCR nor from ECR Public.
+The system SHALL build the orchestrator and scorer images in CI on every push to `main`, in a workflow separate from the GHCR build. It SHALL push them to their private ECR repositories tagged with the commit SHA, because Lambda pulls neither from GHCR nor from ECR Public.
+
+The separation is deliberate: the application deploy runs when the GHCR build workflow succeeds. A Lambda publish failing inside that workflow would block the application deploy for a reason unrelated to it.
 
 It SHALL then point each function at the image of that commit. Once all updates are issued, it SHALL wait until each function reports the update as successful.
 
@@ -13,6 +15,10 @@ ECR SHALL keep only the three most recent images per repository. CI SHALL authen
 - **WHEN** a commit is pushed to `main`
 - **THEN** `elevator-orchestrator:<sha>` and `elevator-scorer:<sha>` exist in ECR
 - **AND** each function's image URI ends in that SHA once the workflow finishes
+
+#### Scenario: A Lambda publish failure does not block the application deploy
+- **WHEN** the Lambda image workflow fails
+- **THEN** the GHCR build and the application deploy still run for that commit
 
 #### Scenario: A failed image build leaves the functions unchanged
 - **WHEN** either Lambda image fails to build or push
