@@ -292,9 +292,11 @@ paths:
         are never touched.
 
 
-        Returns 503 when the inference service is unreachable. That is the
-        normal state anywhere it is not deployed, so it is reported as a
-        designed absence and never as a 500.
+        Scores through the scoring service: the local `inference` container
+        over HTTP, or in production the `elevator-scorer` AWS Lambda function
+        (`INFERENCE_LAMBDA_FUNCTION`). Returns 503 when the scorer cannot be
+        reached on either transport (refused, timed out, throttled, denied),
+        reported as an absence and never as a 500.
 
 
         **In production only behind a token**, as for the ingest endpoint, and

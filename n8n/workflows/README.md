@@ -1,8 +1,29 @@
 # n8n workflows
 
-Exported definitions for the orchestration tier. They run **locally only** —
-schedules fire while the development stack is up, and production carries no
-orchestrator. See `docs/orchestration.md`.
+Exported definitions for the orchestration tier. **One definition serves both
+places:** locally the Schedule Trigger fires while the development stack is up;
+in production the same JSON is seeded into the `elevator-orchestrator` Lambda
+image, where every Schedule Trigger is disabled at build time and EventBridge
+calls the Webhook Trigger instead. See `docs/orchestration.md`.
+
+Three things in every definition exist for that:
+
+- **A Webhook Trigger named `Webhook`**, POST, path = the file's slug
+  (`telemetry-ingest`, `daily-inference-and-digest`), responding with the last
+  node's output. It is wired to the same first node as the Schedule Trigger.
+  The name is load-bearing: the execution-id expression below refers to it.
+- **The backend address is an expression**:
+  `{{ $env.ELEVATOR_API_BASE_URL || 'http://backend:8000' }}`. Unset locally;
+  the Lambda image sets the production origin. n8n blocks `$env` unless
+  `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, and a blocked read fails the execution
+  rather than falling back.
+- **Every HTTP node sends `X-N8N-Execution-Id` and `X-N8N-Workflow-Id`.** The
+  execution id is the webhook body's `invocationId` when the Webhook started the
+  run (the Lambda request id: a fresh production database numbers every
+  execution `1`) and n8n's own id otherwise.
+
+`backend/tests/unit/test_workflow_definitions.py` asserts all three, and that the
+Schedule stays enabled here.
 
 Every file here is produced by `scripts/export-n8n-workflow.sh`, which strips
 credential blocks, `meta.instanceId`, `versionId` and pinned data, and forces
@@ -13,7 +34,7 @@ other way.
 
 ![Telemetry ingest canvas](./telemetry-ingest.png)
 
-`Schedule (15 min) → AI Agent → GET /api/elevators → Code → POST /api/telemetry/readings`
+`Schedule (15 min, local) | Webhook (production, every 30 min) → AI Agent → GET /api/elevators → Code → POST /api/telemetry/readings`
 
 Generates one telemetry reading per in-scope lift and submits it as a batch.
 
@@ -55,6 +76,11 @@ unavailable degrades the variety of the data; it does not stop the pipeline.
 | `Bedrock Nova Lite` | AWS | An IAM user with the `ElevatorBedrockInvokeNova` policy |
 | `Submit readings` | Header Auth | `X-Ingest-Token` = the backend's `TELEMETRY_INGEST_TOKEN` |
 
+In the Lambda image the same nodes are attached to placeholders
+(`orchestrator/seed/credentials.json`) whose secret fields are empty; the token
+comes from SSM and the AWS credential from the function role's session at each
+invocation.
+
 `scripts/n8n-bootstrap-credentials.sh` creates both from the git-ignored root
 `.env`, which is less error-prone than retyping them in the editor: a mistyped
 ingest token surfaces as an HTTP 401 inside a node, which reads like a backend
@@ -64,9 +90,11 @@ fault.
 
 ![Daily inference and digest canvas](./daily-inference-and-digest.png)
 
-`Schedule (06:00 Europe/Madrid) + Manual Trigger → POST /api/inference/run → GET /api/elevators → Code → AI Agent`
+`Schedule (06:00 Europe/Madrid, local) + Manual Trigger | Webhook (production, 06:00) → POST /api/inference/run → GET /api/elevators → Code → AI Agent`
 
-Both triggers feed the same chain, so a demonstration never waits for 06:00.
+All triggers feed the same chain, so a demonstration never waits for 06:00.
+In production the webhook responds with the digest, and the function logs it:
+there is no execution history to read it from afterwards.
 
 The Code node computes every figure the digest is allowed to mention — the level
 counts, the top five by score, and the run's own skip counts — and the agent is

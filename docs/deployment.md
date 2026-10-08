@@ -18,25 +18,93 @@ The application is deployed to AWS EC2 at **https://elevator.dsaavedra.dev**.
 
 ---
 
-## What is deliberately not deployed
+## The serverless tier: scheduled ingest and daily scoring
 
-**The orchestration tier (n8n, Redis, the worker) runs locally only.** There is
-no orchestrator on this instance: `docker-compose.prod.yml` defines none, and
-`backend/tests/unit/test_dev_compose.py::test_prod_compose_defines_no_orchestrator`
-fails if one is ever added.
+Production's scheduled work runs **outside this instance**, as two AWS Lambda
+functions in `eu-north-1`. The instance gains no process:
+`docker-compose.prod.yml` still defines only `db`, `migrate`, `backend`,
+`frontend` and `nginx`, and
+`test_dev_compose.py::test_prod_compose_defines_no_orchestrator` fails if an
+orchestrator is ever added here.
 
-Two reasons, both load-bearing. n8n holds a model-provider credential, and this
-stack auto-deploys on merge to the default branch, so an orchestrator here would
-put a scheduler with credentials on a public host. And the endpoints it drives —
-`POST /api/telemetry/readings` and `POST /api/inference/run` — are registered in
-production only when `TELEMETRY_INGEST_TOKEN` (at least 32 characters) is set in
-`/etc/elevator/.env`. No token is provisioned there today, so they answer 404.
-When one is, every request also needs it, and nginx rate-limits those routes.
+| Function | What it is | Invoked by |
+|---|---|---|
+| `elevator-orchestrator` (2048 MB, 120 s) | n8n, one workflow per invocation (`orchestrator/`) | EventBridge Scheduler: `elevator-telemetry-ingest` every 30 min, `elevator-daily-inference` 06:00 Europe/Madrid |
+| `elevator-scorer` (1024 MB, 30 s) | the xgboost scorer (`backend/inference/Dockerfile.lambda`) | the backend, with the instance role, during `POST /api/inference/run` |
 
-The consequence is worth stating plainly rather than leaving to be discovered:
-**production serves the risk scores that were seeded from `predictions.json`.**
-The scheduled ingest and re-scoring happen on a developer machine and stay
-there. See [orchestration.md](./orchestration.md).
+Images live in **private ECR** (Lambda pulls from nowhere else). CI publishes
+both on every merge (`.github/workflows/lambda-images.yml`, a workflow separate
+from the GHCR build so it can never block the application deploy) and points
+the functions at that commit.
+
+### Secrets
+
+All in SSM Parameter Store as `SecureString`, never in the repository, an image,
+or a function's configuration:
+
+| Parameter | Read by |
+|---|---|
+| `/elevator/orchestrator/ingest-token` | the orchestrator; the host (into `TELEMETRY_INGEST_TOKEN`) |
+| `/elevator/otel/grafana-otlp-endpoint` | the orchestrator, the scorer, the host |
+| `/elevator/otel/grafana-otlp-auth` (`Authorization=Basic <base64>`) | the orchestrator, the scorer, the host (written URL-encoded) |
+
+The host's copies in `/etc/elevator/.env` are written **on the instance**, from
+SSM, by `deploy/aws/70-host-env.sh` through Run Command: the values never pass
+through an operator's machine or a command parameter.
+
+### Provisioning (`deploy/aws/`)
+
+Idempotent scripts; each describes before it creates, and `--dry-run` prints
+every AWS call without making it. Policy documents are in
+`deploy/aws/policies/` and asserted for least privilege by
+`backend/tests/unit/test_aws_policies.py`.
+
+| Script | Creates / updates |
+|---|---|
+| `10-ecr.sh` | two repositories, lifecycle: keep 3 images |
+| `20-iam.sh` | function roles, scheduler role, `ElevatorInvokeScorer` + `ElevatorHostReadSecrets` on `elevator-ssm-role`, `ElevatorLambdaImagesDeploy` on `github-actions-deploy` |
+| `30-ssm.sh` | the three parameters (token generated; Grafana values prompted, silently) |
+| `40-lambda.sh --bootstrap-image` | both functions (the first run builds and pushes the images itself) |
+| `50-schedules.sh` | both schedules, created **disabled**; `--enable` / `--disable` |
+| `60-alarms.sh` | SNS email topic and alarms (needs `ALARM_EMAIL` once) |
+| `70-host-env.sh` | `/etc/elevator/.env` entries from SSM, then recreates the backend |
+
+**First-time order:** 10 → 20 → 30 → 40 `--bootstrap-image` → 60 → 70, check a
+manual invocation of each workflow and a trace in Grafana Cloud, merge, then
+`50-schedules.sh` and `50-schedules.sh --enable` as the cutover.
+
+**Rollback:** `50-schedules.sh --disable` stops all scheduled work. Removing
+`TELEMETRY_INGEST_TOKEN` from `/etc/elevator/.env` and recreating the backend
+returns the ingest and inference endpoints to 404. Neither touches the
+instance's services.
+
+**Rotating the ingest token:** `30-ssm.sh --rotate`, then `70-host-env.sh`. The
+orchestrator picks the new value up at its next cold start; force one with any
+configuration update (re-running `40-lambda.sh` does it).
+
+### Alarms (SNS → email)
+
+| Alarm | Fires when |
+|---|---|
+| `elevator-orchestrator-errors`, `elevator-scorer-errors` | any function error in an hour |
+| `elevator-lambda-daily-gbs` | a day's GB-s exceeds 70 % of the free tier's daily pace (400,000 / 30 × 0.7 ≈ 9,333) — the agreed trigger to redesign |
+| `elevator-daily-run-missing` | no successful daily run for 26 hours; missing data counts as breaching, so a schedule that silently stops is an alarm, not a quiet dashboard |
+
+Free-tier levers if the GB-s alarm fires: drop the orchestrator to 1024 MB
+(slower, ~2× duration, measured), lengthen the ingest cadence, or move the tier
+to a different host.
+
+### Traces
+
+The backend, the orchestrator and the scorer export **traces only**, straight to
+Grafana Cloud (no Collector in production). An unreachable endpoint loses
+traces; it never fails a request, an ingest or a score.
+
+### What production still serves from `predictions.json`
+
+Until the schedules are enabled, the risk scores are the ones seeded from
+`predictions.json`. After the cutover, the six-day trend mixes pre-calculated
+and live points for six days; that is accepted and tracked in the backlog.
 
 ---
 
@@ -102,7 +170,7 @@ gh run view --log
 ### Required AWS IAM setup (one-time)
 
 - An IAM OIDC identity provider for `token.actions.githubusercontent.com`.
-- An IAM role `github-actions-deploy` whose trust policy is scoped to `repo:danielssj80/Elevator-maintenance-flow-demo-project:ref:refs/heads/main`, with a permission policy allowing only `ssm:SendCommand` (scoped to the instance and the `AWS-RunShellScript` document) and `ssm:GetCommandInvocation`.
+- An IAM role `github-actions-deploy` whose trust policy is scoped to `repo:danielssj80/Elevator-maintenance-flow-demo-project:ref:refs/heads/main`, with a permission policy allowing only `ssm:SendCommand` (scoped to the instance and the `AWS-RunShellScript` document) and `ssm:GetCommandInvocation`, plus `ElevatorLambdaImagesDeploy` (ECR push to the two Lambda repositories, `lambda:UpdateFunctionCode`/`GetFunction` on the two functions) for `lambda-images.yml`.
 
 ---
 

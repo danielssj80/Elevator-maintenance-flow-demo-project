@@ -1,31 +1,95 @@
 # Orchestration
 
-n8n owns the schedules this system used to lack. Two workflows on two trigger
-types: telemetry ingest every 15 minutes, and a daily re-scoring that also
-carries a manual trigger.
+n8n owns the schedules this system used to lack. Two workflows, each with a
+Schedule Trigger for the local stack and a Webhook Trigger for production:
+telemetry ingest, and a daily re-scoring that also carries a manual trigger.
 
-## What this is not
+## What runs where
 
-**It runs locally, and only while the local stack is up.** There is no
-orchestrator in production — `docker-compose.prod.yml` defines none, and a test
-asserts that. Close the laptop and nothing fires.
+| | Local | Production |
+|---|---|---|
+| Where n8n runs | `n8n` (+ `n8n-worker` in queue mode) in `docker-compose.yml` | The `elevator-orchestrator` AWS Lambda function: one short-lived n8n per invocation |
+| Who triggers | The workflows' own Schedule Triggers | EventBridge Scheduler, through each workflow's Webhook Trigger |
+| Ingest cadence | every 15 minutes | every 30 minutes |
+| Re-score | daily 06:00 Europe/Madrid, or the Manual Trigger | daily 06:00 Europe/Madrid |
+| Editor, execution history | yes, on :5678 | **none** — a fresh SQLite per invocation; the result is in the function's log |
+| Scorer | the `inference` container (`INFERENCE_URL`) | the `elevator-scorer` Lambda (`INFERENCE_LAMBDA_FUNCTION`) |
+| Traces | Collector → Tempo (and Grafana Cloud with the overlay) | straight to Grafana Cloud, traces only |
 
-That is worth stating first, because "a predictive maintenance pipeline that
-re-scores the fleet daily" is easy to read as a service that runs by itself.
-It is not one. What it is, is the **edge-collection shape**: readings produced
-close to the asset and pushed to a central service, with the orchestrator owning
-the trigger. In a real fleet the ingest half would run at the edge — one instance
-per site or region — and only scoring would be central. Collapsing both onto one
-machine is a simulation artefact, not a design position.
+**The production host runs no orchestrator and no scorer.** The `t3.micro`
+serves `db`, `migrate`, `backend`, `frontend` and `nginx`, exactly as before;
+`test_prod_compose_defines_no_orchestrator` keeps it that way. n8n alone peaks
+near 1 GB, which that host does not have, and it holds the ingest token and
+model-provider access, which do not belong on a public web host.
 
-Moving the orchestration tier to the cloud, so the trigger survives the machine
-being off, is the honest next step and is deliberately not attempted here.
+The local stack is still the **edge-collection shape** worth naming: readings
+produced close to the asset and pushed to a central service, with the
+orchestrator owning the trigger. In a real fleet the ingest half would run per
+site and only scoring would be central; running both from one function is a
+simulation artefact, not a design position.
 
-Production is also unreachable from these workflows by two independent means:
-they address the backend as `http://backend:8000` on the compose network, which
-does not resolve outside it; and in production the telemetry and inference
-routers are registered only behind a configured `TELEMETRY_INGEST_TOKEN`, which
-is not provisioned there, so those paths return 404.
+## Production: one invocation, one workflow
+
+`orchestrator/` builds the function's container image from the same pinned
+`n8nio/n8n:2.37.6`. The workflows are seeded at build time — imported and
+published into a SQLite database, with every Schedule Trigger **disabled** so
+only EventBridge decides when work runs — next to credential placeholders whose
+secret fields are empty.
+
+Each invocation (`{"workflow": "telemetry-ingest"}` or
+`{"workflow": "daily-inference-and-digest"}`):
+
+1. refuses an unknown workflow before anything starts;
+2. reads the ingest token and the Grafana Cloud OTLP settings from SSM (cached
+   per sandbox) and fails, naming the parameter, if the token is missing;
+3. copies the seed to `/tmp`, starts `n8n start` with the secrets in the child's
+   environment only (`CREDENTIALS_OVERWRITE_DATA`, `N8N_OTEL_EXPORTER_OTLP_*`);
+4. waits for `/healthz/readiness` to answer 200 **with JSON**;
+5. POSTs `{"invocationId": <Lambda request id>}` to the workflow's webhook and
+   requires 200 + JSON back;
+6. sends SIGTERM and **waits for n8n to exit** — on success and on failure —
+   then logs the workflow's output (the digest lives there) and one CloudWatch
+   EMF line (`Elevator/Orchestrator` · `WorkflowSucceeded`, `WorkflowDegraded`).
+
+Measured under the Lambda RIE at 2048 MB: ~24 s per invocation, ~0.9–1.1 GB
+peak, which is ~71k GB-s a month — about 18 % of the free tier. The
+`elevator-lambda-daily-gbs` alarm fires at 70 % of the free tier's daily pace.
+
+### Traps the spike found, and where each is handled
+
+Each fails **silently** if ignored. All are in `orchestrator/runtime/lib.mjs`
+or the image build, and each has a test.
+
+| Trap | Handling |
+|---|---|
+| `n8n execute` loads no OTel module and cannot start from a Schedule Trigger | `n8n start` + a Webhook Trigger |
+| `/healthz` answers 200 long before workflows are active; the webhook then answers **200 "n8n is starting up"** | poll `/healthz/readiness`, require a JSON body from both |
+| `CREDENTIALS_OVERWRITE_DATA` only fills **empty** fields | placeholders hold `""`; the image test asserts it |
+| A missing token makes n8n send an empty header and the execution still "succeeds" | the handler refuses to start n8n without it |
+| Spans are exported in n8n's shutdown hook; Lambda freezes the sandbox on return | SIGTERM and await exit before returning; `spansFlushed` is in the result |
+| An n8n left alive in a reused sandbox answers the next readiness probe | stop in `finally`, on every path |
+| A fresh database numbers every execution `1` | HTTP nodes send the webhook's `invocationId` as `X-N8N-Execution-Id` |
+| Role credentials are temporary | the `aws` placeholder has `temporaryCredentials: true`; the overwrite carries `sessionToken` |
+| n8n 2.x blocks `$env` in expressions, and a blocked read **fails** the execution | `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` in the image and in `docker-compose.yml` |
+
+### Running the production shape locally
+
+The workflows' webhooks also work on the local stack, which is the quickest way
+to exercise the production trigger path:
+
+```bash
+curl -X POST localhost:5678/webhook/telemetry-ingest \
+  -H 'content-type: application/json' -d '{"invocationId":"local-test-1"}'
+```
+
+The backend span then carries `n8n.execution.id = local-test-1`. To run the
+function image itself, use the Lambda Runtime Interface Emulator with a
+read-only root filesystem and only `/tmp` writable, as in
+`openspec/changes/archive/*-serverless-n8n-orchestration/reports/`.
+
+Production is unreachable from the **local** workflows: they address
+`http://backend:8000` unless `ELEVATOR_API_BASE_URL` is set, and only the
+Lambda image sets it.
 
 ## The stack
 
@@ -118,8 +182,10 @@ the pseudo-node `user`, alongside plain `curl` traffic. The trace itself is
 correctly linked; only the graph's edge inference cannot see it. Use the trace
 view to show the hop.
 
-On the Grafana Cloud pipeline only, a `filter` processor drops n8n's per-node
-`node.execute` spans: n8n emits one per node execution, and at a 15-minute
+In production there is no Collector: the function sets
+`N8N_OTEL_TRACES_INCLUDE_NODE_SPANS=false`, so node spans are never produced.
+Locally, on the Grafana Cloud pipeline only, a `filter` processor drops n8n's
+per-node `node.execute` spans: n8n emits one per node execution, and at a 15-minute
 schedule they are most of the volume. They stay in the local backend, where they
 are what makes a slow or failing node visible.
 

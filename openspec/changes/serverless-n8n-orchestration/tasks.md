@@ -150,8 +150,10 @@
 
 ## 11. Manual Endpoint and Function Testing (MANDATORY — AGENT MUST EXECUTE)
 
+> Order: 11.1 runs locally first. Steps 13 (docs) and 14 (adversarial review) are local too and run before the 11.0 gate, so the user is asked once, with everything else ready.
+
 - [ ] 11.0 **Gate: ask the user for explicit go-ahead to create AWS resources.** Present the `--dry-run` output and the resource list. Stop here until they answer.
-- [ ] 11.1 Local, before AWS. Backend in production mode with `INFERENCE_LAMBDA_FUNCTION` pointing at the scorer under the RIE through a local endpoint override. `POST /api/inference/run` with the token → 200 and scores changed. Scorer stopped → 503. Restore the DB.
+- [x] 11.1 Local, before AWS. Backend in production mode with `INFERENCE_LAMBDA_FUNCTION` pointing at the scorer under the RIE through a local endpoint override. `POST /api/inference/run` with the token → 200 and scores changed. Scorer stopped → 503. Restore the DB. — 2026-10-08: backend via `docker compose run` with `DEPLOYMENT_ENVIRONMENT=production`, a fresh 43-char token, `INFERENCE_LAMBDA_FUNCTION=function` and `AWS_ENDPOINT_URL_LAMBDA` at the scorer image under the RIE (HTTP `INFERENCE_URL` pointed at an unresolvable host to prove it is unused): no token / wrong token → 401; token → 200 `scored: 70, out_of_scope: 30, model_version 8fbb94ff07b7` (scorer invoke 15 ms warm); scorer stopped → 503 `Inference service is unavailable`; `GET /api/elevators` → 100 items, shape unchanged. DB restored from a `pg_dump` taken before the run.
 - [ ] 11.2 After the go-ahead, run scripts 10–40 and 60–70 (schedules disabled), then confirm the SNS subscription with the user.
 - [ ] 11.3 Production:
   - `POST /api/inference/run` with the token → 200, scores dated today.
@@ -170,11 +172,11 @@
 
 ## 13. Update Technical Documentation (MANDATORY)
 
-- [ ] 13.1 `docs/orchestration.md`: what runs where; the Lambda lifecycle; the silent traps from the spike; cadences; how to run the webhook locally.
-- [ ] 13.2 `docs/deployment.md`: the `deploy/aws/` scripts, bootstrap order, cutover, rollback, token rotation, alarms and free-tier levers.
-- [ ] 13.3 `n8n/workflows/README.md`: Webhook Trigger, base-URL expression, the Schedule disabled only in the image.
-- [ ] 13.4 `docs/backend-standards.md`: the inference transport selection and error mapping. `docs/api-spec.yml`: availability note (production now registers the routes and scores via Lambda); no schema change.
-- [ ] 13.5 Notion: update the task "Run the n8n orchestration tier in production" with progress. Add a backlog task for trend honesty if one does not exist yet.
+- [x] 13.1 `docs/orchestration.md`: what runs where; the Lambda lifecycle; the silent traps from the spike; cadences; how to run the webhook locally.
+- [x] 13.2 `docs/deployment.md`: the `deploy/aws/` scripts, bootstrap order, cutover, rollback, token rotation, alarms and free-tier levers.
+- [x] 13.3 `n8n/workflows/README.md`: Webhook Trigger, base-URL expression, the Schedule disabled only in the image.
+- [x] 13.4 `docs/backend-standards.md`: the inference transport selection and error mapping. `docs/api-spec.yml`: availability note (production now registers the routes and scores via Lambda); no schema change.
+- [x] 13.5 Notion: update the task "Run the n8n orchestration tier in production" with progress. Add a backlog task for trend honesty if one does not exist yet. — Both already exist ("Remove the 6-day cap on the risk trend", "Make the 6-day risk trend honest"); progress note added to the parent task.
 
 ## 14. Independent Adversarial Review (MANDATORY)
 
