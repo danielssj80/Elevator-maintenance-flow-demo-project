@@ -37,7 +37,7 @@
 
 ## 2. Scorer Lambda (TDD)
 
-- [ ] 2.1 Write failing tests for `inference/lambda_handler.py`:
+- [x] 2.1 Write failing tests for `inference/lambda_handler.py` (`inference/tests/test_lambda_handler.py`, run in the scorer image: 23 passed with the golden tests):
   - `model` returns the booster's feature names and version;
   - `score` reproduces `golden_vectors.json`;
   - wrong column order → `{"error": {"type": "client"}}` naming the expected columns, with no exception;
@@ -46,12 +46,13 @@
   - with trace context, the span's parent is the caller's;
   - `force_flush` is called;
   - an exporter that raises does not fail scoring.
-- [ ] 2.2 Implement D5 (`lambda_handler.py`, `Dockerfile.lambda`).
-- [ ] 2.3 Tests pass. Mutations, each expected red:
-  - raise instead of returning the client error;
-  - drop `force_flush`;
-  - load the scorer per invocation (the counting test).
-- [ ] 2.4 Build `Dockerfile.lambda` and invoke it under the RIE with the golden vectors. Record cold start, duration and peak memory.
+- [x] 2.2 Implement D5 (`lambda_handler.py`, `Dockerfile.lambda`).
+- [x] 2.3 Tests pass. Mutations, each expected red:
+  - raise instead of returning the client error → 1 failed;
+  - drop `force_flush` → 1 failed;
+  - load the scorer per invocation (the counting test) → 1 failed.
+  - Extra mutations: ignore the parent context → 1 failed; let a flush error propagate → 1 failed.
+- [x] 2.4 Build `Dockerfile.lambda` and invoke it under the RIE with the golden vectors. Record cold start, duration and peak memory. — 1024 MB / 0.58 vCPU, read-only FS: cold `model` 1.9 s, warm `score` 15–35 ms (70 and 100 rows), peak ~150 MiB; golden scores match; wrong order and unknown operation come back as client errors with no function error. Image 1.93 GB.
 
 ## 3. Production OTel settings (TDD)
 
