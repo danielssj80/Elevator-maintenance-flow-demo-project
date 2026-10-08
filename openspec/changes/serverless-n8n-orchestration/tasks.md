@@ -1,7 +1,7 @@
 # Tasks: serverless-n8n-orchestration
 
 > Scope:
-> - Backend (inference transport, config), the scorer Lambda, the orchestrator image and handler, workflow definitions, CI, and AWS scripts.
+> - Backend (inference transport, config), the scorer Lambda, the orchestrator image and handler, workflow definitions, CI, and AWS infrastructure (Terraform; two scripts for secret values).
 > - No frontend change, so the E2E step is not applicable. No DB schema change, so there is no Alembic step.
 >
 > Working rules:
@@ -118,12 +118,22 @@
 - [x] 6.2 Add CI checks: `node --test orchestrator/`, `shellcheck deploy/aws/*.sh`, and the image tests from 5.4. — `ci.yml` gains `orchestrator` (handler tests, image build, image tests, shellcheck) and `scorer` (scorer tests inside the Lambda image; reproduced locally: 23 passed). The shellcheck step goes green once task 7 adds the scripts.
 - [x] 6.3 Write a static test that the workflow runs only on pushes to `main`, has `id-token: write`, references no long-lived AWS secret, updates and waits for both functions, and is not part of `build-images.yml`. — `test_lambda_images_workflow.py`: 5 red before the workflow existed, 5 green after.
 
-## 7. AWS provisioning scripts (local, dry-run only)
+## 7. AWS provisioning scripts (local, dry-run only) — superseded by section 7b
+
+> 2026-10-08, with the user: resources move to Terraform (D8). 7.1–7.4 stay as done for the record. The policy documents and their tests carry over unchanged, and so do `30-ssm.sh` and `70-host-env.sh`. Scripts 10/20/40/50/60 are removed in 7b.
 
 - [x] 7.1 Write `deploy/aws/00-env.sh` … `70-host-env.sh` per D8/D9 with `--dry-run`, describe-before-create and no secret echo. — `lib.sh` (sourced) replaces `00-env.sh`. The EMF metric `WorkflowSucceeded` per workflow was added to the handler (TDD) because `Invocations` cannot tell the daily run from ingest; `70-host-env.sh` reads SSM on the host with the instance role, so values never transit a Run Command parameter.
 - [x] 7.2 Write the IAM policy documents as JSON files under `deploy/aws/policies/`. Write a test that no policy has `"Resource": "*"` for lambda, ssm, ecr or bedrock actions, and that the instance policy names only the scorer ARN. — `test_aws_policies.py`, 12 tests; `ecr:GetAuthorizationToken` is the one documented `*` (no resource-level permission exists).
 - [x] 7.3 `shellcheck` clean. A `--dry-run` of every script prints the expected calls (output captured in the step-11 report). — shellcheck v0.10.0 clean; 39 mutating calls printed. The dry run found three bugs, fixed: creation calls were silenced by `>/dev/null` (print now on stderr); `put K "$(get …)"` on the host would write an empty token if SSM failed (now assigned and checked); recreating the backend without `IMAGE_TAG` would pull `:latest` (now the deployed SHA). Reserved concurrency made best-effort (new-account quota).
 - [x] 7.4 Mutation: give the instance policy a wildcard resource → the policy test goes red. (2 failed; extra: scorer granted the ingest token → 1 failed)
+
+## 7b. Terraform (D8)
+
+- [ ] 7b.1 State bucket: the user creates `elevator-tfstate-150911080650` by hand (commands handed over 2026-10-08): private, versioned, SSE-S3, TLS-only.
+- [ ] 7b.2 Write `infra/terraform/` (backend, providers pinned, variables, data sources for the existing resources, ECR, IAM from `deploy/aws/policies/*.json` via `templatefile`, SSM parameters with `ignore_changes = [value]`, Lambda with `ignore_changes = [image_uri]` + event-invoke config, scheduler gated by `schedules_enabled`, alarms with silence actions gated by the same variable, outputs).
+- [ ] 7b.3 `deploy/aws/push-bootstrap-images.sh` (build without attestations, push by SHA). Remove scripts 10/20/40/50/60 and their `lib.sh` helpers that only they used; keep `30-ssm.sh` and `70-host-env.sh`.
+- [ ] 7b.4 Static tests: no secret-looking literal in `infra/terraform/`; every SSM parameter ignores `value`; every Lambda ignores `image_uri`; the existing roles appear only as data sources; the schedules' state and the silence alarms' actions both follow `schedules_enabled`; the orchestrator's event-invoke config has 0 retries. Mutation per guard.
+- [ ] 7b.5 `terraform fmt -check` and `terraform validate` (`-backend=false`) locally in the official image, and as a CI job in `ci.yml` replacing the shellcheck targets that no longer exist (shellcheck stays for the remaining scripts).
 
 ## 8. Production compose and docs-adjacent config
 
@@ -153,9 +163,9 @@
 > Order: 11.1 runs locally first. Steps 13 (docs) and 14 (adversarial review) are local too and run before the 11.0 gate, so the user is asked once, with everything else ready.
 > After the review (D-migration): only 11.2 and the pre-merge checks run before the merge. 11.3–11.5 need the new backend and run after 15.1–15.2, with the schedules still disabled.
 
-- [ ] 11.0 **Gate: ask the user for explicit go-ahead to create AWS resources.** Present the `--dry-run` output and the resource list. Stop here until they answer.
+- [ ] 11.0 **Gate: ask the user for explicit go-ahead to create AWS resources.** Present the reviewed `terraform plan` and the resource list. Stop here until they answer.
 - [x] 11.1 Local, before AWS. Backend in production mode with `INFERENCE_LAMBDA_FUNCTION` pointing at the scorer under the RIE through a local endpoint override. `POST /api/inference/run` with the token → 200 and scores changed. Scorer stopped → 503. Restore the DB. — 2026-10-08: backend via `docker compose run` with `DEPLOYMENT_ENVIRONMENT=production`, a fresh 43-char token, `INFERENCE_LAMBDA_FUNCTION=function` and `AWS_ENDPOINT_URL_LAMBDA` at the scorer image under the RIE (HTTP `INFERENCE_URL` pointed at an unresolvable host to prove it is unused): no token / wrong token → 401; token → 200 `scored: 70, out_of_scope: 30, model_version 8fbb94ff07b7` (scorer invoke 15 ms warm); scorer stopped → 503 `Inference service is unavailable`; `GET /api/elevators` → 100 items, shape unchanged. DB restored from a `pg_dump` taken before the run.
-- [ ] 11.2 After the go-ahead, run scripts 10 → 20 → 30 → 40 `--bootstrap-image` → 50 → 60 → 70 (schedules disabled, silence alarms without actions); confirm the SNS subscription with the user. Pre-merge checks: invoke the scorer with the golden rows; invoke the orchestrator with `telemetry-ingest` (readings stored in production); read the backend's startup log on the host (closes the change-1 13.3 gap); verify the 26 × 1 h alarm was accepted.
+- [ ] 11.2 After the go-ahead: `terraform init`; `apply -target` ECR; `push-bootstrap-images.sh`; full plan reviewed with the user; `apply`; `30-ssm.sh` (the user types the Grafana values); `70-host-env.sh`; a second plan is empty; confirm the SNS subscription with the user. Pre-merge checks: invoke the scorer with the golden rows; invoke the orchestrator with `telemetry-ingest` (readings stored in production); read the backend's startup log on the host (closes the change-1 13.3 gap); confirm the 26 × 1 h alarm was accepted.
 - [ ] 11.3 Production (after 15.2):
   - `POST /api/inference/run` with the token → 200, scores dated today.
   - Without the token → 401.
@@ -186,7 +196,9 @@
 
 ## 15. Cutover and Verification
 
+- [ ] 15.0 Docs follow Terraform: `docs/deployment.md` (bucket, bootstrap order, cutover/rollback via `schedules_enabled`, rotation), `docs/orchestration.md` references; done with 7b, before the PR leaves draft.
+
 - [ ] 15.1 Commit and open the PR, unarchived: 11.3–11.5 and 15.3 can only run after the merge. **The merge needs the user's approval.** Archive in a follow-up PR once 15.3 is recorded.
 - [ ] 15.2 After the merge: CI updates both functions to the merge SHA (verify the image URIs).
-- [ ] 15.3 `50-schedules.sh --enable`. After 48 h: reading counts per lift ≈ 96, daily scores present on two consecutive days, no alarm, GB-s extrapolated to a month and recorded.
+- [ ] 15.3 `terraform apply -var schedules_enabled=true`. After 48 h: reading counts per lift ≈ 96, daily scores present on two consecutive days, no alarm, GB-s extrapolated to a month and recorded.
 - [ ] 15.4 Notion: mark the task Done and update M5 on the project page.

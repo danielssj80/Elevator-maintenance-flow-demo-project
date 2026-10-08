@@ -27,12 +27,12 @@ The system SHALL store the production ingest token and the Grafana Cloud OTLP cr
 Neither the repository, nor any image, nor any workflow definition SHALL contain them. Each function role SHALL read only the parameters it uses.
 
 #### Scenario: The backend and the orchestrator share one token
-- **WHEN** the provisioning script has run
+- **WHEN** provisioning (Terraform apply, then the secret-value script) has run
 - **THEN** `/etc/elevator/.env` and the SSM parameter hold the same ingest token
 - **AND** the backend registers the ingest and inference routers
 
 #### Scenario: Re-running provisioning does not rotate the token
-- **WHEN** the provisioning script runs a second time
+- **WHEN** Terraform is applied again and the secret-value script runs a second time
 - **THEN** the existing token is kept
 - **AND** no resource is duplicated
 
@@ -92,3 +92,32 @@ The 70 % alarm is the agreed trigger to redesign before the free tier is exhaust
 - **WHEN** no successful daily run was recorded in the last 26 hours
 - **THEN** an alarm enters ALARM rather than INSUFFICIENT_DATA
 - **AND** frequent ingest runs cannot keep that alarm quiet, because success is counted per workflow
+
+### Requirement: The serverless tier is declared in Terraform, and its state holds no secret
+The system SHALL declare every AWS resource of the serverless tier in Terraform under `infra/terraform/`, with the state in a private, encrypted, versioned S3 bucket using S3-native locking.
+
+Pre-existing resources (the EC2 instance, its role, the GitHub OIDC deploy role, the Bedrock policy) SHALL be referenced as data sources and SHALL NOT be created, modified or destroyed by this configuration, apart from attaching the new policies to the two existing roles.
+
+No secret value SHALL appear in the Terraform configuration, plan or state. Terraform declares the SSM parameters and ignores their values; a script writes the values. Terraform SHALL ignore the functions' image URI, which CI owns.
+
+#### Scenario: An apply is idempotent
+- **WHEN** `terraform apply` has completed and `terraform plan` is run again
+- **THEN** the plan shows no changes
+
+#### Scenario: CI deploying a new image is not drift
+- **WHEN** CI has moved a function to a new image and `terraform plan` is run
+- **THEN** the plan shows no change to that function
+
+#### Scenario: The state holds no secret
+- **WHEN** the state is inspected after the secret values were written
+- **THEN** the SSM parameters hold only the placeholder value
+- **AND** no ingest token, Grafana credential or AWS key appears in it
+
+#### Scenario: Existing resources are untouched
+- **WHEN** the plan is inspected
+- **THEN** it creates, changes or destroys none of the pre-existing instance, roles or policies
+
+#### Scenario: The configuration is checked without credentials
+- **WHEN** a pull request touches `infra/terraform/`
+- **THEN** CI runs `terraform fmt -check` and `terraform validate` and fails on either
+

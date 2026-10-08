@@ -5,7 +5,7 @@ The system SHALL build the orchestrator and scorer images in CI on every push to
 
 The separation is deliberate: the application deploy runs when the GHCR build workflow succeeds. A Lambda publish failing inside that workflow would block the application deploy for a reason unrelated to it.
 
-Every Lambda image SHALL be built without provenance or SBOM attestations, in CI and in the bootstrap script alike. Lambda accepts a single image manifest, and BuildKit wraps the image in an index whenever it attaches attestations. Docker 29 with the containerd store does that by default, even for a plain `docker build`.
+Every Lambda image SHALL be built without provenance or SBOM attestations, in CI and in the bootstrap push script alike. Lambda accepts a single image manifest, and BuildKit wraps the image in an index whenever it attaches attestations. Docker 29 with the containerd store does that by default, even for a plain `docker build`.
 
 It SHALL then point each function at the image of that commit. Once all updates are issued, it SHALL wait until each function reports the update as successful.
 
@@ -28,7 +28,7 @@ ECR SHALL keep only the three most recent images per repository. CI SHALL authen
 - **AND** the workflow fails
 
 #### Scenario: A pushed image is one Lambda accepts
-- **WHEN** a Lambda image build is inspected, in the workflow or in the bootstrap script
+- **WHEN** a Lambda image build is inspected, in the workflow or in the bootstrap push script
 - **THEN** it disables provenance and SBOM attestations
 
 #### Scenario: Old images are expired

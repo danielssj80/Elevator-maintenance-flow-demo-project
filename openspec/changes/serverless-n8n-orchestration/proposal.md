@@ -31,14 +31,17 @@ The decision taken with the user: run both as **AWS Lambda functions inside the 
   - **Node spans.** Per-node spans are switched off at the source (`N8N_OTEL_TRACES_INCLUDE_NODE_SPANS=false`) instead of filtered in a Collector.
   - **Execution identity.** The Lambda request id replaces n8n's execution id, which is always `1` on a fresh database.
 - **CI publishes both images to private ECR** (Lambda accepts neither GHCR nor ECR Public), SHA-tagged, and points each function at the new image.
-- **AWS resources are created by idempotent CLI scripts under `deploy/aws/`.** The resources:
+- **AWS resources are declared in Terraform under `infra/terraform/`.** The state lives in a private, encrypted, versioned S3 bucket with S3-native locking (Terraform ≥ 1.10). That bucket is created once by hand, outside Terraform. Terraform declares:
   - two ECR repositories with lifecycle rules;
-  - two functions with least-privilege roles;
-  - the schedules;
-  - the SSM parameters;
-  - the instance-role grant to invoke the scorer;
-  - the extended GitHub OIDC role;
-  - CloudWatch alarms for daily GB-s above 70 % of the free-tier pace and for any function error, sent through SNS email.
+  - two functions with least-privilege roles, and the function event-invoke config (no async retries);
+  - the schedules (created disabled) and their role;
+  - the SSM parameters' existence and permissions, **not their values**;
+  - the policy attachments on the existing instance and GitHub OIDC roles;
+  - CloudWatch alarms for daily GB-s above 70 % of the free-tier pace, for any function error and for silent schedules, sent through SNS email.
+- **Existing resources are referenced, not managed.** The EC2 instance, `elevator-ssm-role`, `github-actions-deploy`, `ElevatorBedrockInvokeNova` and Route 53 are read as data sources. Importing them is a separate backlog task.
+- **Two scripts remain, for what must stay out of the Terraform state:**
+  - `deploy/aws/30-ssm.sh` writes the secret values (the generated token; the Grafana values entered silently);
+  - `deploy/aws/70-host-env.sh` writes the host env file from SSM on the instance.
 - **BREAKING (spec):** *The orchestration tier is local-only and says so* is replaced, because production now runs scheduled work. The production compose still defines no orchestrator service, and the host gains no process.
 
 ## Capabilities
@@ -64,7 +67,7 @@ None. The serverless runtime belongs to the existing capabilities below.
   - `orchestrator/`: Dockerfile, runtime bootstrap, handler, seed build.
   - `backend/inference/lambda_handler.py` and `backend/inference/Dockerfile.lambda`.
   - `backend/app/services/inference_client.py`: Lambda transport.
-  - `deploy/aws/*.sh`.
+  - `infra/terraform/` (resources) and `deploy/aws/{30-ssm,70-host-env}.sh` (secret values).
 - **Changed:**
   - `n8n/workflows/*.json`: Webhook Trigger, base URL, execution identity.
   - `.github/workflows/build-images.yml`: an ECR job.

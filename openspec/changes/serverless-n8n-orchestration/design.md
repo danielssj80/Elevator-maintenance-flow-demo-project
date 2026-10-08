@@ -47,7 +47,7 @@
 - Every secret lives in SSM. No image, workflow or repository file carries one.
 - One trace per production execution in Grafana Cloud: n8n → backend → scorer → Postgres.
 - Stay inside the Lambda free tier, with an alarm that fires well before it is spent.
-- AWS resources are reproducible from scripts in the repository.
+- AWS resources are declared in Terraform in the repository; `terraform plan` shows drift and an empty plan after apply.
 
 **Non-Goals:**
 - Trend honesty: the derived-data wipe and the 6-day cap. For six days the trend mixes pre-calculated and live points. This is a backlog item.
@@ -55,7 +55,8 @@
 - Natural-language scenarios (separate M5 task).
 - n8n `/metrics` in production, an orchestration dashboard over production traces, and production metrics and logs export.
 - A hosted editor or a persistent execution history.
-- Infrastructure-as-code tooling (Terraform or CDK). Scripts are enough for two functions and are what the repository already does.
+- Managing the pre-existing resources (EC2, instance role, OIDC deploy role, Bedrock policy, Route 53) in Terraform. They are referenced as data sources; importing them is a separate backlog task.
+- `terraform plan`/`apply` in CI. Apply stays a deliberate local step; CI runs `fmt -check` and `validate` only, which need no AWS credentials.
 - Any frontend change. The dashboard reads the same API, and the frontend service-layer pattern (pages → services → fetch) is untouched.
 - Any API, schema or data-model change. The backend change stays inside `services/` (the inference client) and `core/config.py`. Routers and repositories are untouched, which preserves the three-layer rule.
 
@@ -106,7 +107,7 @@ log the workflow's final output (digest) and timings; return them
 ```
 **Deadline.** The bootstrap passes the Runtime API's `Lambda-Runtime-Deadline-Ms` to the handler. The readiness wait and the webhook call (an `AbortSignal` timeout) end early enough to leave a 25 s stop reserve: the 20 s stop deadline plus margin. A slow Bedrock call then ends as a failed invocation with a graceful stop, not as a Lambda timeout that kills n8n before its spans are exported. A forced stop is reported as `spansFlushed: false`.
 
-**No retries at either layer.** The scheduler invokes asynchronously, so Lambda's own async retry policy (default 2 retries, events kept 6 h) applies on top of the schedule's. `40-lambda.sh` sets the function's event-invoke config to 0 retries and a 900 s maximum event age.
+**No retries at either layer.** The scheduler invokes asynchronously, so Lambda's own async retry policy (default 2 retries, events kept 6 h) applies on top of the schedule's. Terraform declares the function's event-invoke config: 0 retries and a 900 s maximum event age.
 
 Function settings: 2048 MB, 120 s timeout (worst measured run ×4), no VPC, reserved concurrency 1 where the account quota allows it. A new account's concurrency quota is 10, all of which must stay unreserved, and AWS then refuses the reservation. The script warns and continues: parallel invocations run in separate sandboxes, each with its own `/tmp` and n8n, so an overlap costs GB-s but corrupts nothing (ingest is idempotent and inference runs are atomic and non-overlapping in the backend).
 
@@ -168,22 +169,37 @@ Verified against the running image before relying on it (memory: read the runnin
 
 *Alternative rejected:* Lambda environment variables populated from SSM at deploy time. They are visible in the console and in `GetFunctionConfiguration`, and they drift from SSM.
 
-### D8 — Infrastructure as idempotent scripts in `deploy/aws/`
-**Scripts.** Each script is `set -euo pipefail`, describe-before-create, and safe to re-run:
-- `00-env.sh` (names, region `eu-north-1`, account);
-- `10-ecr.sh` (two repositories + lifecycle keep 3);
-- `20-iam.sh` (two function roles, instance-role policy `ElevatorInvokeScorer`, deploy-role policy additions);
-- `30-ssm.sh` (create the token if absent; prompt for the Grafana values; `--rotate`);
-- `40-lambda.sh` (create or update the functions from the latest SHA in ECR);
-- `50-schedules.sh` (Scheduler role + two schedules, Europe/Madrid, retries 0, created **disabled**);
-- `60-alarms.sh` (SNS topic + email, metric-math GB-s alarm, error alarms, missed-daily-run alarm);
-- `70-host-env.sh` (write the host env file entries via SSM Run Command, restart the backend).
+### D8 — Infrastructure in Terraform; secret values in two scripts
+*Decision revised with the user on 2026-10-08, before any resource existed.* The first version used idempotent AWS CLI scripts. The independent review found several defects in their own describe/create/update logic. The tier is about 20 interdependent resources, and drift detection, an honest plan and a clean destroy are what Terraform provides and the scripts had to re-implement.
 
-**Cutover.** Schedules start disabled, so the cutover is a deliberate, separate step: `50-schedules.sh --enable`.
+**Layout.** `infra/terraform/`, one root module, AWS provider pinned, Terraform ≥ 1.10:
+- `backend.tf` (S3 backend), `providers.tf`, `variables.tf`, `data.tf` (existing resources), `ecr.tf`, `iam.tf`, `ssm.tf`, `lambda.tf`, `scheduler.tf`, `alarms.tf`, `outputs.tf`.
 
-**Validation.** `shellcheck` runs in CI. A `--dry-run` flag prints every AWS call without executing it. That is the only way these scripts are exercised before the user approves real resource creation.
+**State.** S3 bucket `elevator-tfstate-150911080650` in `eu-north-1`:
+- created by hand once (bootstrap: Terraform cannot store its state in a bucket it creates);
+- public access blocked, versioned, SSE-S3, TLS-only bucket policy;
+- `use_lockfile = true` (S3-native locking, no DynamoDB).
 
-**Bootstrap order.** On the very first run, `40-lambda.sh` can only create the functions once an image exists, so it pushes an initial image with the local Docker build. After that, CI owns updates.
+**Existing resources, referenced only** (data sources): the EC2 instance, `elevator-ssm-role`, `github-actions-deploy`, `ElevatorBedrockInvokeNova`. Terraform attaches its own new policies to the two roles (`aws_iam_role_policy_attachment`) but never manages the roles themselves.
+
+**Policies.** The JSON documents under `deploy/aws/policies/` stay the single source, loaded with `templatefile()`, so `test_aws_policies.py` keeps asserting exactly what is applied.
+
+**What Terraform must not own:**
+- *Secret values.* Anything Terraform manages is stored in the state in clear. `aws_ssm_parameter` resources are created with a placeholder and `lifecycle { ignore_changes = [value] }`; `30-ssm.sh` writes the real values, and the token is generated there. No secret value is ever in the state or the plan.
+- *The function image.* CI moves `image_uri` on every merge (`lambda-images.yml`); Terraform declares the function and `ignore_changes = [image_uri]`.
+- *The host env file.* `70-host-env.sh` (SSM Run Command, read on the instance).
+
+**Bootstrap order.** A function can only be created from an image already in ECR:
+1. `terraform apply -target=aws_ecr_repository.this` creates the repositories;
+2. `deploy/aws/push-bootstrap-images.sh` builds both images (no attestations) and pushes them tagged with the current commit;
+3. a full `terraform apply -var image_tag=<sha>`.
+
+**Settings carried over unchanged:**
+- reserved concurrency 1 for the orchestrator is variable-gated (default off), because a new account's quota refuses it;
+- the async event-invoke config: 0 retries, 900 s maximum event age;
+- schedules created `DISABLED` through a variable `schedules_enabled` (default false). The cutover is `terraform apply -var schedules_enabled=true`, which also turns on the silence alarms' actions (same variable).
+
+**Validation.** CI runs `terraform fmt -check` and `terraform validate` (with `-backend=false`, no credentials). Locally, `terraform plan` before every apply; after an apply, a second plan must be empty.
 
 ### D9 — GB-s alarm by metric math, per day
 CloudWatch has no GB-s metric. The alarm's expression is:
@@ -196,8 +212,8 @@ The threshold is 70 % × 400,000 / 30 ≈ 9,333 GB-s per day.
 - **Errors.** `Errors > 0`, per function, 1-hour period. Missing data is treated as not breaching, because there are no errors when nothing runs.
 - **Missed daily run.** `Invocations` cannot tell the workflows apart: ingest every 30 minutes would keep it above zero forever. The handler therefore emits one CloudWatch Embedded Metric Format line per finished run (`Elevator/Orchestrator` · `WorkflowSucceeded`, `WorkflowDegraded`, dimension `Workflow`). The alarm fires when `WorkflowSucceeded{Workflow=daily-inference-and-digest}` is < 1 in each of 26 hourly periods, with missing data treated as **breaching**. A schedule that silently stops then raises an alarm instead of going quiet.
 - **Ingest silence.** The same metric with `Workflow=telemetry-ingest`, < 1 in each of 2 hourly periods, missing data breaching. Ingest every 30 minutes is the main production feature, and the error alarms cannot see a schedule that stopped.
-- **Silence alarms notify only while scheduled.** Both silence alarms are created with actions disabled unless the ingest schedule is enabled. `50-schedules.sh --enable` / `--disable` toggles their actions, so the time between provisioning and cutover sends no alarm emails.
-- **Evaluation length.** 26 × 1 h = 93,600 s exceeds a day. PutMetricAlarm allows up to 7 days for periods of an hour or more. This is verified at provisioning: `60-alarms.sh` fails loudly if AWS refuses, and the fallback is 13 × 2 h.
+- **Silence alarms notify only while scheduled.** Both silence alarms have `actions_enabled = var.schedules_enabled`, so the time between provisioning and cutover sends no alarm emails.
+- **Evaluation length.** 26 × 1 h = 93,600 s exceeds a day. PutMetricAlarm allows up to 7 days for periods of an hour or more. This is verified at provisioning: `terraform apply` fails loudly if AWS refuses, and the fallback is 13 × 2 h.
 - **Degraded runs.** `WorkflowDegraded` (an agent node failed and the run continued, e.g. no digest) is recorded but does not page. It is visible on the metric and in the log line.
 
 ### D10 — Production OTel: traces only, direct, best-effort
@@ -216,7 +232,7 @@ The SDK's OTLP exporters read `OTEL_EXPORTER_OTLP_HEADERS` from the environment 
 A new workflow, `lambda-images.yml`, runs on every push to `main`. It is **not** a job inside `build-images.yml`: `deploy.yml` runs on that workflow's success, so a failing Lambda job there would block the application deploy. The new workflow has its own concurrency group. It:
 - `permissions: id-token: write`;
 - assumes `vars.AWS_DEPLOY_ROLE_ARN`;
-- builds with `docker build --provenance=false --sbom=false`. Lambda accepts a single image manifest, and BuildKit wraps the image in an index whenever it attaches attestations. Docker 29 with the containerd store does that even for a plain `docker build`: verified locally, the descriptor is `vnd.oci.image.index.v1+json` without the flags and a single `vnd.oci.image.manifest.v1+json` with them. `40-lambda.sh --bootstrap-image` uses the same flags;
+- builds with `docker build --provenance=false --sbom=false`. Lambda accepts a single image manifest, and BuildKit wraps the image in an index whenever it attaches attestations. Docker 29 with the containerd store does that even for a plain `docker build`: verified locally, the descriptor is `vnd.oci.image.index.v1+json` without the flags and a single `vnd.oci.image.manifest.v1+json` with them. `deploy/aws/push-bootstrap-images.sh` uses the same flags;
 - logs in to ECR;
 - builds and pushes both images by SHA;
 - calls `aws lambda update-function-code` on both;
@@ -242,8 +258,12 @@ The workflow **fails** if the functions do not exist yet. A merge before provisi
 
 Production checks that need the new backend can only run **after** the merge: until then production runs `main`'s backend (no Lambda transport) and `main`'s compose (no `INFERENCE_LAMBDA_FUNCTION`). The order is therefore provision, merge with schedules disabled, verify, then enable.
 
-1. **Provision (user's go-ahead).** `deploy/aws/` 10 → 20 → 30 → 40 `--bootstrap-image` → 50 (schedules created disabled) → 60 (silence alarms without actions) → 70.
-   - After 70 the backend on `main` holds the token, so the ingest and inference routes are registered behind it.
+1. **Provision (user's go-ahead).**
+   - The user creates the state bucket by hand (D8).
+   - `terraform init`, then the bootstrap order: ECR → push images → full `plan` reviewed → `apply`. Schedules are disabled and the silence alarms have no actions.
+   - `30-ssm.sh` writes the secret values; `70-host-env.sh` writes the host env file.
+   - A second `terraform plan` is empty.
+   - After `70-host-env.sh` the backend on `main` holds the token, so the ingest and inference routes are registered behind it.
    - Inference answers 503 until the merge, because `main` has no scorer transport. Only token holders can see that.
 2. **Pre-merge checks** (only what `main` supports):
    - invoke `elevator-scorer` directly with the golden rows;
@@ -257,10 +277,10 @@ Production checks that need the new backend can only run **after** the merge: un
    - the orchestrator with each workflow;
    - one trace in Grafana Cloud: n8n → backend → scorer → Postgres;
    - the failure checks.
-5. **Cutover.** `50-schedules.sh --enable`, which also turns on the silence alarms' actions. Observe for 48 h, then extrapolate GB-s to a month.
+5. **Cutover.** `terraform apply -var schedules_enabled=true`, which also turns on the silence alarms' actions. Observe for 48 h, then extrapolate GB-s to a month.
 
 **Rollback:**
-- `50-schedules.sh --disable` stops all scheduled work.
+- `terraform apply -var schedules_enabled=false` stops all scheduled work.
 - Removing `TELEMETRY_INGEST_TOKEN` from `/etc/elevator/.env` and restarting the backend returns production to 404 on the ingest and inference endpoints.
 - Neither rollback touches the host's services.
 
