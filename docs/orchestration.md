@@ -23,9 +23,9 @@ being off, is the honest next step and is deliberately not attempted here.
 
 Production is also unreachable from these workflows by two independent means:
 they address the backend as `http://backend:8000` on the compose network, which
-does not resolve outside it; and the telemetry and inference routers are not
-registered when `deployment_environment` is production, so those paths return
-404 there.
+does not resolve outside it; and in production the telemetry and inference
+routers are registered only behind a configured `TELEMETRY_INGEST_TOKEN`, which
+is not provisioned there, so those paths return 404.
 
 ## The stack
 

@@ -86,17 +86,17 @@ def test_prod_compose_declares_production_explicitly():
 
 
 def test_prod_compose_does_not_configure_an_ingest_token():
-    """Nothing to configure: the routers it would guard are not registered there.
+    """The production token is a secret, so it never lives in this file.
 
-    A token in the production file would suggest those endpoints exist in
-    production, which is the misreading the router gate exists to prevent.
+    Production registers the ingest and inference routers only behind a
+    configured token, and that token is what stands between the internet and
+    two endpoints that write to the database. A value here would be committed to
+    a public repository. It belongs in `env_file: /etc/elevator/.env`, which
+    lives on the instance and outside version control.
 
-    Narrower than its name: this reads the `environment:` block only, and the
-    prod `backend` service also loads `env_file: /etc/elevator/.env`, which lives
-    outside the repository and cannot be checked from here. So it asserts that
-    *this file* declares no token, not that the deployed process has none.
-    Harmless either way — a token would guard routes that production does not
-    register — but the gap is stated rather than implied.
+    Narrower than its name: this reads the `environment:` block only. Whether the
+    deployed process has a token cannot be checked from here — and does not need
+    to be for safety: without one, `build_app` withholds the routers.
     """
     environment = _service_environment(PROD_COMPOSE, "backend")
 
@@ -109,8 +109,7 @@ def test_prod_compose_defines_no_orchestrator():
     The orchestration tier reaches both write endpoints and holds credentials for
     a model provider. `docker-compose.prod.yml` auto-deploys on merge to the
     default branch, so an orchestrator service reaching it would put a scheduler
-    with credentials on a public host — and the routers it drives are not even
-    registered there.
+    with credentials on the same small public host as the application.
 
     Named services rather than a substring search: `n8n` appears in comments and
     in image tags, and a grep would go green for the wrong reason.
@@ -121,8 +120,8 @@ def test_prod_compose_defines_no_orchestrator():
     forbidden = services & {"n8n", "n8n-worker", "n8n-db-init", "redis"}
     assert not forbidden, (
         f"docker-compose.prod.yml defines {sorted(forbidden)}. The orchestration "
-        "tier runs locally only: it holds a model-provider credential and drives "
-        "endpoints production does not register."
+        "tier runs locally only: it holds a model-provider credential and does "
+        "not belong on the application's host."
     )
 
 

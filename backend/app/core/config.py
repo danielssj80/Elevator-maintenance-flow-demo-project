@@ -3,6 +3,20 @@ import os
 # The value assumed when DEPLOYMENT_ENVIRONMENT is not set anywhere.
 DEFAULT_DEPLOYMENT_ENVIRONMENT = "production"
 
+# The only names that are *not* production. Everything else is — unset, empty,
+# `prod`, `Production`, `staging`, a typo. The previous rule compared against the
+# one string "production", so every other spelling opened the write endpoints.
+#
+# Exact match, deliberately: no lower(), no strip(). Each normalisation is one
+# more way for an unexpected value to land on the open side, and `Local`
+# reaching the closed side costs a log line, not an incident.
+NON_PRODUCTION_ENVIRONMENTS = frozenset({"local", "test", "ci"})
+
+
+def is_production(environment: str) -> bool:
+    """Whether ``environment`` must be treated as production."""
+    return environment not in NON_PRODUCTION_ENVIRONMENTS
+
 
 def _build_db_url(
     user: str = "user",
@@ -45,13 +59,12 @@ class Settings:
     )
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "elevator-backend")
     otel_service_version: str = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
-    # Fail-closed on purpose. This value gates the telemetry and inference
-    # routers, which are unauthenticated write endpoints, and the deployed API
-    # has no authentication of any kind. A default of "local" meant that
-    # *forgetting* to set the variable published them: docker-compose.prod.yml
-    # sets it nowhere and loads an out-of-repo env file, so the gate was open in
-    # the one environment it exists to protect. An unset variable must be the
-    # safe answer, not the dangerous one.
+    # Fail-closed on purpose: classified by is_production(), so anything but
+    # local/test/ci — including unset — is production. This value decides
+    # whether the telemetry and inference routers may be registered without a
+    # token. A default of "local" once meant that *forgetting* to set it
+    # published them: docker-compose.prod.yml loads an out-of-repo env file, so
+    # the gate was open in the one environment it exists to protect.
     #
     # Every non-production environment therefore sets it explicitly:
     # docker-compose.yml does, and tests/conftest.py does.
@@ -73,18 +86,16 @@ class Settings:
     # The window an inference run aggregates over.
     inference_window_hours: int = int(os.getenv("INFERENCE_WINDOW_HOURS", "24"))
 
-    # Shared secret for POST /api/telemetry/readings and POST /api/inference/run.
+    # Shared secret for the telemetry and inference endpoints (both POSTs and
+    # GET /api/telemetry/readings).
     #
-    # Unset means open, which is the opposite of `deployment_environment` above
-    # and deliberately so. That one is fail-closed because forgetting it
-    # publishes unauthenticated write endpoints on the internet. This one only
-    # ever applies to routers that do not exist in production at all, and a
-    # fail-closed default would break pytest and a bare `uvicorn` run for anyone
-    # with no configuration. The safety comes from the other end instead: every
-    # environment that registers those routers sets this — docker-compose.yml
-    # does, and tests/unit/test_dev_compose.py asserts it against the file
-    # rather than against a fixture — and build_app warns at startup when it
-    # registers them unguarded.
+    # Outside production, unset means open, so pytest and a bare `uvicorn` run
+    # work with no configuration; docker-compose.yml sets one anyway (asserted
+    # by tests/unit/test_dev_compose.py) and build_app warns when it registers
+    # the routers unguarded. In production it is required: build_app registers
+    # the routers only with a token of at least 32 characters, and
+    # require_ingest_token rejects every request if it is empty. In production
+    # it comes from /etc/elevator/.env, never from a committed file.
     telemetry_ingest_token: str | None = os.getenv("TELEMETRY_INGEST_TOKEN") or None
 
 

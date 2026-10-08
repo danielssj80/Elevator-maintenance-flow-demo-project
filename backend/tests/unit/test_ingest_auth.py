@@ -1,15 +1,14 @@
-"""The shared secret on the two unauthenticated write endpoints.
+"""The shared secret on the telemetry and inference endpoints.
 
-The production gate stops these routers being registered at all when the
-deployment environment is production. That says nothing about who may write in
-the environments where they *are* registered, and the next change introduces
-exactly such a producer — a scheduled n8n workflow posting telemetry and
-triggering runs. This is the guard for those environments.
+`build_app` decides whether these routers exist: outside production always, in
+production only behind a configured token (see `test_production_gating.py`).
+This file tests the guard on every request once they do — fail-open outside
+production when no token is configured, fail-closed in production.
 
-The suite runs with **no token configured**, so every other test keeps posting
-without a header and the fail-open default is exercised by default. These tests
-configure one explicitly, which is also the only shape in which a 401 can be
-asserted at all.
+The suite runs with **no token configured** and as `local`, so every other test
+keeps posting without a header and the non-production default is exercised by
+default. These tests configure a token, or the production environment,
+explicitly — which is also the only shape in which a 401 can be asserted at all.
 """
 
 import pytest
@@ -199,6 +198,82 @@ async def test_an_unconfigured_token_leaves_ingest_open(
     assert response.status_code == 201
 
 
+@pytest.mark.parametrize("environment", ["production", "prod", "staging", ""])
+@pytest.mark.parametrize("empty", [None, ""])
+@pytest.mark.asyncio
+async def test_an_empty_token_in_production_rejects_everything(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch,
+    empty: str | None,
+    environment: str,
+):
+    """Fail-closed in production — the second, independent reason.
+
+    The gate already refuses to register these routers in production without a
+    token. This covers what the gate cannot: a token cleared after startup, or a
+    future registration path that forgets the gate. The app under test was built
+    as `local`, so the routes exist and only the guard stands in the way.
+    """
+    # Every spelling the allow-list classifies as production, not just the
+    # literal: a guard comparing `== "production"` would pass with that one alone.
+    monkeypatch.setattr(settings, "deployment_environment", environment)
+    monkeypatch.setattr(settings, "telemetry_ingest_token", empty)
+    db_session.add(_elevator("ELV-A08"))
+    await db_session.flush()
+    payload = _batch("ELV-A08", _now_iso())
+
+    absent = await client.post(INGEST_PATH, json=payload)
+    any_header = await client.post(INGEST_PATH, json=payload, headers={"X-Ingest-Token": ""})
+    wrong = await client.post(INGEST_PATH, json=payload, headers={"X-Ingest-Token": "guess"})
+    run = await client.post(RUN_PATH)
+
+    assert absent.status_code == any_header.status_code == wrong.status_code == 401
+    assert run.status_code == 401
+    assert await _reading_count(db_session, "ELV-A08") == 0
+    # Same body as an ordinary rejection: no oracle for "is a guard configured".
+    assert absent.json() == {"detail": "Invalid or missing X-Ingest-Token"}
+
+
+@pytest.mark.asyncio
+async def test_an_empty_token_outside_production_still_leaves_ingest_open(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    """The other half: fail-closed must not leak into local development."""
+    monkeypatch.setattr(settings, "deployment_environment", "local")
+    monkeypatch.setattr(settings, "telemetry_ingest_token", "")
+    db_session.add(_elevator("ELV-A09"))
+    await db_session.flush()
+
+    response = await client.post(INGEST_PATH, json=_batch("ELV-A09", _now_iso()))
+
+    assert response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_reading_telemetry_is_guarded_by_the_same_token(
+    client: AsyncClient, db_session: AsyncSession, configured_token: str
+):
+    """The read endpoint has no consumer, and production now registers its router.
+
+    Left open, it would be a public read of raw telemetry — free information for
+    anyone probing the ingest path — so it takes the same guard as the writes.
+    """
+    db_session.add(_elevator("ELV-A10"))
+    await db_session.flush()
+    params = {"elevator_id": "ELV-A10"}
+
+    absent = await client.get(INGEST_PATH, params=params)
+    wrong = await client.get(INGEST_PATH, params=params, headers={"X-Ingest-Token": "nope"})
+    right = await client.get(
+        INGEST_PATH, params=params, headers={"X-Ingest-Token": configured_token}
+    )
+
+    assert absent.status_code == wrong.status_code == 401
+    assert absent.json() == wrong.json()
+    assert right.status_code == 200
+
+
 # ── Inference trigger ────────────────────────────────────────────────────────
 
 
@@ -277,18 +352,17 @@ def test_a_configured_token_logs_no_warning(caplog, configured_token):
     assert not any("TELEMETRY_INGEST_TOKEN" in message for message in warnings), warnings
 
 
-def test_production_logs_no_warning_because_the_routers_are_absent(
-    caplog, no_configured_token
-):
-    """Nothing is unguarded in production — the routes do not exist there.
-
-    Warning anyway would train the reader to ignore the line in the one log
-    where it would matter.
+def test_production_never_claims_the_routes_are_unguarded(caplog, no_configured_token):
+    """Production without a token withholds the routes and says so — it must not
+    print the local "registered and unguarded" warning, which would be false
+    there and would train the reader to ignore the line in the one log where it
+    matters.
     """
     from app.main import build_app
 
     with caplog.at_level("WARNING", logger="app.main"):
         build_app(environment="production")
 
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
-    assert not any("TELEMETRY_INGEST_TOKEN" in message for message in warnings), warnings
+    messages = [r.getMessage() for r in caplog.records]
+    assert not any("unauthenticated" in message for message in messages), messages
+    assert any("not registered" in message for message in messages), messages

@@ -26,12 +26,13 @@ tags:
     description: Health and system endpoints
   - name: telemetry
     description: >
-      Elevator sensor-reading ingest and retrieval. Not registered when
-      DEPLOYMENT_ENVIRONMENT is production — see the note on each operation.
+      Elevator sensor-reading ingest and retrieval. In production, registered
+      only when an ingest token of at least 32 characters is configured — see
+      the note on each operation.
   - name: inference
     description: >
-      Fleet re-scoring from persisted telemetry. Not registered when
-      DEPLOYMENT_ENVIRONMENT is production.
+      Fleet re-scoring from persisted telemetry. In production, registered
+      only when an ingest token of at least 32 characters is configured.
 
 paths:
 
@@ -179,10 +180,13 @@ paths:
         node by re-sending the same payload.
 
 
-        **Not available in production.** The router is not registered when
-        DEPLOYMENT_ENVIRONMENT is production, and the endpoint returns 404
-        there. The deployed API has no authentication, so an ungated write
-        endpoint would let anyone inject telemetry and re-score the live fleet.
+        **In production only behind a token.** Any DEPLOYMENT_ENVIRONMENT other
+        than `local`, `test` or `ci` is production. There the router is
+        registered only when TELEMETRY_INGEST_TOKEN is configured and at least
+        32 characters long; otherwise the endpoint returns 404. The deployed API
+        has no user authentication, so an unguarded write endpoint would let
+        anyone inject telemetry and re-score the live fleet. The production proxy
+        also rate-limits it per client and answers 429 above the limit.
 
 
         **Requires `X-Ingest-Token`** where one is configured; see the
@@ -207,9 +211,11 @@ paths:
         "401":
           $ref: "#/components/responses/MissingIngestToken"
         "404":
-          description: Not registered in this environment (production)
+          description: Not registered in this environment (production without a valid token)
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
     get:
       tags: [telemetry]
@@ -218,7 +224,15 @@ paths:
         Readings for one elevator within a time window, newest first. An unknown
         elevator id returns 200 with an empty list: the caller is asking what
         telemetry exists, and "none" is an answer rather than an error.
+
+
+        **Requires `X-Ingest-Token`** where one is configured, like the write
+        endpoints: it has no consumer, and its router is registered in
+        production behind the same token, where an open read would publish raw
+        telemetry.
       operationId: list_telemetry_readings
+      security:
+        - IngestToken: []
       parameters:
         - name: elevator_id
           in: query
@@ -253,10 +267,14 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TelemetryReading"
+        "401":
+          $ref: "#/components/responses/MissingIngestToken"
         "404":
-          description: Not registered in this environment (production)
+          description: Not registered in this environment (production without a valid token)
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /api/inference/run:
     post:
@@ -279,7 +297,8 @@ paths:
         designed absence and never as a 500.
 
 
-        **Not available in production.**
+        **In production only behind a token**, as for the ingest endpoint, and
+        rate-limited at the production proxy.
 
 
         **Requires `X-Ingest-Token`** where one is configured — the same shared
@@ -299,7 +318,9 @@ paths:
         "401":
           $ref: "#/components/responses/MissingIngestToken"
         "404":
-          description: Not registered in this environment (production)
+          description: Not registered in this environment (production without a valid token)
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           description: >
             The run could not build a usable feature matrix — for example every
@@ -777,19 +798,29 @@ components:
       in: header
       name: X-Ingest-Token
       description: >
-        Shared secret on the two write endpoints, compared in constant time.
-        Configured through TELEMETRY_INGEST_TOKEN.
+        Shared secret on the telemetry and inference endpoints, compared in
+        constant time. Configured through TELEMETRY_INGEST_TOKEN.
 
 
-        Deliberately fail-open: when no token is configured the endpoints accept
-        a request without the header, so a fresh checkout and the test suite
-        work with no configuration, and the application logs a warning at
-        startup naming the endpoints it left unguarded. The guard therefore only
-        has effect where a token is set, which is why docker-compose.yml sets
-        one and a test asserts that it does. Production is protected by the
-        router gate instead: these endpoints are not registered there at all.
+        Outside production (`local`, `test`, `ci`) it is fail-open: when no
+        token is configured the endpoints accept a request without the header,
+        so a fresh checkout and the test suite work with no configuration, and
+        the application logs a warning at startup naming the endpoints it left
+        unguarded — which is why docker-compose.yml sets one and a test asserts
+        that it does.
+
+
+        In production it is fail-closed. The routers are registered there only
+        when a token of at least 32 characters is configured, and an unset or
+        empty token at request time rejects every request with 401.
 
   responses:
+
+    RateLimited:
+      description: >
+        Too many requests from this client to the ingest and inference
+        endpoints. Answered by the production reverse proxy, before the request
+        reaches the API; the body is nginx's, not an ErrorResponse.
 
     MissingIngestToken:
       description: >
