@@ -137,8 +137,8 @@
 
 ## 9. Review and Update Existing Tests (MANDATORY)
 
-- [ ] 9.1 Review `test_dev_compose.py`, `test_inference_*`, `test_orchestration_context.py`, the observability tests, and the workflow scrub tests for assumptions invalidated by D3–D6 and D10 (docstrings included).
-- [ ] 9.2 Update the affected tests and docstrings.
+- [x] 9.1 Review `test_dev_compose.py`, `test_inference_*`, `test_orchestration_context.py`, the observability tests, and the workflow scrub tests for assumptions invalidated by D3–D6 and D10 (docstrings included).
+- [x] 9.2 Update the affected tests and docstrings. — Stale "production never has a scorer" statements rewritten in `config.py`, `inference/main.py` and `test_inference_client.py`; `test_prod_compose_defines_no_orchestrator` rationale rewritten in 8.3. `test_orchestration_context.py` and the telemetry tests make no claim this change invalidates. No assertion needed changing.
 
 ## 10. Unit Tests and DB State Verification (MANDATORY)
 

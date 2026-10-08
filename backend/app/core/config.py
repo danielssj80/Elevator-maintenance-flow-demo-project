@@ -81,8 +81,10 @@ class Settings:
     )
 
     # --- Inference (M5 - telemetry-ingestion-inference) ---------------------
-    # The scoring service is dev-only; production never has one, which is why
-    # an unreachable service is a 503 rather than an error worth paging on.
+    # Locally the scorer is the `inference` container at this URL. Production
+    # runs no scoring container and invokes the elevator-scorer Lambda instead
+    # (INFERENCE_LAMBDA_FUNCTION below). Either way an unreachable scorer is a
+    # 503: absent, not crashed.
     inference_url: str = os.getenv("INFERENCE_URL", "http://inference:8001")
     inference_timeout_seconds: int = int(os.getenv("INFERENCE_TIMEOUT_SECONDS", "30"))
     # When set, the backend invokes this AWS Lambda function instead of calling

@@ -3,7 +3,9 @@
 It has no database session, no DATABASE_URL and no knowledge of elevators. It
 receives a matrix and returns scores and contributions. Keeping the model here
 rather than in the backend keeps ~300 MB of xgboost out of an image deployed to
-a t3.micro, and out of every CI run, for a capability production never invokes.
+a t3.micro, and out of every CI run. This module is the local HTTP service;
+production runs the same ``Scorer`` behind ``lambda_handler.py`` as an AWS
+Lambda function.
 """
 
 from __future__ import annotations
