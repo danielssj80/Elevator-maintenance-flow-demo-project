@@ -127,12 +127,13 @@
 
 ## 8. Production compose and docs-adjacent config
 
-- [ ] 8.1 Write failing tests in `test_dev_compose.py` / new prod tests for `docker-compose.prod.yml`:
+- [x] 8.1 Write failing tests in `test_dev_compose.py` / new prod tests for `docker-compose.prod.yml`:
   - the backend has `OTEL_ENABLED=true`, `OTEL_METRICS_ENABLED=false`, `OTEL_LOGS_ENABLED=false` and `INFERENCE_LAMBDA_FUNCTION=elevator-scorer`;
   - there is no OTLP header and no token literal in the file;
   - the service set is exactly `db`, `migrate`, `backend`, `frontend`, `nginx`.
-- [ ] 8.2 Update `docker-compose.prod.yml`.
-- [ ] 8.3 Rewrite the rationale of `test_prod_compose_defines_no_orchestrator`; its assertion is unchanged.
+  - (1 red before the compose change; the service-set test was already true.)
+- [x] 8.2 Update `docker-compose.prod.yml`. Also gave the Lambda client its own `INFERENCE_LAMBDA_REGION` (default `eu-north-1`) instead of borrowing `BEDROCK_REGION`.
+- [x] 8.3 Rewrite the rationale of `test_prod_compose_defines_no_orchestrator`; its assertion is unchanged.
 
 ## 9. Review and Update Existing Tests (MANDATORY)
 

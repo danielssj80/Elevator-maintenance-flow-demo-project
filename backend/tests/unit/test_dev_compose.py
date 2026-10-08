@@ -104,12 +104,14 @@ def test_prod_compose_does_not_configure_an_ingest_token():
 
 
 def test_prod_compose_defines_no_orchestrator():
-    """n8n is local-only, and that has to be checkable rather than asserted in prose.
+    """Production's orchestrator runs in AWS Lambda, never on this host.
 
-    The orchestration tier reaches both write endpoints and holds credentials for
-    a model provider. `docker-compose.prod.yml` auto-deploys on merge to the
-    default branch, so an orchestrator service reaching it would put a scheduler
-    with credentials on the same small public host as the application.
+    Two reasons, both still true now that production does run scheduled work.
+    The host is a t3.micro (~916 MB) and n8n alone peaks near 1 GB. And the
+    orchestrator holds the ingest token and model-provider access:
+    `docker-compose.prod.yml` auto-deploys on merge, so an orchestrator service
+    here would put a scheduler with credentials on the small public host that
+    serves the application. The Lambda (orchestrator/) has neither problem.
 
     Named services rather than a substring search: `n8n` appears in comments and
     in image tags, and a grep would go green for the wrong reason.
@@ -119,9 +121,9 @@ def test_prod_compose_defines_no_orchestrator():
 
     forbidden = services & {"n8n", "n8n-worker", "n8n-db-init", "redis"}
     assert not forbidden, (
-        f"docker-compose.prod.yml defines {sorted(forbidden)}. The orchestration "
-        "tier runs locally only: it holds a model-provider credential and does "
-        "not belong on the application's host."
+        f"docker-compose.prod.yml defines {sorted(forbidden)}. Production's "
+        "orchestrator is the elevator-orchestrator Lambda: it holds credentials "
+        "and ~1 GB of memory that do not belong on the application's host."
     )
 
 
@@ -245,3 +247,29 @@ def test_main_and_worker_can_read_the_backend_address_from_the_environment():
         # Locally the expression's default applies; setting it here would only
         # be a second place to keep in step with the compose network.
         assert "ELEVATOR_API_BASE_URL" not in env, service
+
+
+def test_prod_backend_exports_traces_only_and_scores_through_the_lambda():
+    """Production has no Collector and no scoring container.
+
+    Traces go straight to Grafana Cloud (endpoint and auth header come from the
+    host env file, written from SSM); metrics and logs stay off because nothing
+    selects them on the way out. Scoring goes to the `elevator-scorer` function.
+    """
+    env = _service_environment(PROD_COMPOSE, "backend")
+
+    assert env.get("OTEL_ENABLED") == "true"
+    assert env.get("OTEL_METRICS_ENABLED") == "false"
+    assert env.get("OTEL_LOGS_ENABLED") == "false"
+    assert env.get("INFERENCE_LAMBDA_FUNCTION") == "elevator-scorer"
+    # Secrets live in /etc/elevator/.env, never in this public file.
+    for secret in ("OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_ENDPOINT", "TELEMETRY_INGEST_TOKEN"):
+        assert secret not in env, secret
+    assert "Authorization" not in PROD_COMPOSE.read_text()
+
+
+def test_prod_runs_exactly_the_application_services():
+    """The orchestrator and the scorer run in Lambda; the host gains nothing."""
+    services = set(yaml.safe_load(PROD_COMPOSE.read_text())["services"])
+
+    assert services == {"db", "migrate", "backend", "frontend", "nginx"}

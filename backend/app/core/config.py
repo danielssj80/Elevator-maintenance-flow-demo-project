@@ -91,6 +91,7 @@ class Settings:
     inference_lambda_function: str | None = (
         os.getenv("INFERENCE_LAMBDA_FUNCTION") or None
     )
+    inference_lambda_region: str = os.getenv("INFERENCE_LAMBDA_REGION", "eu-north-1")
     # Readings older than this are pruned at the end of each successful run, so
     # an unattended local database stays bounded.
     telemetry_retention_days: int = int(os.getenv("TELEMETRY_RETENTION_DAYS", "30"))

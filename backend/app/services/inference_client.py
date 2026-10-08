@@ -103,7 +103,7 @@ def _lambda_boto_client() -> Any:
     timeout = settings.inference_timeout_seconds
     return boto3.client(
         "lambda",
-        region_name=settings.bedrock_region,
+        region_name=settings.inference_lambda_region,
         config=Config(
             connect_timeout=timeout,
             read_timeout=timeout,
