@@ -8,7 +8,7 @@ from app.database import get_db
 from app.repositories.elevator_repository import ElevatorRepository
 from app.repositories.telemetry_repository import TelemetryRepository
 from app.schemas.inference import InferenceRunResponseSchema
-from app.services.inference_client import InferenceClient
+from app.services.inference_client import get_inference_client
 from app.services.inference_service import InferenceService
 
 router = APIRouter(prefix="/api/inference", tags=["inference"])
@@ -19,7 +19,7 @@ def get_inference_service(db: Annotated[AsyncSession, Depends(get_db)]) -> Infer
         session=db,
         elevator_repository=ElevatorRepository(db),
         telemetry_repository=TelemetryRepository(db),
-        inference_client=InferenceClient(),
+        inference_client=get_inference_client(),
     )
 
 

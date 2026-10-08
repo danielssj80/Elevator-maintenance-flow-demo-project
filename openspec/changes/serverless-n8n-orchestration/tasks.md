@@ -15,24 +15,25 @@
 
 ## 1. Backend: inference transport (TDD)
 
-- [ ] 1.1 Write failing tests for `LambdaInferenceClient`, with a stubbed boto3 client and no network:
+- [x] 1.1 Write failing tests for `LambdaInferenceClient`, with a stubbed boto3 client and no network:
   - `score` and `feature_names` round-trip;
   - each transport/authorisation error → 503 (`EndpointConnectionError`, `ReadTimeoutError`, `ClientError` throttling/AccessDenied/ResourceNotFound, `NoCredentialsError`);
   - `FunctionError` → 502;
   - client-error payload → 502 with detail;
   - the call runs off the event loop;
   - trace context is injected into the payload.
-- [ ] 1.2 Write failing tests for `get_inference_client()`:
+- [x] 1.2 Write failing tests for `get_inference_client()`:
   - Lambda client when `INFERENCE_LAMBDA_FUNCTION` is set;
   - HTTP client otherwise;
   - the HTTP path makes no boto3 call, and the Lambda path makes no HTTP call.
-- [ ] 1.3 Implement D6 (`app/services/inference_client.py`, `app/core/config.py`: `inference_lambda_function`), and wire the factory where `InferenceService` gets its client.
-- [ ] 1.4 Tests pass. Mutations, each expected red:
-  - map `ClientError` to 502;
-  - map `FunctionError` to 503;
-  - call boto3 on the loop thread;
-  - make the factory always return HTTP.
-- [ ] 1.5 Existing `test_inference_client.py` / `test_inference_service.py` / concurrency tests still green; no test relied on the HTTP client being constructed directly.
+- [x] 1.3 Implement D6 (`app/services/inference_client.py`, `app/core/config.py`: `inference_lambda_function`), and wire the factory where `InferenceService` gets its client.
+- [x] 1.4 Tests pass. Mutations, each expected red:
+  - map `ClientError` to 502 → 3 failed;
+  - map `FunctionError` to 503 → 1 failed;
+  - call boto3 on the loop thread → 2 failed;
+  - make the factory always return HTTP → 1 failed.
+  - Extra mutations: drop the trace context → 1 failed; ignore the client-error result → 1 failed; router constructs `InferenceClient()` directly → 1 failed (test added for it).
+- [x] 1.5 Existing `test_inference_client.py` / `test_inference_service.py` / concurrency tests still green; no test relied on the HTTP client being constructed directly. (69 passed across the four files)
 
 ## 2. Scorer Lambda (TDD)
 

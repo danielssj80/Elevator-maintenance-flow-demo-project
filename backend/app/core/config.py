@@ -80,6 +80,12 @@ class Settings:
     # an unreachable service is a 503 rather than an error worth paging on.
     inference_url: str = os.getenv("INFERENCE_URL", "http://inference:8001")
     inference_timeout_seconds: int = int(os.getenv("INFERENCE_TIMEOUT_SECONDS", "30"))
+    # When set, the backend invokes this AWS Lambda function instead of calling
+    # INFERENCE_URL. Production sets it (no scoring container runs on the
+    # host); local leaves it unset and keeps the HTTP service.
+    inference_lambda_function: str | None = (
+        os.getenv("INFERENCE_LAMBDA_FUNCTION") or None
+    )
     # Readings older than this are pruned at the end of each successful run, so
     # an unattended local database stays bounded.
     telemetry_retention_days: int = int(os.getenv("TELEMETRY_RETENTION_DAYS", "30"))

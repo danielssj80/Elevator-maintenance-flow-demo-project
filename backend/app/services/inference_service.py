@@ -43,7 +43,7 @@ from app.models.elevator import Elevator, ElevatorFeature, ElevatorTrendPoint
 from app.repositories.elevator_repository import ElevatorRepository
 from app.repositories.telemetry_repository import TelemetryRepository, WindowAggregate
 from app.schemas.telemetry import MAX_CLOCK_SKEW
-from app.services.inference_client import InferenceClient
+from app.services.inference_client import InferenceClient, LambdaInferenceClient
 
 KELVIN_OFFSET = 273.15
 
@@ -209,7 +209,7 @@ class InferenceService:
         session: AsyncSession,
         elevator_repository: ElevatorRepository,
         telemetry_repository: TelemetryRepository,
-        inference_client: InferenceClient,
+        inference_client: InferenceClient | LambdaInferenceClient,
     ) -> None:
         self._session = session
         self._elevator_repo = elevator_repository
