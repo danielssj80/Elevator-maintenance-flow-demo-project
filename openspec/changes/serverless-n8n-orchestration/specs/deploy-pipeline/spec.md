@@ -1,0 +1,28 @@
+## ADDED Requirements
+
+### Requirement: Lambda images are published to private ECR and the functions follow them
+The system SHALL build the orchestrator and scorer images in CI on every push to `main`, after the GHCR images. It SHALL push them to their private ECR repositories tagged with the commit SHA, because Lambda pulls neither from GHCR nor from ECR Public.
+
+It SHALL then point each function at the image of that commit. Once all updates are issued, it SHALL wait until each function reports the update as successful.
+
+ECR SHALL keep only the three most recent images per repository. CI SHALL authenticate through the existing OIDC deploy role, extended with exactly the permissions this requires:
+- ECR push to the two repositories;
+- `lambda:UpdateFunctionCode` and `lambda:GetFunction` on the two functions.
+
+#### Scenario: A merge publishes both Lambda images and updates both functions
+- **WHEN** a commit is pushed to `main`
+- **THEN** `elevator-orchestrator:<sha>` and `elevator-scorer:<sha>` exist in ECR
+- **AND** each function's image URI ends in that SHA once the workflow finishes
+
+#### Scenario: A failed image build leaves the functions unchanged
+- **WHEN** either Lambda image fails to build or push
+- **THEN** neither function is updated
+- **AND** the workflow fails
+
+#### Scenario: Old images are expired
+- **WHEN** a repository holds more than three images
+- **THEN** the lifecycle policy expires the oldest beyond three
+
+#### Scenario: The deploy role cannot touch other functions
+- **WHEN** the deploy role's policy is inspected
+- **THEN** its Lambda and ECR permissions are scoped to the two functions and two repositories, with no wildcard resource

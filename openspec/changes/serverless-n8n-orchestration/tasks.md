@@ -1,0 +1,178 @@
+# Tasks: serverless-n8n-orchestration
+
+> Scope:
+> - Backend (inference transport, config), the scorer Lambda, the orchestrator image and handler, workflow definitions, CI, and AWS scripts.
+> - No frontend change, so the E2E step is not applicable. No DB schema change, so there is no Alembic step.
+>
+> Working rules:
+> - Every guard gets its mutation run inline. Break it, watch the named test go red, restore it, and note the result on the task line.
+> - **No AWS resource is created without the user's explicit go-ahead** (gate at 11.0). Everything before it runs locally: pytest, `node:test`, the Lambda RIE, and `--dry-run`.
+
+## 0. Setup: Create Feature Branch (MANDATORY)
+
+- [x] 0.1 Create branch `feature/serverless-n8n-orchestration` from `main`
+- [x] 0.2 Verify branch: `git branch --show-current`
+
+## 1. Backend: inference transport (TDD)
+
+- [ ] 1.1 Write failing tests for `LambdaInferenceClient`, with a stubbed boto3 client and no network:
+  - `score` and `feature_names` round-trip;
+  - each transport/authorisation error → 503 (`EndpointConnectionError`, `ReadTimeoutError`, `ClientError` throttling/AccessDenied/ResourceNotFound, `NoCredentialsError`);
+  - `FunctionError` → 502;
+  - client-error payload → 502 with detail;
+  - the call runs off the event loop;
+  - trace context is injected into the payload.
+- [ ] 1.2 Write failing tests for `get_inference_client()`:
+  - Lambda client when `INFERENCE_LAMBDA_FUNCTION` is set;
+  - HTTP client otherwise;
+  - the HTTP path makes no boto3 call, and the Lambda path makes no HTTP call.
+- [ ] 1.3 Implement D6 (`app/services/inference_client.py`, `app/core/config.py`: `inference_lambda_function`), and wire the factory where `InferenceService` gets its client.
+- [ ] 1.4 Tests pass. Mutations, each expected red:
+  - map `ClientError` to 502;
+  - map `FunctionError` to 503;
+  - call boto3 on the loop thread;
+  - make the factory always return HTTP.
+- [ ] 1.5 Existing `test_inference_client.py` / `test_inference_service.py` / concurrency tests still green; no test relied on the HTTP client being constructed directly.
+
+## 2. Scorer Lambda (TDD)
+
+- [ ] 2.1 Write failing tests for `inference/lambda_handler.py`:
+  - `model` returns the booster's feature names and version;
+  - `score` reproduces `golden_vectors.json`;
+  - wrong column order → `{"error": {"type": "client"}}` naming the expected columns, with no exception;
+  - unknown operation → client error naming `model`/`score`;
+  - the scorer loads once per sandbox;
+  - with trace context, the span's parent is the caller's;
+  - `force_flush` is called;
+  - an exporter that raises does not fail scoring.
+- [ ] 2.2 Implement D5 (`lambda_handler.py`, `Dockerfile.lambda`).
+- [ ] 2.3 Tests pass. Mutations, each expected red:
+  - raise instead of returning the client error;
+  - drop `force_flush`;
+  - load the scorer per invocation (the counting test).
+- [ ] 2.4 Build `Dockerfile.lambda` and invoke it under the RIE with the golden vectors. Record cold start, duration and peak memory.
+
+## 3. Production OTel settings (TDD)
+
+- [ ] 3.1 Write failing tests for each switch (`OTEL_METRICS_ENABLED=false`, `OTEL_LOGS_ENABLED=false`): with the switch off, no exporter or provider is installed for that signal and traces are still installed. Both default to `true`.
+- [ ] 3.2 Verify against the installed SDK that `OTLPSpanExporter(endpoint=…)` reads `OTEL_EXPORTER_OTLP_HEADERS` from the environment; record the source lines. If it does not, pass the headers explicitly and test that.
+- [ ] 3.3 Implement D10 in `app/core/telemetry.py` + `config.py`.
+- [ ] 3.4 Tests pass. Mutation: ignore the metrics switch → red.
+
+## 4. Workflow definitions
+
+- [ ] 4.1 Write failing repository tests (`test_workflow_definitions.py`). Each workflow must:
+  - have exactly one Webhook Trigger, with POST and path = slug, wired to the same node as its Schedule Trigger;
+  - keep its Schedule Trigger enabled;
+  - contain no literal backend host in any HTTP node URL;
+  - send `X-N8N-Execution-Id` from the webhook's `invocationId` when present;
+  - pass the existing secret/instance scrub checks.
+- [ ] 4.2 Verify in the running `n8nio/n8n:2.37.6` image that `$env` is readable with `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, and that the `$('Webhook').isExecuted` expression evaluates on both trigger paths. Record the result. If either fails, apply the D4 fallback.
+- [ ] 4.3 Edit both workflows in the local editor and export them with `scripts/export-n8n-workflow.sh`. Do not hand-edit node ids.
+- [ ] 4.4 `docker-compose.yml`: n8n services set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` (and `ELEVATOR_API_BASE_URL` unset → default). The `test_dev_compose.py` invariants (main/worker identical) still hold.
+- [ ] 4.5 Run both workflows on the local stack via the Schedule/Manual trigger *and* via the webhook. Readings are stored, the run completes, and the trace is linked.
+- [ ] 4.6 Tests pass. Mutations, each expected red:
+  - delete one webhook;
+  - hard-code `http://backend:8000`.
+
+## 5. Orchestrator image and handler (TDD)
+
+- [ ] 5.1 Write failing `node:test` tests for the pure handler functions:
+  - `resolveWorkflow`: known slugs accepted; unknown refused before anything spawns.
+  - `buildCredentialOverwrite`: header credential from the token; AWS credential including `sessionToken`; a missing or empty token throws naming the parameter, not the value.
+  - `isRealWebhookResponse`: 200 + JSON → true; 200 + text/html "starting up" → false; 503 → false.
+  - Readiness polling: rejects non-JSON 200; aborts when the child exits.
+  - Lifecycle: stop is called on every failure path (fake child process).
+- [ ] 5.2 Implement `orchestrator/runtime/{bootstrap,handler,lib}.mjs` (D1, D2, D7), starting from the spike's code.
+- [ ] 5.3 Implement `orchestrator/Dockerfile` with the seed stage that disables the Schedule Triggers (D1, D3), plus the credential placeholders with empty secret fields.
+- [ ] 5.4 Write failing image tests (pytest, skipped when Docker is unavailable, run in CI):
+  - every seeded Schedule Trigger is disabled;
+  - each workflow has one enabled webhook;
+  - every placeholder secret field is empty;
+  - a scan of the image filesystem and environment finds no token pattern, no `Authorization=Basic` and no `AKIA`.
+- [ ] 5.5 Tests pass. Mutations, each expected red:
+  - leave one Schedule enabled;
+  - put a placeholder value in a secret field;
+  - drop the `finally` stop;
+  - accept any 200.
+- [ ] 5.6 Run the RIE end to end against the local stack (backend + scorer + Collector):
+  - Both workflows run. Readings are stored, or the fleet is re-scored.
+  - Spans reach the Collector after return, with no node spans.
+  - `X-N8N-Execution-Id` = request id.
+  - A missing token fails before n8n starts.
+  - Record duration and peak memory for each workflow.
+
+## 6. CI
+
+- [ ] 6.1 Add the `lambda-images` job to `build-images.yml` (D11): OIDC, ECR login, build/push both images by SHA, `update-function-code` + `wait function-updated-v2`. Pin the action versions as the existing jobs do.
+- [ ] 6.2 Add CI checks: `node --test orchestrator/`, `shellcheck deploy/aws/*.sh`, and the image tests from 5.4.
+- [ ] 6.3 Write a static test that the job runs only on `main` after `build`, has `id-token: write`, and references no long-lived AWS secret.
+
+## 7. AWS provisioning scripts (local, dry-run only)
+
+- [ ] 7.1 Write `deploy/aws/00-env.sh` … `70-host-env.sh` per D8/D9 with `--dry-run`, describe-before-create and no secret echo.
+- [ ] 7.2 Write the IAM policy documents as JSON files under `deploy/aws/policies/`. Write a test that no policy has `"Resource": "*"` for lambda, ssm, ecr or bedrock actions, and that the instance policy names only the scorer ARN.
+- [ ] 7.3 `shellcheck` clean. A `--dry-run` of every script prints the expected calls (output captured in the step-9 report).
+- [ ] 7.4 Mutation: give the instance policy a wildcard resource → the policy test goes red.
+
+## 8. Production compose and docs-adjacent config
+
+- [ ] 8.1 Write failing tests in `test_dev_compose.py` / new prod tests for `docker-compose.prod.yml`:
+  - the backend has `OTEL_ENABLED=true`, `OTEL_METRICS_ENABLED=false`, `OTEL_LOGS_ENABLED=false` and `INFERENCE_LAMBDA_FUNCTION=elevator-scorer`;
+  - there is no OTLP header and no token literal in the file;
+  - the service set is exactly `db`, `migrate`, `backend`, `frontend`, `nginx`.
+- [ ] 8.2 Update `docker-compose.prod.yml`.
+- [ ] 8.3 Rewrite the rationale of `test_prod_compose_defines_no_orchestrator`; its assertion is unchanged.
+
+## 9. Review and Update Existing Tests (MANDATORY)
+
+- [ ] 9.1 Review `test_dev_compose.py`, `test_inference_*`, `test_orchestration_context.py`, the observability tests, and the workflow scrub tests for assumptions invalidated by D3–D6 and D10 (docstrings included).
+- [ ] 9.2 Update the affected tests and docstrings.
+
+## 10. Unit Tests and DB State Verification (MANDATORY)
+
+- [ ] 10.1 Capture the pre-test DB baseline (table counts in the test database).
+- [ ] 10.2 Run the targeted tests: inference client, Lambda handler, telemetry settings, workflow definitions, compose, policies, and `node --test`.
+- [ ] 10.3 Run the full backend suite + `ruff check .` the way CI does (Python 3.12, `postgres:16-alpine`).
+- [ ] 10.4 Verify the post-test DB state matches the baseline.
+- [ ] 10.5 Create report `openspec/changes/serverless-n8n-orchestration/reports/YYYY-MM-DD-step-10-unit-tests.md`.
+
+## 11. Manual Endpoint and Function Testing (MANDATORY — AGENT MUST EXECUTE)
+
+- [ ] 11.0 **Gate: ask the user for explicit go-ahead to create AWS resources.** Present the `--dry-run` output and the resource list. Stop here until they answer.
+- [ ] 11.1 Local, before AWS. Backend in production mode with `INFERENCE_LAMBDA_FUNCTION` pointing at the scorer under the RIE through a local endpoint override. `POST /api/inference/run` with the token → 200 and scores changed. Scorer stopped → 503. Restore the DB.
+- [ ] 11.2 After the go-ahead, run scripts 10–40 and 60–70 (schedules disabled), then confirm the SNS subscription with the user.
+- [ ] 11.3 Production:
+  - `POST /api/inference/run` with the token → 200, scores dated today.
+  - Without the token → 401.
+  - `GET /api/elevators` unchanged in shape.
+  - Rate limit still 429 above the burst.
+- [ ] 11.4 Invoke the orchestrator once per workflow. Readings are stored with source `n8n-telemetry-ingest`, the digest is in the log, and one trace in Grafana Cloud runs n8n → backend → scorer → Postgres with no node spans.
+- [ ] 11.5 Failure checks:
+  - Invoke with an unknown workflow → error, alarm fires.
+  - Temporarily make the token parameter unreadable → error before n8n starts. Restore it.
+- [ ] 11.6 Create report `reports/YYYY-MM-DD-step-11-function-testing.md`, with timings, GB-s per invocation and the monthly extrapolation.
+
+## 12. E2E Testing with Playwright MCP
+
+- [ ] 12.1 Not applicable: no frontend change. The production dashboard is checked in 11.3 through the API it reads.
+
+## 13. Update Technical Documentation (MANDATORY)
+
+- [ ] 13.1 `docs/orchestration.md`: what runs where; the Lambda lifecycle; the silent traps from the spike; cadences; how to run the webhook locally.
+- [ ] 13.2 `docs/deployment.md`: the `deploy/aws/` scripts, bootstrap order, cutover, rollback, token rotation, alarms and free-tier levers.
+- [ ] 13.3 `n8n/workflows/README.md`: Webhook Trigger, base-URL expression, the Schedule disabled only in the image.
+- [ ] 13.4 `docs/backend-standards.md`: the inference transport selection and error mapping. `docs/api-spec.yml`: availability note (production now registers the routes and scores via Lambda); no schema change.
+- [ ] 13.5 Notion: update the task "Run the n8n orchestration tier in production" with progress. Add a backlog task for trend honesty if one does not exist yet.
+
+## 14. Independent Adversarial Review (MANDATORY)
+
+- [ ] 14.1 Run `/adversarial-review` as a cold-start agent in an isolated worktree.
+- [ ] 14.2 Fix every finding, rerun the evidence, and create report `reports/YYYY-MM-DD-step-14-adversarial-review.md`.
+
+## 15. Cutover and Verification
+
+- [ ] 15.1 Archive, commit and open the PR. **The merge needs the user's approval.**
+- [ ] 15.2 After the merge: CI updates both functions to the merge SHA (verify the image URIs).
+- [ ] 15.3 `50-schedules.sh --enable`. After 48 h: reading counts per lift ≈ 96, daily scores present on two consecutive days, no alarm, GB-s extrapolated to a month and recorded.
+- [ ] 15.4 Notion: mark the task Done and update M5 on the project page.
