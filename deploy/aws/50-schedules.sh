@@ -38,5 +38,14 @@ ensure_schedule() {
   echo "   state: $state"
 }
 
-ensure_schedule elevator-telemetry-ingest "rate(30 minutes)" telemetry-ingest
-ensure_schedule elevator-daily-inference "cron(0 6 * * ? *)" daily-inference-and-digest
+ensure_schedule "$INGEST_SCHEDULE" "rate(30 minutes)" telemetry-ingest
+ensure_schedule "$DAILY_SCHEDULE" "cron(0 6 * * ? *)" daily-inference-and-digest
+
+# The silence alarms notify only while the work they watch is scheduled.
+if [[ "$STATE" == ENABLED ]]; then
+  say "silence alarms: actions on"
+  run aws cloudwatch enable-alarm-actions --alarm-names "${SILENCE_ALARMS[@]}"
+elif [[ "$STATE" == DISABLED ]]; then
+  say "silence alarms: actions off"
+  run aws cloudwatch disable-alarm-actions --alarm-names "${SILENCE_ALARMS[@]}"
+fi

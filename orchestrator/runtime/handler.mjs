@@ -95,6 +95,9 @@ export async function handler(event, context) {
         ingestTokenParameter: INGEST_TOKEN_PARAMETER,
         baseUrl: `http://127.0.0.1:${N8N_PORT}`,
         readinessDeadlineMs: 60_000,
+        // From the Runtime API's Lambda-Runtime-Deadline-Ms (bootstrap.mjs).
+        deadlineAt: context.deadlineMs,
+        stopReserveMs: STOP_DEADLINE_MS + 5_000,
         now: Date.now,
         sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         readSecrets,

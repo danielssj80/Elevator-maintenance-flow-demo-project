@@ -69,9 +69,13 @@ every AWS call without making it. Policy documents are in
 | `60-alarms.sh` | SNS email topic and alarms (needs `ALARM_EMAIL` once) |
 | `70-host-env.sh` | `/etc/elevator/.env` entries from SSM, then recreates the backend |
 
-**First-time order:** 10 → 20 → 30 → 40 `--bootstrap-image` → 60 → 70, check a
-manual invocation of each workflow and a trace in Grafana Cloud, merge, then
-`50-schedules.sh` and `50-schedules.sh --enable` as the cutover.
+**First-time order:** 10 → 20 → 30 → 40 `--bootstrap-image` → 50 (schedules
+created disabled) → 60 → 70. Before the merge only what `main` supports can be
+checked: a direct scorer invocation and a `telemetry-ingest` invocation.
+Inference answers 503 until the merge brings the Lambda transport. Merge, check
+a production re-score, both workflows and a trace in Grafana Cloud, then
+`50-schedules.sh --enable` as the cutover. That also turns on the silence
+alarms' notifications.
 
 **Rollback:** `50-schedules.sh --disable` stops all scheduled work. Removing
 `TELEMETRY_INGEST_TOKEN` from `/etc/elevator/.env` and recreating the backend
@@ -89,6 +93,14 @@ configuration update (re-running `40-lambda.sh` does it).
 | `elevator-orchestrator-errors`, `elevator-scorer-errors` | any function error in an hour |
 | `elevator-lambda-daily-gbs` | a day's GB-s exceeds 70 % of the free tier's daily pace (400,000 / 30 × 0.7 ≈ 9,333) — the agreed trigger to redesign |
 | `elevator-daily-run-missing` | no successful daily run for 26 hours; missing data counts as breaching, so a schedule that silently stops is an alarm, not a quiet dashboard |
+| `elevator-ingest-missing` | no successful ingest for 2 hours (same rule) |
+
+The two silence alarms notify only while the schedules are enabled
+(`50-schedules.sh --enable` / `--disable` toggles their actions).
+
+Neither schedule retries, at either layer: the scheduler's retry policy is off
+and so is Lambda's own async retry (`put-function-event-invoke-config`, 0
+retries, 15 min maximum event age).
 
 Free-tier levers if the GB-s alarm fires: drop the orchestrator to 1024 MB
 (slower, ~2× duration, measured), lengthen the ingest cadence, or move the tier

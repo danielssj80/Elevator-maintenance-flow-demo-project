@@ -23,6 +23,7 @@ from botocore.exceptions import (
     EndpointConnectionError,
     NoCredentialsError,
     ReadTimeoutError,
+    ResponseStreamingError,
 )
 from fastapi import HTTPException
 
@@ -279,3 +280,81 @@ def test_the_run_endpoint_uses_the_configured_transport(monkeypatch):
     service = get_inference_service(db=None)
 
     assert isinstance(service._client, LambdaInferenceClient)
+
+
+# ── Failures while reading the answer ────────────────────────────────────────
+
+
+class BrokenPayload:
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    def read(self) -> bytes:
+        raise self._exc
+
+
+class RawLambda(StubLambda):
+    """Answers with an arbitrary payload object or raw bytes."""
+
+    def __init__(self, payload, function_error: str | None = None) -> None:
+        super().__init__()
+        self._payload = payload
+        self._fe = function_error
+
+    def invoke(self, **kwargs):
+        self.calls.append(kwargs)
+        response = {"StatusCode": 200, "Payload": self._payload}
+        if self._fe:
+            response["FunctionError"] = self._fe
+        return response
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ReadTimeoutError(endpoint_url="https://lambda.eu-north-1.amazonaws.com"),
+        ResponseStreamingError(error="connection reset"),
+    ],
+    ids=["read-timeout", "stream-reset"],
+)
+@pytest.mark.asyncio
+async def test_a_response_that_dies_while_being_read_is_unavailability(error):
+    """The HTTP transport's "connection dies mid-response" case: still 503, never 500."""
+    with pytest.raises(HTTPException) as exc:
+        await _client(RawLambda(BrokenPayload(error))).score(FEATURE_NAMES, ROWS)
+
+    assert exc.value.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [b"not json", b"null", b"[]", b'{"scores": [0.1]}', b'"a string"'],
+    ids=["not-json", "null", "list", "missing-keys", "string"],
+)
+@pytest.mark.asyncio
+async def test_a_malformed_answer_is_502_not_500(raw):
+    with pytest.raises(HTTPException) as exc:
+        await _client(RawLambda(io.BytesIO(raw))).score(FEATURE_NAMES, ROWS)
+
+    assert exc.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_a_function_error_with_an_unreadable_body_is_still_502():
+    stub = RawLambda(io.BytesIO(b"<html>oops"), function_error="Unhandled")
+
+    with pytest.raises(HTTPException) as exc:
+        await _client(stub).score(FEATURE_NAMES, ROWS)
+
+    assert exc.value.status_code == 502
+
+
+def test_botocore_makes_exactly_one_attempt():
+    """`max_attempts` counts RETRIES in botocore: 1 meant two calls, and a
+    read timeout re-invoked the scorer and doubled the wait."""
+    from app.services.inference_client import _lambda_boto_client
+
+    config = _lambda_boto_client().meta.config
+
+    assert config.retries.get("total_max_attempts") == 1
+    assert "max_attempts" not in config.retries

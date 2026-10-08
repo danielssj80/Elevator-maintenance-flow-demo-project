@@ -266,3 +266,55 @@ test('a finished run emits one EMF line per workflow, degraded runs flagged', as
   const clean = JSON.parse(workflowMetricLine({ workflow: 'telemetry-ingest', degraded: false, timestamp: 1 }));
   assert.equal(clean.WorkflowDegraded, 0);
 });
+
+// ── Deadline: always leave time to stop n8n gracefully ───────────────────────
+
+test('readiness and the webhook stop early enough to leave the stop reserve', async () => {
+  let clock = 0;
+  const seenSignals = [];
+  const { deps, log } = fakeDeps({
+    fetchAnswers: [() => response(200, 'application/json'), () => response(200, 'application/json')],
+  });
+  deps.now = () => clock;
+  deps.deadlineAt = 40_000; // the Lambda's deadline, 40 s away
+  deps.stopReserveMs = 25_000;
+  const fetchAnswers = [() => response(200, 'application/json'), () => response(200, 'application/json')];
+  deps.fetch = async (url, init) => {
+    log.push(url.endsWith('/healthz/readiness') ? 'ready?' : 'webhook');
+    if (init?.signal) seenSignals.push(init.signal);
+    return fetchAnswers.shift()();
+  };
+
+  await runInvocation({ event: { workflow: 'telemetry-ingest' }, requestId: 'r', deps });
+
+  assert.equal(seenSignals.length, 1, 'the webhook call must carry an abort signal');
+  assert.equal(seenSignals[0].aborted, false);
+});
+
+test('readiness gives up at the Lambda deadline minus the stop reserve, not at 60 s', async () => {
+  let clock = 0;
+  const { deps, log } = fakeDeps({ fetchAnswers: Array(1000).fill(() => response(503, 'application/json')) });
+  deps.now = () => (clock += 1_000);
+  deps.sleep = async () => {};
+  deps.deadlineAt = 30_000;
+  deps.stopReserveMs = 25_000;
+
+  await assert.rejects(
+    runInvocation({ event: { workflow: 'telemetry-ingest' }, requestId: 'r', deps }),
+    /not ready within/,
+  );
+  // ~5 s of budget at 1 s per probe, not 60.
+  assert.ok(log.filter((l) => l === 'ready?').length <= 6, log.length);
+  assert.equal(log.at(-1), 'stop');
+});
+
+test('a forced stop is reported as spans lost, not flushed', async () => {
+  const { deps, child } = fakeDeps({
+    fetchAnswers: [() => response(200, 'application/json'), () => response(200, 'application/json')],
+  });
+  child.stop = async () => ({ graceful: false });
+
+  const result = await runInvocation({ event: { workflow: 'telemetry-ingest' }, requestId: 'r', deps });
+
+  assert.equal(result.spansFlushed, false);
+});

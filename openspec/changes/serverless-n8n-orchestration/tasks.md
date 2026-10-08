@@ -151,17 +151,18 @@
 ## 11. Manual Endpoint and Function Testing (MANDATORY — AGENT MUST EXECUTE)
 
 > Order: 11.1 runs locally first. Steps 13 (docs) and 14 (adversarial review) are local too and run before the 11.0 gate, so the user is asked once, with everything else ready.
+> After the review (D-migration): only 11.2 and the pre-merge checks run before the merge. 11.3–11.5 need the new backend and run after 15.1–15.2, with the schedules still disabled.
 
 - [ ] 11.0 **Gate: ask the user for explicit go-ahead to create AWS resources.** Present the `--dry-run` output and the resource list. Stop here until they answer.
 - [x] 11.1 Local, before AWS. Backend in production mode with `INFERENCE_LAMBDA_FUNCTION` pointing at the scorer under the RIE through a local endpoint override. `POST /api/inference/run` with the token → 200 and scores changed. Scorer stopped → 503. Restore the DB. — 2026-10-08: backend via `docker compose run` with `DEPLOYMENT_ENVIRONMENT=production`, a fresh 43-char token, `INFERENCE_LAMBDA_FUNCTION=function` and `AWS_ENDPOINT_URL_LAMBDA` at the scorer image under the RIE (HTTP `INFERENCE_URL` pointed at an unresolvable host to prove it is unused): no token / wrong token → 401; token → 200 `scored: 70, out_of_scope: 30, model_version 8fbb94ff07b7` (scorer invoke 15 ms warm); scorer stopped → 503 `Inference service is unavailable`; `GET /api/elevators` → 100 items, shape unchanged. DB restored from a `pg_dump` taken before the run.
-- [ ] 11.2 After the go-ahead, run scripts 10–40 and 60–70 (schedules disabled), then confirm the SNS subscription with the user.
-- [ ] 11.3 Production:
+- [ ] 11.2 After the go-ahead, run scripts 10 → 20 → 30 → 40 `--bootstrap-image` → 50 → 60 → 70 (schedules disabled, silence alarms without actions); confirm the SNS subscription with the user. Pre-merge checks: invoke the scorer with the golden rows; invoke the orchestrator with `telemetry-ingest` (readings stored in production); read the backend's startup log on the host (closes the change-1 13.3 gap); verify the 26 × 1 h alarm was accepted.
+- [ ] 11.3 Production (after 15.2):
   - `POST /api/inference/run` with the token → 200, scores dated today.
   - Without the token → 401.
   - `GET /api/elevators` unchanged in shape.
   - Rate limit still 429 above the burst.
-- [ ] 11.4 Invoke the orchestrator once per workflow. Readings are stored with source `n8n-telemetry-ingest`, the digest is in the log, and one trace in Grafana Cloud runs n8n → backend → scorer → Postgres with no node spans.
-- [ ] 11.5 Failure checks:
+- [ ] 11.4 (After 15.2) Invoke the orchestrator once per workflow. Readings are stored with source `n8n-telemetry-ingest`, the digest is in the log, and one trace in Grafana Cloud runs n8n → backend → scorer → Postgres with no node spans.
+- [ ] 11.5 Failure checks (after 15.2):
   - Invoke with an unknown workflow → error, alarm fires.
   - Temporarily make the token parameter unreadable → error before n8n starts. Restore it.
 - [ ] 11.6 Create report `reports/YYYY-MM-DD-step-11-function-testing.md`, with timings, GB-s per invocation and the monthly extrapolation.
@@ -180,12 +181,12 @@
 
 ## 14. Independent Adversarial Review (MANDATORY)
 
-- [ ] 14.1 Run `/adversarial-review` as a cold-start agent in an isolated worktree.
-- [ ] 14.2 Fix every finding, rerun the evidence, and create report `reports/YYYY-MM-DD-step-14-adversarial-review.md`.
+- [x] 14.1 Run `/adversarial-review` as a cold-start agent in an isolated worktree. — FAIL: 6 Major, 8 Minor, 2 Questions.
+- [x] 14.2 Fix every finding, rerun the evidence, and create report `reports/2026-10-08-step-14-adversarial-review.md`. — All fixed; backend 365 passed, orchestrator + image 26, scorer 23; Q1/Q2 verified at 11.2/15.2.
 
 ## 15. Cutover and Verification
 
-- [ ] 15.1 Archive, commit and open the PR. **The merge needs the user's approval.**
+- [ ] 15.1 Commit and open the PR, unarchived: 11.3–11.5 and 15.3 can only run after the merge. **The merge needs the user's approval.** Archive in a follow-up PR once 15.3 is recorded.
 - [ ] 15.2 After the merge: CI updates both functions to the merge SHA (verify the image URIs).
 - [ ] 15.3 `50-schedules.sh --enable`. After 48 h: reading counts per lift ≈ 96, daily scores present on two consecutive days, no alarm, GB-s extrapolated to a month and recorded.
 - [ ] 15.4 Notion: mark the task Done and update M5 on the project page.

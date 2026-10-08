@@ -51,11 +51,11 @@ def test_no_guarded_action_has_a_wildcard_resource(path):
         if set(actions) <= RESOURCELESS_ACTIONS:
             continue
         for resource in resources:
-            assert resource != "*", f"{path.name}: {actions} on *"
-            assert not resource.endswith(":function:*"), f"{path.name}: {resource}"
-            assert "parameter/*" not in resource and not resource.endswith("parameter/elevator/*"), (
-                f"{path.name}: {resource}"
-            )
+            # Any `*`, not just a bare one: `parameter/elevator/orchestrator/*`
+            # would quietly cover the ingest token. The one allowed form is a
+            # named log group's streams, `...:log-group:<name>:*`.
+            log_streams = ":log-group:" in resource and resource.endswith(":*") and resource.count("*") == 1
+            assert "*" not in resource or log_streams, f"{path.name}: {resource}"
         assert any(a.startswith(GUARDED_SERVICES) for a in actions)
 
 
@@ -101,3 +101,24 @@ def test_the_scheduler_trust_is_pinned_to_this_account():
     [statement] = _statements(POLICIES / "scheduler-trust.json")
 
     assert statement["Condition"]["StringEquals"]["aws:SourceAccount"] == "${ACCOUNT_ID}"
+
+
+P = "arn:aws:ssm:${AWS_REGION}:${ACCOUNT_ID}:parameter/elevator/"
+LOGS = "arn:aws:logs:${AWS_REGION}:${ACCOUNT_ID}:log-group:/aws/lambda/"
+
+
+def _resources(name: str) -> set[str]:
+    return {r for s in _statements(POLICIES / name) for r in _as_list(s["Resource"])}
+
+
+def test_each_function_reads_exactly_its_parameters_and_writes_its_own_logs():
+    """Pinned sets, so any added resource — wildcard or not — is a test change
+    someone has to make on purpose."""
+    otel = {P + "otel/grafana-otlp-endpoint", P + "otel/grafana-otlp-auth"}
+
+    assert _resources("orchestrator-function.json") == otel | {
+        P + "orchestrator/ingest-token",
+        LOGS + "elevator-orchestrator:*",
+    }
+    assert _resources("scorer-function.json") == otel | {LOGS + "elevator-scorer:*"}
+    assert _resources("host-read-secrets.json") == otel | {P + "orchestrator/ingest-token"}

@@ -33,7 +33,9 @@ for (const [key, value] of Object.entries(process.env)) {
 const workflows = JSON.parse(readFileSync('/tmp/workflows.json', 'utf8')).map((wf) => ({
   id: wf.id,
   active: wf.active,
-  nodes: wf.nodes.map((n) => ({ name: n.name, type: n.type, disabled: !!n.disabled, path: n.parameters?.path })),
+  nodes: wf.nodes.map((n) => ({
+    name: n.name, type: n.type, disabled: !!n.disabled, path: n.parameters?.path, url: n.parameters?.url,
+  })),
 }));
 const credentials = JSON.parse(readFileSync('/tmp/credentials.json', 'utf8')).map((c) => ({
   id: c.id, type: c.type, data: c.data,
@@ -44,6 +46,5 @@ console.log(JSON.stringify({ workflows, credentials, secretHits: hits, env: {
   N8N_OTEL_TRACES_INCLUDE_NODE_SPANS: process.env.N8N_OTEL_TRACES_INCLUDE_NODE_SPANS,
   N8N_AGENTS_TRACING_RECORD_INPUTS: process.env.N8N_AGENTS_TRACING_RECORD_INPUTS,
   N8N_AGENTS_TRACING_RECORD_OUTPUTS: process.env.N8N_AGENTS_TRACING_RECORD_OUTPUTS,
-  N8N_BLOCK_ENV_ACCESS_IN_NODE: process.env.N8N_BLOCK_ENV_ACCESS_IN_NODE,
-  ELEVATOR_API_BASE_URL: process.env.ELEVATOR_API_BASE_URL,
+  N8N_BLOCK_ENV_ACCESS_IN_NODE: process.env.N8N_BLOCK_ENV_ACCESS_IN_NODE ?? null,
 } }));

@@ -104,6 +104,10 @@ finally:
   SIGTERM; await exit (deadline 20 s, then SIGKILL and report spans lost)
 log the workflow's final output (digest) and timings; return them
 ```
+**Deadline.** The bootstrap passes the Runtime API's `Lambda-Runtime-Deadline-Ms` to the handler. The readiness wait and the webhook call (an `AbortSignal` timeout) end early enough to leave a 25 s stop reserve: the 20 s stop deadline plus margin. A slow Bedrock call then ends as a failed invocation with a graceful stop, not as a Lambda timeout that kills n8n before its spans are exported. A forced stop is reported as `spansFlushed: false`.
+
+**No retries at either layer.** The scheduler invokes asynchronously, so Lambda's own async retry policy (default 2 retries, events kept 6 h) applies on top of the schedule's. `40-lambda.sh` sets the function's event-invoke config to 0 retries and a 900 s maximum event age.
+
 Function settings: 2048 MB, 120 s timeout (worst measured run ×4), no VPC, reserved concurrency 1 where the account quota allows it. A new account's concurrency quota is 10, all of which must stay unreserved, and AWS then refuses the reservation. The script warns and continues: parallel invocations run in separate sandboxes, each with its own `/tmp` and n8n, so an overlap costs GB-s but corrupts nothing (ingest is idempotent and inference runs are atomic and non-overlapping in the backend).
 
 ### D3 — Webhook Trigger beside the existing triggers; Schedule disabled only in the image
@@ -115,13 +119,12 @@ A test asserts both invariants:
 
 The local webhook is reachable on the developer's n8n at `:5678/webhook/<slug>`, which is harmless: the stack is local and the write endpoints are still token-guarded.
 
-### D4 — Backend address and execution identity via expressions
-- **URLs.** HTTP node URLs become `={{ $env.ELEVATOR_API_BASE_URL || 'http://backend:8000' }}/api/...`.
-  - n8n 2.x blocks `$env` in expressions by default (`N8N_BLOCK_ENV_ACCESS_IN_NODE`). The Lambda image and the local compose both set it to `false`, so the definitions are identical in both places.
-  - If the running image refuses this despite the flag, the fallback is a build-time substitution of the literal URL in the seed stage, with the same test.
-- **Execution id.** The `X-N8N-Execution-Id` header becomes `={{ $('Webhook').isExecuted ? $('Webhook').first().json.body.invocationId : $execution.id }}`, so production sends the Lambda request id and local runs keep n8n's id.
+### D4 — Backend address fixed at build; execution identity via an expression
+- **URLs.** The repository definitions keep the literal local address `http://backend:8000/api/...`. The image's seed stage (`orchestrator/seed/prepare-workflows.mjs`) rewrites it to the build argument `ELEVATOR_API_BASE_URL`, which defaults to `https://elevator.dsaavedra.dev`. It fails the build on any HTTP node whose URL does not start with the local address.
+  - *Rejected, after the independent review:* reading `$env.ELEVATOR_API_BASE_URL` at run time. It works with `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` (verified in 2.37.6), but lifting that block lets any expression or Code node read the whole process environment. In the Lambda that environment holds the ingest token, the OTLP auth header and the AWS session, and the workflow output is logged. `$env` stays blocked everywhere.
+- **Execution id.** The `X-N8N-Execution-Id` header becomes `={{ $('Webhook').isExecuted ? $('Webhook').first().json.body.invocationId : $execution.id }}`, so production sends the Lambda request id and local runs keep n8n's id. This needs no environment access.
 
-Both expressions get verified against the running image before they are relied on (memory: read the running image, not the docs).
+Verified against the running image before relying on it (memory: read the running image, not the docs).
 
 ### D5 — Scorer as a Lambda: same `Scorer`, new handler, AWS base image
 - **Image.** `backend/inference/Dockerfile.lambda` is built `FROM public.ecr.aws/lambda/python:3.12`, which ships its own runtime client, plus `inference/requirements.txt` and the model.
@@ -192,6 +195,9 @@ The threshold is 70 % × 400,000 / 30 ≈ 9,333 GB-s per day.
 **Other alarms:**
 - **Errors.** `Errors > 0`, per function, 1-hour period. Missing data is treated as not breaching, because there are no errors when nothing runs.
 - **Missed daily run.** `Invocations` cannot tell the workflows apart: ingest every 30 minutes would keep it above zero forever. The handler therefore emits one CloudWatch Embedded Metric Format line per finished run (`Elevator/Orchestrator` · `WorkflowSucceeded`, `WorkflowDegraded`, dimension `Workflow`). The alarm fires when `WorkflowSucceeded{Workflow=daily-inference-and-digest}` is < 1 in each of 26 hourly periods, with missing data treated as **breaching**. A schedule that silently stops then raises an alarm instead of going quiet.
+- **Ingest silence.** The same metric with `Workflow=telemetry-ingest`, < 1 in each of 2 hourly periods, missing data breaching. Ingest every 30 minutes is the main production feature, and the error alarms cannot see a schedule that stopped.
+- **Silence alarms notify only while scheduled.** Both silence alarms are created with actions disabled unless the ingest schedule is enabled. `50-schedules.sh --enable` / `--disable` toggles their actions, so the time between provisioning and cutover sends no alarm emails.
+- **Evaluation length.** 26 × 1 h = 93,600 s exceeds a day. PutMetricAlarm allows up to 7 days for periods of an hour or more. This is verified at provisioning: `60-alarms.sh` fails loudly if AWS refuses, and the fallback is 13 × 2 h.
 - **Degraded runs.** `WorkflowDegraded` (an agent node failed and the run continued, e.g. no digest) is recorded but does not page. It is visible on the metric and in the log line.
 
 ### D10 — Production OTel: traces only, direct, best-effort
@@ -210,7 +216,7 @@ The SDK's OTLP exporters read `OTEL_EXPORTER_OTLP_HEADERS` from the environment 
 A new workflow, `lambda-images.yml`, runs on every push to `main`. It is **not** a job inside `build-images.yml`: `deploy.yml` runs on that workflow's success, so a failing Lambda job there would block the application deploy. The new workflow has its own concurrency group. It:
 - `permissions: id-token: write`;
 - assumes `vars.AWS_DEPLOY_ROLE_ARN`;
-- builds with the classic `docker build` (no buildx attestations: Lambda rejects an image index carrying provenance manifests);
+- builds with `docker build --provenance=false --sbom=false`. Lambda accepts a single image manifest, and BuildKit wraps the image in an index whenever it attaches attestations. Docker 29 with the containerd store does that even for a plain `docker build`: verified locally, the descriptor is `vnd.oci.image.index.v1+json` without the flags and a single `vnd.oci.image.manifest.v1+json` with them. `40-lambda.sh --bootstrap-image` uses the same flags;
 - logs in to ECR;
 - builds and pushes both images by SHA;
 - calls `aws lambda update-function-code` on both;
@@ -234,15 +240,24 @@ The workflow **fails** if the functions do not exist yet. A merge before provisi
 
 ## Migration Plan
 
-1. Merge nothing to `main` until steps 2–4 have been approved and run, because the Lambda image workflow fails loudly without functions (D11). The application deploy is unaffected either way.
-2. With the user's go-ahead, run `deploy/aws/` scripts 10–40 and 60–70 against the account. Schedules stay disabled.
-3. Invoke each function once by hand:
-   - the scorer through a production `POST /api/inference/run` with the token;
-   - the orchestrator with each workflow.
+Production checks that need the new backend can only run **after** the merge: until then production runs `main`'s backend (no Lambda transport) and `main`'s compose (no `INFERENCE_LAMBDA_FUNCTION`). The order is therefore provision, merge with schedules disabled, verify, then enable.
 
-   Then verify the trace in Grafana Cloud and the data in production.
-4. Merge the PR. CI publishes images and updates the functions.
-5. `50-schedules.sh --enable`. Observe for 48 h, then extrapolate GB-s to a month.
+1. **Provision (user's go-ahead).** `deploy/aws/` 10 → 20 → 30 → 40 `--bootstrap-image` → 50 (schedules created disabled) → 60 (silence alarms without actions) → 70.
+   - After 70 the backend on `main` holds the token, so the ingest and inference routes are registered behind it.
+   - Inference answers 503 until the merge, because `main` has no scorer transport. Only token holders can see that.
+2. **Pre-merge checks** (only what `main` supports):
+   - invoke `elevator-scorer` directly with the golden rows;
+   - invoke `elevator-orchestrator` with `telemetry-ingest` and check that readings are stored in production;
+   - read the backend's startup log line on the host.
+3. **Merge** (user's approval).
+   - The application deploy brings the Lambda transport and trace export.
+   - `lambda-images.yml` publishes both images and points the functions at the merge commit.
+4. **Post-merge checks:**
+   - a production `POST /api/inference/run` with the token → 200;
+   - the orchestrator with each workflow;
+   - one trace in Grafana Cloud: n8n → backend → scorer → Postgres;
+   - the failure checks.
+5. **Cutover.** `50-schedules.sh --enable`, which also turns on the silence alarms' actions. Observe for 48 h, then extrapolate GB-s to a month.
 
 **Rollback:**
 - `50-schedules.sh --disable` stops all scheduled work.

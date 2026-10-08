@@ -64,7 +64,13 @@ The system SHALL alarm, through an SNS topic with an email subscription, when ei
 - **Daily compute.** Daily Lambda compute across both functions exceeds 70 % of the free-tier allowance's daily pace. That is 400,000 GB-s per month, so roughly 9,300 GB-s per day.
 - **Function errors.** Either function reports any error in a period.
 
-The 70 % alarm is the agreed trigger to redesign before the free tier is exhausted. An alarm SHALL NOT be satisfiable by missing data, so a schedule that stops firing does not read as healthy.
+The system SHALL also alarm when scheduled work goes silent:
+- no successful daily run in 26 hours;
+- no successful ingest in 2 hours.
+
+These silence alarms SHALL treat missing data as breaching, so a schedule that stops firing does not read as healthy. They SHALL notify only while the schedules are enabled, so the time between provisioning and cutover is not a stream of alarm emails. Error alarms treat missing data as not breaching, because a period with no runs has no errors, and silence is the silence alarms' job.
+
+The 70 % alarm is the agreed trigger to redesign before the free tier is exhausted.
 
 #### Scenario: A failed invocation notifies
 - **WHEN** an orchestrator invocation fails
@@ -73,6 +79,14 @@ The 70 % alarm is the agreed trigger to redesign before the free tier is exhaust
 #### Scenario: Excess compute notifies before the free tier is spent
 - **WHEN** a day's GB-s exceeds 70 % of the daily free-tier pace
 - **THEN** the usage alarm enters ALARM
+
+#### Scenario: Ingest that stops is noticed within hours
+- **WHEN** no telemetry-ingest run succeeded in the last 2 hours while the schedules are enabled
+- **THEN** the ingest-silence alarm enters ALARM and notifies
+
+#### Scenario: Before cutover, silence does not notify
+- **WHEN** the schedules are disabled
+- **THEN** the silence alarms have their actions disabled
 
 #### Scenario: Silence is not health
 - **WHEN** no successful daily run was recorded in the last 26 hours

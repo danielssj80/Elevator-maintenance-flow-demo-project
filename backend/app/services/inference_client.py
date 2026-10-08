@@ -107,9 +107,10 @@ def _lambda_boto_client() -> Any:
         config=Config(
             connect_timeout=timeout,
             read_timeout=timeout,
-            # One attempt: a retried invoke doubles the wait for a scorer that
-            # is down, and the run endpoint is the caller's to retry.
-            retries={"max_attempts": 1},
+            # One attempt in total: a retried invoke doubles the wait for a
+            # scorer that is down, and the run endpoint is the caller's to
+            # retry. (`max_attempts` counts retries: 1 would mean two calls.)
+            retries={"total_max_attempts": 1},
         ),
     )
 
@@ -130,15 +131,16 @@ class LambdaInferenceClient:
         self, feature_names: list[str], rows: list[list[float]]
     ) -> tuple[list[float], list[list[float]], str]:
         body = await self._invoke(
-            {"operation": "score", "feature_names": feature_names, "rows": rows}
+            {"operation": "score", "feature_names": feature_names, "rows": rows},
+            expected=("scores", "contributions", "model_version"),
         )
         return body["scores"], body["contributions"], body["model_version"]
 
     async def feature_names(self) -> list[str]:
-        body = await self._invoke({"operation": "model"})
+        body = await self._invoke({"operation": "model"}, expected=("feature_names",))
         return body["feature_names"]
 
-    async def _invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _invoke(self, payload: dict[str, Any], expected: tuple[str, ...]) -> dict[str, Any]:
         # A direct invoke carries no HTTP headers, so W3C context rides in the
         # event; without it the scorer's span would be a detached root.
         carrier: dict[str, str] = {}
@@ -148,34 +150,53 @@ class LambdaInferenceClient:
         try:
             # boto3 is synchronous. anyio copies contextvars into the worker
             # thread, so the botocore client span still nests under the run.
-            response = await anyio.to_thread.run_sync(
-                lambda: self._client.invoke(
-                    FunctionName=self._function_name,
-                    InvocationType="RequestResponse",
-                    Payload=json.dumps(event).encode(),
-                )
-            )
+            # The payload is read inside the same try: a stream that dies while
+            # being read is the transport failing, exactly like a refused
+            # connection.
+            response, raw = await anyio.to_thread.run_sync(lambda: self._call(event))
         except (BotoCoreError, ClientError) as exc:
             # Unreachable endpoint, timeout, missing credentials, throttling,
-            # access denied, unknown function: in every case the scorer never
-            # ran, which is what 503 means here.
+            # access denied, unknown function, a reset mid-read: in every case
+            # no usable answer arrived, which is what 503 means here.
             raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL) from exc
 
-        body = json.loads(response["Payload"].read() or b"{}")
         if response.get("FunctionError"):
             raise HTTPException(
                 status_code=502,
                 detail="Inference service returned a function error",
             )
-        error = body.get("error") if isinstance(body, dict) else None
+        try:
+            body = json.loads(raw or b"null")
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            raise HTTPException(
+                status_code=502, detail="Inference service returned an unreadable answer"
+            )
+        error = body.get("error")
         if error:
             # The scorer refused the input (column order, unknown operation).
             # 502, the status the HTTP client gives the service's 422.
+            detail = error.get("detail", "") if isinstance(error, dict) else ""
             raise HTTPException(
                 status_code=502,
-                detail=f"Inference service rejected the request: {error.get('detail', '')}",
+                detail=f"Inference service rejected the request: {detail}",
+            )
+        missing = [key for key in expected if key not in body]
+        if missing:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Inference service answer lacks {', '.join(missing)}",
             )
         return body
+
+    def _call(self, event: dict[str, Any]) -> tuple[dict[str, Any], bytes]:
+        response = self._client.invoke(
+            FunctionName=self._function_name,
+            InvocationType="RequestResponse",
+            Payload=json.dumps(event).encode(),
+        )
+        return response, response["Payload"].read()
 
 
 def get_inference_client() -> InferenceClient | LambdaInferenceClient:

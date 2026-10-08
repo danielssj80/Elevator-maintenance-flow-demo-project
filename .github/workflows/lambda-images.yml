@@ -38,20 +38,22 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Plain `docker build`, not build-push-action: buildx attaches provenance
-      # attestations as an image index, and Lambda rejects an index.
+      # Lambda accepts a single image manifest, not an index. BuildKit wraps the
+      # image in an index whenever it attaches provenance or SBOM attestations,
+      # which Docker 29 with the containerd store does by default, even for a
+      # plain `docker build`. Both flags, on every build of a Lambda image.
       - name: Build and push orchestrator image
         env:
           IMAGE: ${{ steps.ecr.outputs.registry }}/elevator-orchestrator:${{ github.sha }}
         run: |
-          docker build -f orchestrator/Dockerfile -t "$IMAGE" .
+          docker build --provenance=false --sbom=false -f orchestrator/Dockerfile -t "$IMAGE" .
           docker push "$IMAGE"
 
       - name: Build and push scorer image
         env:
           IMAGE: ${{ steps.ecr.outputs.registry }}/elevator-scorer:${{ github.sha }}
         run: |
-          docker build -f backend/inference/Dockerfile.lambda -t "$IMAGE" backend
+          docker build --provenance=false --sbom=false -f backend/inference/Dockerfile.lambda -t "$IMAGE" backend
           docker push "$IMAGE"
 
       # Both images exist before either function moves, so a failed build above

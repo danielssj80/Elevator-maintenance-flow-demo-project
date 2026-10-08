@@ -94,12 +94,13 @@ export async function waitForReadiness({ fetchFn, url, isAlive, sleep, deadlineM
 
 // Readiness can precede webhook registration by a few hundred ms; only a 404
 // means "not registered yet". Anything else is the answer.
-export async function callWebhook({ fetchFn, url, body, sleep, maxNotRegistered = 50 }) {
+export async function callWebhook({ fetchFn, url, body, sleep, maxNotRegistered = 50, timeoutMs }) {
   for (let attempt = 0; ; attempt++) {
     const response = await fetchFn(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      ...(timeoutMs !== undefined ? { signal: AbortSignal.timeout(Math.max(1, timeoutMs)) } : {}),
     });
     if (response.status !== 404 || attempt >= maxNotRegistered) {
       const text = await response.text();
@@ -128,6 +129,11 @@ export async function runInvocation({ event, requestId, deps }) {
 
   deps.prepareUserFolder();
   const child = deps.startN8n(childEnv);
+  // Lambda kills the sandbox at its deadline, and a killed n8n never reaches
+  // the shutdown hook that exports its spans. Every wait below therefore ends
+  // early enough to leave `stopReserveMs` for a graceful stop.
+  const budget = () =>
+    deps.deadlineAt === undefined ? Infinity : deps.deadlineAt - deps.now() - (deps.stopReserveMs ?? 25_000);
   let output;
   let stopped;
   try {
@@ -136,7 +142,7 @@ export async function runInvocation({ event, requestId, deps }) {
       url: `${deps.baseUrl}/healthz/readiness`,
       isAlive: () => child.isAlive(),
       sleep: deps.sleep,
-      deadlineMs: deps.readinessDeadlineMs,
+      deadlineMs: Math.min(deps.readinessDeadlineMs, budget()),
       now: deps.now,
     });
     output = await callWebhook({
@@ -144,6 +150,7 @@ export async function runInvocation({ event, requestId, deps }) {
       url: `${deps.baseUrl}/webhook/${workflow}`,
       body: { invocationId: requestId },
       sleep: deps.sleep,
+      timeoutMs: Number.isFinite(budget()) ? budget() : undefined,
     });
   } finally {
     // Before returning, on success and on failure alike: spans are exported in

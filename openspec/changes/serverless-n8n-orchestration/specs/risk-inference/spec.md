@@ -47,6 +47,18 @@ A failure the service itself reports, as opposed to one the transport reports, i
 - **THEN** the endpoint responds with HTTP 503
 - **AND** the database is left exactly as it was
 
+#### Scenario: The scoring function's answer dies while being read
+- **WHEN** the invocation succeeds but reading its payload times out or the stream is reset
+- **THEN** the endpoint responds with HTTP 503, never 500
+
+#### Scenario: The scoring function's answer is malformed
+- **WHEN** the payload is not JSON, is not an object, or lacks the expected keys
+- **THEN** the endpoint responds with HTTP 502, never 500
+
+#### Scenario: The scorer is invoked once per call
+- **WHEN** an invocation times out
+- **THEN** the backend does not invoke the function a second time
+
 #### Scenario: The scoring function reports an error
 - **WHEN** the function runs and returns a function error
 - **THEN** the endpoint responds with HTTP 502, not 503

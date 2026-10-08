@@ -41,7 +41,11 @@ for (;;) {
   const next = await request('GET', `${base}/invocation/next`);
   const requestId = next.headers['lambda-runtime-aws-request-id'];
   try {
-    const result = await handler(JSON.parse(next.body || '{}'), { awsRequestId: requestId });
+    const deadline = Number(next.headers['lambda-runtime-deadline-ms']);
+    const result = await handler(JSON.parse(next.body || '{}'), {
+      awsRequestId: requestId,
+      deadlineMs: Number.isFinite(deadline) && deadline > 0 ? deadline : undefined,
+    });
     await request('POST', `${base}/invocation/${requestId}/response`, JSON.stringify(result));
   } catch (err) {
     console.error(JSON.stringify({ requestId, error: String(err?.message ?? err) }));

@@ -56,7 +56,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.ELEVATOR_API_BASE_URL || 'http://backend:8000' }}/api/inference/run",
+        "url": "http://backend:8000/api/inference/run",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {},
@@ -87,7 +87,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $env.ELEVATOR_API_BASE_URL || 'http://backend:8000' }}/api/elevators",
+        "url": "http://backend:8000/api/elevators",
         "options": {},
         "sendHeaders": true,
         "headerParameters": {

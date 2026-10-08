@@ -18,7 +18,7 @@
 - Orchestrator handler tests: 18 passed, 4 skipped (image tests, no image set)
 - Orchestrator handler + image tests: 22 passed
 - Scorer tests in the Lambda image: 23 passed (golden vectors + Lambda handler)
-- shellcheck: clean
+- shellcheck: clean **when run from `deploy/aws/`**. Correction (step 14): from the repository root, as CI runs it, it failed with SC1091 on every script. Fixed with `deploy/aws/.shellcheckrc` (`source-path=SCRIPTDIR`) and `shellcheck -x`.
 - Coverage: not measured separately; every new guard has its mutation recorded on its task line (tasks 1.4, 2.3, 3.4, 4.6, 5.5, 7.4).
 
 ## DB State

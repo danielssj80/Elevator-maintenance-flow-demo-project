@@ -45,6 +45,12 @@ ORCHESTRATOR_TIMEOUT_S=120
 SCORER_MEMORY_MB=1024
 SCORER_TIMEOUT_S=30
 ALARM_TOPIC=elevator-alarms
+# Alarms on scheduled work that went silent. They notify only while the
+# schedules are enabled (50-schedules.sh toggles them), so the days between
+# provisioning and cutover are not one alarm email after another.
+SILENCE_ALARMS=(elevator-daily-run-missing elevator-ingest-missing)
+INGEST_SCHEDULE=elevator-telemetry-ingest
+DAILY_SCHEDULE=elevator-daily-inference
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

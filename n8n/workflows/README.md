@@ -12,18 +12,18 @@ Three things in every definition exist for that:
   (`telemetry-ingest`, `daily-inference-and-digest`), responding with the last
   node's output. It is wired to the same first node as the Schedule Trigger.
   The name is load-bearing: the execution-id expression below refers to it.
-- **The backend address is an expression**:
-  `{{ $env.ELEVATOR_API_BASE_URL || 'http://backend:8000' }}`. Unset locally;
-  the Lambda image sets the production origin. n8n blocks `$env` unless
-  `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, and a blocked read fails the execution
-  rather than falling back.
+- **The backend address is the local one**, `http://backend:8000`. The Lambda
+  image build rewrites it to the production origin
+  (`orchestrator/seed/prepare-workflows.mjs`). No workflow reads `$env`: n8n's
+  default block stays on, because in the Lambda the process environment holds
+  the ingest token, the OTLP header and the AWS session.
 - **Every HTTP node sends `X-N8N-Execution-Id` and `X-N8N-Workflow-Id`.** The
   execution id is the webhook body's `invocationId` when the Webhook started the
   run (the Lambda request id: a fresh production database numbers every
   execution `1`) and n8n's own id otherwise.
 
-`backend/tests/unit/test_workflow_definitions.py` asserts all three, and that the
-Schedule stays enabled here.
+`backend/tests/unit/test_workflow_definitions.py` asserts all three, that no
+definition contains `$env`, and that the Schedule stays enabled here.
 
 Every file here is produced by `scripts/export-n8n-workflow.sh`, which strips
 credential blocks, `meta.instanceId`, `versionId` and pinned data, and forces

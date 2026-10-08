@@ -35,7 +35,8 @@ script = [
     "cd /opt/elevator",
     # The image of the deployed commit, as deploy.yml runs it; unset, compose
     # would fall back to :latest.
-    "export IMAGE_TAG=$(git rev-parse HEAD)",
+    "IMAGE_TAG=$(git rev-parse HEAD)",
+    "export IMAGE_TAG",
     "flock -w 600 /opt/deploy.lock docker compose -f docker-compose.prod.yml up -d --no-deps backend",
     "echo written: $(grep -c -E '^(TELEMETRY_INGEST_TOKEN|OTEL_EXPORTER_OTLP_ENDPOINT|OTEL_EXPORTER_OTLP_HEADERS)=' \"$F\") of 3",
 ]
@@ -52,6 +53,13 @@ fi
 
 COMMAND_ID=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
   --comment "Write host env from SSM" --parameters "$COMMANDS" --query Command.CommandId --output text)
+# The waiter fails on a failed command; the status below is what decides.
 aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" || true
 aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
   --query '{status: Status, out: StandardOutputContent, err: StandardErrorContent}' --output json
+STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+  --query Status --output text)
+if [[ "$STATUS" != Success ]]; then
+  echo "host env command finished with status $STATUS" >&2
+  exit 1
+fi

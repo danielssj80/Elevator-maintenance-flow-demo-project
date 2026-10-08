@@ -71,7 +71,9 @@ jobs:
         run: node --test "orchestrator/**/*.test.mjs"
 
       - name: Shellcheck AWS provisioning scripts
-        run: shellcheck deploy/aws/*.sh
+        # -x follows `source lib.sh`; deploy/aws/.shellcheckrc resolves it
+        # relative to each script, so this works from the repository root.
+        run: shellcheck -x deploy/aws/*.sh
 
   scorer:
     name: scorer

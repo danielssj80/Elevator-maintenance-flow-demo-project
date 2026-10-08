@@ -233,20 +233,16 @@ def test_the_otel_module_is_enabled_and_tracing_is_on():
         assert environment.get("N8N_OTEL_ENABLED") == "true"
 
 
-def test_main_and_worker_can_read_the_backend_address_from_the_environment():
-    """The workflows build every backend URL from `$env.ELEVATOR_API_BASE_URL`.
-
-    n8n 2.x blocks `$env` in expressions by default, and a blocked read is not a
-    fallback to the default address: the execution fails (verified in the
-    2.37.6 image). In queue mode the worker evaluates the expressions, so both
-    processes need it. The orchestrator Lambda image sets the same flag.
+def test_expressions_cannot_read_the_process_environment():
+    """n8n's default blocks `$env` in expressions and Code nodes. Lifting it
+    would let any node read what the process holds: here the encryption key, in
+    the Lambda the ingest token, the OTLP auth header and the AWS session. The
+    workflows need nothing from the environment (the image build rewrites the
+    backend address), so the default stays.
     """
     for service in ("n8n", "n8n-worker"):
         env = _service_environment(DEV_COMPOSE, service)
-        assert env.get("N8N_BLOCK_ENV_ACCESS_IN_NODE") == "false", service
-        # Locally the expression's default applies; setting it here would only
-        # be a second place to keep in step with the compose network.
-        assert "ELEVATOR_API_BASE_URL" not in env, service
+        assert env.get("N8N_BLOCK_ENV_ACCESS_IN_NODE", "true") != "false", service
 
 
 def test_prod_backend_exports_traces_only_and_scores_through_the_lambda():

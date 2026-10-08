@@ -2,8 +2,10 @@
 # Alarms, sent by email through SNS:
 #   - any error in either function (1 h);
 #   - daily GB-s above 70 % of the free tier's daily pace (400,000 GB-s / 30);
-#   - no successful daily run in 26 hours (missing data = breaching, so a
-#     schedule that silently stops is an alarm, not a quiet dashboard).
+#   - no successful daily run in 26 hours, or no successful ingest in 2 hours
+#     (missing data = breaching, so a schedule that silently stops is an
+#     alarm, not a quiet dashboard). These two notify only while the
+#     schedules are enabled; see SILENCE_ALARMS in lib.sh.
 #
 # ALARM_EMAIL must be set on the first run; the subscription then has to be
 # confirmed from the email AWS sends.
@@ -53,12 +55,30 @@ run aws cloudwatch put-metric-alarm --alarm-name elevator-lambda-daily-gbs \
   --comparison-operator GreaterThanThreshold --treat-missing-data notBreaching \
   --alarm-actions "$TOPIC_ARN"
 
-say "alarm elevator-daily-run-missing"
+# Silence alarms carry actions only while scheduled work is switched on.
+SILENCE_ACTIONS=--no-actions-enabled
+if [[ "$DRY_RUN" == 0 ]] && [[ "$(aws scheduler get-schedule --name "$INGEST_SCHEDULE" \
+     --query State --output text 2>/dev/null || true)" == ENABLED ]]; then
+  SILENCE_ACTIONS=--actions-enabled
+fi
+
 # WorkflowSucceeded is emitted by the orchestrator handler (EMF), per workflow:
 # Invocations alone would stay above zero on ingest runs forever.
+# 26 x 1 h = 93,600 s of evaluation: PutMetricAlarm allows up to 7 days for
+# periods of an hour or more (verified at provisioning; the call fails loudly
+# otherwise).
+say "alarm elevator-daily-run-missing"
 run aws cloudwatch put-metric-alarm --alarm-name elevator-daily-run-missing \
   --namespace Elevator/Orchestrator --metric-name WorkflowSucceeded \
   --dimensions Name=Workflow,Value=daily-inference-and-digest \
   --statistic Sum --period 3600 --evaluation-periods 26 --datapoints-to-alarm 26 \
   --threshold 1 --comparison-operator LessThanThreshold --treat-missing-data breaching \
-  --alarm-actions "$TOPIC_ARN"
+  --alarm-actions "$TOPIC_ARN" "$SILENCE_ACTIONS"
+
+say "alarm elevator-ingest-missing"
+run aws cloudwatch put-metric-alarm --alarm-name elevator-ingest-missing \
+  --namespace Elevator/Orchestrator --metric-name WorkflowSucceeded \
+  --dimensions Name=Workflow,Value=telemetry-ingest \
+  --statistic Sum --period 3600 --evaluation-periods 2 --datapoints-to-alarm 2 \
+  --threshold 1 --comparison-operator LessThanThreshold --treat-missing-data breaching \
+  --alarm-actions "$TOPIC_ARN" "$SILENCE_ACTIONS"

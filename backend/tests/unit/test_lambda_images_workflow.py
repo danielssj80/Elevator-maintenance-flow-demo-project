@@ -68,3 +68,24 @@ def test_it_is_not_part_of_the_workflow_the_deploy_waits_for():
     for marker in ("update-function-code", "amazon-ecr-login", "id-token"):
         assert marker not in build, marker
     assert deploy["workflow_run"]["workflows"] == ["Build and push images"]
+
+
+def test_every_lambda_image_build_disables_attestations():
+    """Lambda takes a single image manifest. Docker 29 (containerd store) wraps
+    even a plain `docker build` in an index carrying provenance and SBOM
+    attestations, and Lambda rejects that at create or update time — after the
+    push, so CI would be green up to the last step. Verified locally: without
+    the flags the descriptor is `vnd.oci.image.index.v1+json`, with them a
+    single `vnd.oci.image.manifest.v1+json`.
+    """
+    sources = [LAMBDA_IMAGES, WORKFLOWS.parents[1] / "deploy" / "aws" / "40-lambda.sh"]
+    builds = [
+        line.strip()
+        for path in sources
+        for line in path.read_text().splitlines()
+        if "docker build" in line and not line.strip().startswith(("#", "echo"))
+    ]
+
+    assert len(builds) == 4, builds
+    for line in builds:
+        assert "--provenance=false" in line and "--sbom=false" in line, line

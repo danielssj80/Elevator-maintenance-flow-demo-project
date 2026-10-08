@@ -10,6 +10,8 @@ The system SHALL run production workflows inside an AWS Lambda function whose co
 
 No orchestrator state SHALL persist between invocations, and no editor SHALL be exposed.
 
+Every wait SHALL end early enough to leave time for that graceful stop before the function's deadline. Lambda kills the sandbox at the deadline, and a killed orchestrator exports no spans. A stop that had to be forced SHALL be reported as spans lost.
+
 The handler SHALL treat as a failure any webhook response that is not HTTP 200 with a JSON body, because a starting orchestrator answers 200 with a plain-text "starting up" page. It SHALL stop the orchestrator on every path, including failures, because a process left running in a reused sandbox answers the next invocation's readiness check falsely.
 
 #### Scenario: An invocation runs the requested workflow
@@ -31,6 +33,11 @@ The handler SHALL treat as a failure any webhook response that is not HTTP 200 w
 - **WHEN** an invocation fails at any step after the orchestrator was started
 - **THEN** no orchestrator process remains when the invocation returns
 - **AND** the next invocation in the same sandbox starts its own orchestrator rather than reusing a stale one
+
+#### Scenario: A slow run still stops gracefully
+- **WHEN** readiness or the webhook is still pending close to the function's deadline
+- **THEN** the handler gives up early enough to stop the orchestrator gracefully
+- **AND** a forced stop is reported as spans not flushed
 
 #### Scenario: The workflow result is recorded
 - **WHEN** an invocation completes
@@ -57,13 +64,21 @@ The system SHALL invoke the orchestrator function from two EventBridge Scheduler
 - telemetry ingest every 30 minutes;
 - inference and digest daily at 06:00 in Europe/Madrid.
 
-Neither schedule SHALL retry a failed invocation. A retried ingest is harmless only because ingest is idempotent, and a retried re-score would hide the failure the alarm exists to report.
+Neither schedule SHALL retry a failed invocation, at either layer:
+- the schedule's own retry policy is off;
+- the function's asynchronous-invocation retries are off, and an event older than 15 minutes is dropped rather than run late. The scheduler invokes asynchronously, so Lambda's default (2 retries, events kept for 6 hours) would otherwise apply.
+
+A retried re-score would run up to three times and hide the failure the alarm exists to report. A retried ingest re-runs the whole workflow, which mints fresh timestamps and therefore stores new readings.
 
 #### Scenario: Both schedules target the orchestrator with their workflow
 - **WHEN** the schedules are inspected
 - **THEN** the ingest schedule fires every 30 minutes with `{"workflow": "telemetry-ingest"}`
 - **AND** the daily schedule fires at 06:00 Europe/Madrid with `{"workflow": "daily-inference-and-digest"}`
 - **AND** both have retries disabled
+
+#### Scenario: A failed invocation is not retried by Lambda either
+- **WHEN** the orchestrator function's asynchronous-invocation configuration is inspected
+- **THEN** maximum retry attempts is 0 and maximum event age is 900 seconds
 
 ### Requirement: Production credentials are injected at invocation and their absence fails fast
 The system SHALL keep credential placeholders in the image with **empty** secret fields, and SHALL fill them at invocation through the orchestrator's credential-overwrite mechanism:
@@ -87,17 +102,24 @@ The handler SHALL refuse to start the orchestrator when the ingest token is miss
 - **WHEN** the orchestrator image's filesystem and environment are scanned
 - **THEN** no ingest token, Grafana Cloud credential or AWS key is present
 
-### Requirement: The backend address is configuration, not part of the workflow
-The system SHALL resolve the backend base URL in every workflow HTTP node from orchestrator configuration. It SHALL default to the local compose address and use the production HTTPS origin in the Lambda.
+### Requirement: The backend address is fixed at image build, and no workflow reads the environment
+The repository's workflow definitions SHALL call the local compose address (`http://backend:8000`). The Lambda image build SHALL rewrite that address in every HTTP node to the production origin.
+
+No workflow SHALL read the process environment (`$env`), and the orchestrator SHALL keep n8n's default that blocks it. In the Lambda, the process environment holds the ingest token, the OTLP auth header and the AWS session. An expression or Code node able to read `$env` could read all three and return them in the logged output.
 
 #### Scenario: Local and production share one definition
-- **WHEN** the same workflow definition runs locally and in the Lambda
+- **WHEN** the same repository definition runs locally and in the Lambda
 - **THEN** locally its HTTP nodes call `http://backend:8000`
-- **AND** in the Lambda they call `https://elevator.dsaavedra.dev`
+- **AND** in the image they call `https://elevator.dsaavedra.dev`
 
-#### Scenario: No node hard-codes the backend address
-- **WHEN** the workflow definitions are inspected
-- **THEN** no HTTP node URL contains a literal backend host
+#### Scenario: Nothing reads the environment
+- **WHEN** the workflow definitions, the local compose and the image are inspected
+- **THEN** no definition contains `$env`
+- **AND** neither the compose services nor the image lift `N8N_BLOCK_ENV_ACCESS_IN_NODE`
+
+#### Scenario: An unexpected address stops the build
+- **WHEN** an HTTP node's URL does not start with the local compose address
+- **THEN** the image build fails naming the node, rather than seeding a workflow that calls the wrong host
 
 ### Requirement: Where the orchestration tier runs is stated truthfully
 The system SHALL NOT run an orchestrator service on the production application host. The production compose definition SHALL remain free of orchestrator, queue and worker services.

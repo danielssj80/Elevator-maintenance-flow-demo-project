@@ -43,7 +43,8 @@ Each invocation (`{"workflow": "telemetry-ingest"}` or
 2. reads the ingest token and the Grafana Cloud OTLP settings from SSM (cached
    per sandbox) and fails, naming the parameter, if the token is missing;
 3. copies the seed to `/tmp`, starts `n8n start` with the secrets in the child's
-   environment only (`CREDENTIALS_OVERWRITE_DATA`, `N8N_OTEL_EXPORTER_OTLP_*`);
+   environment only (`CREDENTIALS_OVERWRITE_DATA`, `N8N_OTEL_EXPORTER_OTLP_*`),
+   where no workflow can read them because `$env` stays blocked;
 4. waits for `/healthz/readiness` to answer 200 **with JSON**;
 5. POSTs `{"invocationId": <Lambda request id>}` to the workflow's webhook and
    requires 200 + JSON back;
@@ -70,7 +71,10 @@ or the image build, and each has a test.
 | An n8n left alive in a reused sandbox answers the next readiness probe | stop in `finally`, on every path |
 | A fresh database numbers every execution `1` | HTTP nodes send the webhook's `invocationId` as `X-N8N-Execution-Id` |
 | Role credentials are temporary | the `aws` placeholder has `temporaryCredentials: true`; the overwrite carries `sessionToken` |
-| n8n 2.x blocks `$env` in expressions, and a blocked read **fails** the execution | `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` in the image and in `docker-compose.yml` |
+| The process environment holds the token, the OTLP header and the AWS session, and any expression could read `$env` if it were allowed | `$env` stays **blocked** (n8n's default); the backend address is rewritten into the HTTP nodes at image build instead |
+| A schedule falls inside an invocation's lifetime | Schedule Triggers are disabled in the seeded copy |
+| Lambda retries an async invocation twice by default, on top of the scheduler | the function's event-invoke config: 0 retries, 15 min maximum event age |
+| Lambda kills the sandbox at its deadline, before n8n's shutdown hook | readiness and webhook waits end 25 s before the deadline; a forced stop reports `spansFlushed: false` |
 
 ### Running the production shape locally
 
@@ -88,8 +92,8 @@ read-only root filesystem and only `/tmp` writable, as in
 `openspec/changes/archive/*-serverless-n8n-orchestration/reports/`.
 
 Production is unreachable from the **local** workflows: they address
-`http://backend:8000` unless `ELEVATOR_API_BASE_URL` is set, and only the
-Lambda image sets it.
+`http://backend:8000`, and only the Lambda image build rewrites that to the
+production origin.
 
 ## The stack
 

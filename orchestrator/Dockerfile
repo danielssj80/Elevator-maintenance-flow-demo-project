@@ -19,13 +19,16 @@ RUN npm install --omit=dev --no-audit --no-fund --no-save @aws-sdk/client-ssm@3.
 # placeholders with EMPTY secret fields, filled at invocation through
 # CREDENTIALS_OVERWRITE_DATA (which only fills empty fields).
 FROM ${N8N_IMAGE} AS seed
+# The backend origin the seeded workflows call; rewritten into the HTTP nodes
+# here, at build time (seed/prepare-workflows.mjs), so nothing reads $env.
+ARG ELEVATOR_API_BASE_URL=https://elevator.dsaavedra.dev
 USER root
 RUN mkdir -p /opt/n8n-seed /opt/seed-input && chown -R node:node /opt/n8n-seed /opt/seed-input
 USER node
 COPY --chown=node:node n8n/workflows/ /opt/seed-src/
 COPY --chown=node:node orchestrator/seed/ /opt/seed/
 ENV N8N_USER_FOLDER=/opt/n8n-seed DB_TYPE=sqlite N8N_DIAGNOSTICS_ENABLED=false
-RUN node /opt/seed/prepare-workflows.mjs /opt/seed-src /opt/seed-input \
+RUN ELEVATOR_API_BASE_URL="$ELEVATOR_API_BASE_URL" node /opt/seed/prepare-workflows.mjs /opt/seed-src /opt/seed-input \
  && n8n import:credentials --input=/opt/seed/credentials.json \
  && for f in /opt/seed-input/*.json; do n8n import:workflow --input="$f"; done \
  && n8n publish:workflow --id=elevIngest00001 \
@@ -46,8 +49,6 @@ ENV N8N_SEED_FOLDER=/opt/n8n-seed \
     N8N_DIAGNOSTICS_ENABLED=false \
     N8N_PERSONALIZATION_ENABLED=false \
     N8N_VERSION_NOTIFICATIONS_ENABLED=false \
-    N8N_BLOCK_ENV_ACCESS_IN_NODE=false \
-    ELEVATOR_API_BASE_URL=https://elevator.dsaavedra.dev \
     N8N_ENABLED_MODULES=otel \
     N8N_OTEL_EXPORTER_SERVICE_NAME=n8n-lambda \
     N8N_OTEL_TRACES_PRODUCTION_ONLY=true \

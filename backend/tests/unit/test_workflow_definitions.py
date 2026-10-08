@@ -9,7 +9,6 @@ repository side of that bargain; the image side is checked in
 
 import json
 import pathlib
-import re
 
 import pytest
 
@@ -73,15 +72,18 @@ def test_the_schedule_stays_enabled_for_the_local_stack(workflow):
     assert not schedule.get("disabled", False)
 
 
-def test_no_http_node_hard_codes_the_backend_address(workflow):
+def test_http_nodes_use_the_local_address_and_never_read_the_environment(workflow):
+    """The repository holds the local compose address; the Lambda image build
+    rewrites it to the production origin (orchestrator/seed/prepare-workflows.mjs).
+
+    Nothing reads `$env`: allowing it would let any expression or Code node read
+    the ingest token, the OTLP auth header and the AWS credentials, all of which
+    are in n8n's environment in the Lambda.
+    """
     for node in _nodes_of(workflow, HTTP):
         url = node["parameters"]["url"]
-        assert url.startswith("={{ $env.ELEVATOR_API_BASE_URL || 'http://backend:8000' }}/api/"), (
-            f"{workflow['_slug']} / {node['name']}: {url}"
-        )
-        # Nothing after the expression may name a host either.
-        tail = url.split("}}", 1)[1]
-        assert not re.search(r"https?://", tail), f"{node['name']}: {url}"
+        assert url.startswith("http://backend:8000/api/"), f"{workflow['_slug']} / {node['name']}: {url}"
+    assert "$env" not in json.dumps(workflow), workflow["_slug"]
 
 
 def test_every_http_node_sends_the_execution_identity(workflow):
