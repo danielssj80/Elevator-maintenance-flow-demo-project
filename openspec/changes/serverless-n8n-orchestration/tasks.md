@@ -80,25 +80,32 @@
 
 ## 5. Orchestrator image and handler (TDD)
 
-- [ ] 5.1 Write failing `node:test` tests for the pure handler functions:
+- [x] 5.1 Write failing `node:test` tests for the pure handler functions (`orchestrator/runtime/lib.test.mjs`, 17 tests):
   - `resolveWorkflow`: known slugs accepted; unknown refused before anything spawns.
   - `buildCredentialOverwrite`: header credential from the token; AWS credential including `sessionToken`; a missing or empty token throws naming the parameter, not the value.
   - `isRealWebhookResponse`: 200 + JSON → true; 200 + text/html "starting up" → false; 503 → false.
   - Readiness polling: rejects non-JSON 200; aborts when the child exits.
   - Lifecycle: stop is called on every failure path (fake child process).
-- [ ] 5.2 Implement `orchestrator/runtime/{bootstrap,handler,lib}.mjs` (D1, D2, D7), starting from the spike's code.
-- [ ] 5.3 Implement `orchestrator/Dockerfile` with the seed stage that disables the Schedule Triggers (D1, D3), plus the credential placeholders with empty secret fields.
-- [ ] 5.4 Write failing image tests (pytest, skipped when Docker is unavailable, run in CI):
+- [x] 5.2 Implement `orchestrator/runtime/{bootstrap,handler,lib}.mjs` (D1, D2, D7), starting from the spike's code.
+- [x] 5.3 Implement `orchestrator/Dockerfile` with the seed stage that disables the Schedule Triggers (D1, D3), plus the credential placeholders with empty secret fields.
+- [x] 5.4 Write failing image tests (`orchestrator/tests/image.test.mjs` with `node:test` instead of pytest — the backend test container has no Docker; skipped unless `ORCHESTRATOR_IMAGE` is set, run in CI):
   - every seeded Schedule Trigger is disabled;
   - each workflow has one enabled webhook;
   - every placeholder secret field is empty;
   - a scan of the image filesystem and environment finds no token pattern, no `Authorization=Basic` and no `AKIA`.
-- [ ] 5.5 Tests pass. Mutations, each expected red:
-  - leave one Schedule enabled;
-  - put a placeholder value in a secret field;
-  - drop the `finally` stop;
-  - accept any 200.
-- [ ] 5.6 Run the RIE end to end against the local stack (backend + scorer + Collector):
+- [x] 5.5 Tests pass. Mutations, each expected red:
+  - leave one Schedule enabled → 1 failed (image rebuilt);
+  - put a placeholder value in a secret field → 1 failed (image rebuilt);
+  - drop the `finally` stop → 2 failed;
+  - accept any 200 → 2 failed.
+  - Extra mutations: blank-token check weakened → 2; readiness accepts HTML → 1; dead child ignored → 1; session token dropped from the overwrite → 1; `temporaryCredentials: false` in the placeholder → 1 (image); node spans on → 1 (image).
+- [x] 5.6 Run the RIE end to end against the local stack (backend + scorer + Collector): — 2 GB / 1.17 vCPU, read-only rootfs, `/tmp` only, SSM served by a local stub via `AWS_ENDPOINT_URL_SSM`:
+  - `telemetry-ingest`: 24.1 s, 70 accepted, `spansFlushed: true`, peak 894 MB; Tempo trace `f7630ef9…` = n8n-lambda `workflow.execute` only (no node spans, `n8n.execution.id` 1) → backend spans carrying the Lambda request id.
+  - `daily-inference-and-digest` (warm sandbox): 24.1 s, re-score ran; digest agent failed on the stub's fake AWS keys and the run continued with `output.error` → handler now logs `degraded: true` for it. Peak 1,090 MB.
+  - Third invocation in the same sandbox: 23.9 s, fresh n8n (no stale process).
+  - Unknown workflow: 0.0 s error naming the accepted slugs. Found and fixed: the message quoted the previous invocation's n8n log (`logTail` now reset per invocation).
+  - Token parameter absent (cold sandbox): 0.3 s error naming `/elevator/orchestrator/ingest-token`, no n8n process started.
+  - GB-s: 24 s × 2 GB ≈ 48 GB-s per run × 1,470 runs/month ≈ 71k GB-s ≈ 18 % of the free tier.
   - Both workflows run. Readings are stored, or the fleet is re-scored.
   - Spans reach the Collector after return, with no node spans.
   - `X-N8N-Execution-Id` = request id.
