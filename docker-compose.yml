@@ -276,6 +276,11 @@ services:
       GENERIC_TIMEZONE: Europe/Madrid
       TZ: Europe/Madrid
       N8N_DIAGNOSTICS_ENABLED: "false"
+      # The workflows read the backend address as $env.ELEVATOR_API_BASE_URL
+      # (unset here, so it defaults to http://backend:8000; the orchestrator
+      # Lambda sets the production origin). n8n blocks $env by default, and a
+      # blocked read fails the execution rather than falling back.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
     env_file:
       - path: .env
         required: false
@@ -341,6 +346,11 @@ services:
       GENERIC_TIMEZONE: Europe/Madrid
       TZ: Europe/Madrid
       N8N_DIAGNOSTICS_ENABLED: "false"
+      # The workflows read the backend address as $env.ELEVATOR_API_BASE_URL
+      # (unset here, so it defaults to http://backend:8000; the orchestrator
+      # Lambda sets the production origin). n8n blocks $env by default, and a
+      # blocked read fails the execution rather than falling back.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
     env_file:
       - path: .env
         required: false

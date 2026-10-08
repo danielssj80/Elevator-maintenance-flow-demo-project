@@ -26,6 +26,23 @@
     },
     {
       "parameters": {
+        "httpMethod": "POST",
+        "path": "telemetry-ingest",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "aaaaaaa1-0000-4000-8000-000000000008",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        200
+      ],
+      "webhookId": "aaaaaaa1-0000-4000-9000-000000000008"
+    },
+    {
+      "parameters": {
         "promptType": "define",
         "text": "Invent one plausible operating scenario for a lift fleet in Madrid right now. Answer only with the structured object.",
         "hasOutputParser": true,
@@ -77,8 +94,21 @@
     },
     {
       "parameters": {
-        "url": "http://backend:8000/api/elevators",
-        "options": {}
+        "url": "={{ $env.ELEVATOR_API_BASE_URL || 'http://backend:8000' }}/api/elevators",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Execution-Id",
+              "value": "={{ $('Webhook').isExecuted ? $('Webhook').first().json.body.invocationId : $execution.id }}"
+            },
+            {
+              "name": "X-N8N-Workflow-Id",
+              "value": "={{ $workflow.id }}"
+            }
+          ]
+        }
       },
       "id": "aaaaaaa1-0000-4000-8000-000000000005",
       "name": "Fetch fleet",
@@ -105,13 +135,26 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://backend:8000/api/telemetry/readings",
+        "url": "={{ $env.ELEVATOR_API_BASE_URL || 'http://backend:8000' }}/api/telemetry/readings",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ source: $json.source, readings: $json.readings }) }}",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Execution-Id",
+              "value": "={{ $('Webhook').isExecuted ? $('Webhook').first().json.body.invocationId : $execution.id }}"
+            },
+            {
+              "name": "X-N8N-Workflow-Id",
+              "value": "={{ $workflow.id }}"
+            }
+          ]
+        }
       },
       "id": "aaaaaaa1-0000-4000-8000-000000000007",
       "name": "Submit readings",
@@ -186,6 +229,17 @@
         [
           {
             "node": "Submit readings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Invent scenario",
             "type": "main",
             "index": 0
           }

@@ -63,19 +63,20 @@
 
 ## 4. Workflow definitions
 
-- [ ] 4.1 Write failing repository tests (`test_workflow_definitions.py`). Each workflow must:
+- [x] 4.1 Write failing repository tests (`test_workflow_definitions.py`; 8 red before the edit). Each workflow must:
   - have exactly one Webhook Trigger, with POST and path = slug, wired to the same node as its Schedule Trigger;
   - keep its Schedule Trigger enabled;
   - contain no literal backend host in any HTTP node URL;
   - send `X-N8N-Execution-Id` from the webhook's `invocationId` when present;
   - pass the existing secret/instance scrub checks.
-- [ ] 4.2 Verify in the running `n8nio/n8n:2.37.6` image that `$env` is readable with `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, and that the `$('Webhook').isExecuted` expression evaluates on both trigger paths. Record the result. If either fails, apply the D4 fallback.
-- [ ] 4.3 Edit both workflows in the local editor and export them with `scripts/export-n8n-workflow.sh`. Do not hand-edit node ids.
-- [ ] 4.4 `docker-compose.yml`: n8n services set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` (and `ELEVATOR_API_BASE_URL` unset → default). The `test_dev_compose.py` invariants (main/worker identical) still hold.
-- [ ] 4.5 Run both workflows on the local stack via the Schedule/Manual trigger *and* via the webhook. Readings are stored, the run completes, and the trace is linked.
-- [ ] 4.6 Tests pass. Mutations, each expected red:
+- [x] 4.2 Verify in the running `n8nio/n8n:2.37.6` image that `$env` is readable with `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, and that the `$('Webhook').isExecuted` expression evaluates on both trigger paths. Record the result. If either fails, apply the D4 fallback. — Verified in `n8nio/n8n:2.37.6` (probe workflow, two webhooks into one Set node): with the flag `false`, `$env` resolves and `execId` is the posted `invocationId` on the Webhook path and n8n's id (`2`) on the other path; with the default (`true`) the execution fails with HTTP 500, loudly, not a fallback. No fallback needed.
+- [x] 4.3 Edit both workflows in the local editor and export them with `scripts/export-n8n-workflow.sh`. Do not hand-edit node ids. — Done as a scripted JSON edit instead (one Webhook node per workflow with the next id in the file's existing deterministic sequence; URL and header changes on every HTTP node), then imported with `scripts/n8n-import-workflow.sh --activate` into the running local n8n to prove it loads and runs (4.5). No existing node id changed.
+- [x] 4.4 `docker-compose.yml`: n8n services set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` (and `ELEVATOR_API_BASE_URL` unset → default). The `test_dev_compose.py` invariants (main/worker identical) still hold.
+- [x] 4.5 Run both workflows on the local stack via the Schedule/Manual trigger *and* via the webhook. Readings are stored, the run completes, and the trace is linked. — Webhook `telemetry-ingest` (`invocationId=local-req-0001`): 70 accepted, trace `1c0d7cc4…` holds n8n `workflow.execute` (mode `webhook`) → backend `GET /api/elevators` + `POST /api/telemetry/readings`, both with `n8n.execution.id=local-req-0001`. Webhook `daily-inference-and-digest`: digest returned as the webhook response (Bedrock reached). Scheduled ingest at 13:45 UTC: 70 readings, trace `085bdc03…` mode `trigger` with `n8n.execution.id=348` on n8n and on both backend spans.
+- [x] 4.6 Tests pass. Mutations, each expected red:
   - delete one webhook;
   - hard-code `http://backend:8000`.
+  - Both were red by construction: the 8 failures in 4.1 were these exact states (no webhook, literal host).
 
 ## 5. Orchestrator image and handler (TDD)
 

@@ -229,3 +229,19 @@ def test_the_otel_module_is_enabled_and_tracing_is_on():
         environment = services[name]["environment"]
         assert "otel" in str(environment.get("N8N_ENABLED_MODULES", "")).split(",")
         assert environment.get("N8N_OTEL_ENABLED") == "true"
+
+
+def test_main_and_worker_can_read_the_backend_address_from_the_environment():
+    """The workflows build every backend URL from `$env.ELEVATOR_API_BASE_URL`.
+
+    n8n 2.x blocks `$env` in expressions by default, and a blocked read is not a
+    fallback to the default address: the execution fails (verified in the
+    2.37.6 image). In queue mode the worker evaluates the expressions, so both
+    processes need it. The orchestrator Lambda image sets the same flag.
+    """
+    for service in ("n8n", "n8n-worker"):
+        env = _service_environment(DEV_COMPOSE, service)
+        assert env.get("N8N_BLOCK_ENV_ACCESS_IN_NODE") == "false", service
+        # Locally the expression's default applies; setting it here would only
+        # be a second place to keep in step with the compose network.
+        assert "ELEVATOR_API_BASE_URL" not in env, service
