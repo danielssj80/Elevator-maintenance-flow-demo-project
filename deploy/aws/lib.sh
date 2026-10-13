@@ -1,12 +1,11 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034  # read by the scripts that source this file
-# Shared by every deploy/aws script: names, the dry-run switch, and helpers.
+# Shared by the deploy/aws scripts: names, the dry-run switch, and helpers.
 # Sourced, never executed.
 #
-# Every script is safe to re-run: it describes before it creates, and updates
-# in place what already exists. `--dry-run` prints each AWS call instead of
-# making it and treats every resource as absent, so the creation path is what
-# gets printed.
+# AWS resources are Terraform's (infra/terraform/). What stays here is what
+# must not pass through the Terraform state: secret values (30-ssm.sh), the
+# host env file (70-host-env.sh), and the one-off bootstrap image push.
 
 set -euo pipefail
 
@@ -25,57 +24,16 @@ else
 fi
 
 INSTANCE_ID="${INSTANCE_ID:-i-01b732fefb1dd6303}"
-INSTANCE_ROLE="${INSTANCE_ROLE:-elevator-ssm-role}"
-DEPLOY_ROLE="${DEPLOY_ROLE:-github-actions-deploy}"
-BEDROCK_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/ElevatorBedrockInvokeNova"
 
 ORCHESTRATOR=elevator-orchestrator
 SCORER=elevator-scorer
-ORCHESTRATOR_ROLE=elevator-orchestrator-function
-SCORER_ROLE=elevator-scorer-function
-SCHEDULER_ROLE=elevator-scheduler-invoke
 REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
+# Created by 30-ssm.sh, never by Terraform (infra/terraform/data.tf explains).
 PARAM_INGEST_TOKEN=/elevator/orchestrator/ingest-token
 PARAM_OTEL_ENDPOINT=/elevator/otel/grafana-otlp-endpoint
 PARAM_OTEL_AUTH=/elevator/otel/grafana-otlp-auth
 
-ORCHESTRATOR_MEMORY_MB=2048
-ORCHESTRATOR_TIMEOUT_S=120
-SCORER_MEMORY_MB=1024
-SCORER_TIMEOUT_S=30
-ALARM_TOPIC=elevator-alarms
-# Alarms on scheduled work that went silent. They notify only while the
-# schedules are enabled (50-schedules.sh toggles them), so the days between
-# provisioning and cutover are not one alarm email after another.
-SILENCE_ALARMS=(elevator-daily-run-missing elevator-ingest-missing)
-INGEST_SCHEDULE=elevator-telemetry-ingest
-DAILY_SCHEDULE=elevator-daily-inference
-
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Run a mutating AWS call, or print it. Printed to stderr: callers silence the
-# call's JSON output with >/dev/null, which must not silence the dry run.
-run() {
-  if [[ "$DRY_RUN" == 1 ]]; then
-    { printf '+'; printf ' %q' "$@"; printf '\n'; } >&2
-  else
-    "$@"
-  fi
-}
-
-# True when the describe call succeeds. Always false in a dry run.
-exists() {
-  if [[ "$DRY_RUN" == 1 ]]; then
-    printf '? %s\n' "$*" >&2
-    return 1
-  fi
-  "$@" >/dev/null 2>&1
-}
-
-# A policy document with ACCOUNT_ID / AWS_REGION substituted.
-render() {
-  sed -e "s/\${ACCOUNT_ID}/${ACCOUNT_ID}/g" -e "s/\${AWS_REGION}/${AWS_REGION}/g" "$HERE/policies/$1"
-}
 
 say() { printf '== %s\n' "$*"; }

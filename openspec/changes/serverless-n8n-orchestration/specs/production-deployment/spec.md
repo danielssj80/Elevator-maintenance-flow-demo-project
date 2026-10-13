@@ -98,7 +98,7 @@ The system SHALL declare every AWS resource of the serverless tier in Terraform 
 
 Pre-existing resources (the EC2 instance, its role, the GitHub OIDC deploy role, the Bedrock policy) SHALL be referenced as data sources and SHALL NOT be created, modified or destroyed by this configuration, apart from attaching the new policies to the two existing roles.
 
-No secret value SHALL appear in the Terraform configuration, plan or state. Terraform declares the SSM parameters and ignores their values; a script writes the values. Terraform SHALL ignore the functions' image URI, which CI owns.
+No secret value SHALL appear in the Terraform configuration, plan or state. The SSM parameters SHALL therefore not be Terraform resources at all: the provider refreshes a parameter's decrypted value into the state even when its changes are ignored. A script creates them; Terraform refers to them by ARN only. Terraform SHALL ignore the functions' image URI, which CI owns.
 
 #### Scenario: An apply is idempotent
 - **WHEN** `terraform apply` has completed and `terraform plan` is run again
@@ -110,7 +110,7 @@ No secret value SHALL appear in the Terraform configuration, plan or state. Terr
 
 #### Scenario: The state holds no secret
 - **WHEN** the state is inspected after the secret values were written
-- **THEN** the SSM parameters hold only the placeholder value
+- **THEN** it contains no `aws_ssm_parameter` resource or data source
 - **AND** no ingest token, Grafana credential or AWS key appears in it
 
 #### Scenario: Existing resources are untouched

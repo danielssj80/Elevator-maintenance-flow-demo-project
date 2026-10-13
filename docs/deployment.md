@@ -52,39 +52,66 @@ The host's copies in `/etc/elevator/.env` are written **on the instance**, from
 SSM, by `deploy/aws/70-host-env.sh` through Run Command: the values never pass
 through an operator's machine or a command parameter.
 
-### Provisioning (`deploy/aws/`)
+### Provisioning: Terraform (`infra/terraform/`) plus two scripts
 
-Idempotent scripts; each describes before it creates, and `--dry-run` prints
-every AWS call without making it. Policy documents are in
-`deploy/aws/policies/` and asserted for least privilege by
-`backend/tests/unit/test_aws_policies.py`.
+Every AWS resource of this tier is declared in Terraform. The pre-existing
+resources (this instance, `elevator-ssm-role`, `github-actions-deploy`,
+`ElevatorBedrockInvokeNova`, Route 53) are only **referenced** as data sources;
+Terraform attaches its new policies to the two roles and touches nothing else.
+Importing them is a separate backlog task.
 
-| Script | Creates / updates |
+| Where | What |
 |---|---|
-| `10-ecr.sh` | two repositories, lifecycle: keep 3 images |
-| `20-iam.sh` | function roles, scheduler role, `ElevatorInvokeScorer` + `ElevatorHostReadSecrets` on `elevator-ssm-role`, `ElevatorLambdaImagesDeploy` on `github-actions-deploy` |
-| `30-ssm.sh` | the three parameters (token generated; Grafana values prompted, silently) |
-| `40-lambda.sh --bootstrap-image` | both functions (the first run builds and pushes the images itself) |
-| `50-schedules.sh` | both schedules, created **disabled**; `--enable` / `--disable` |
-| `60-alarms.sh` | SNS email topic and alarms (needs `ALARM_EMAIL` once) |
-| `70-host-env.sh` | `/etc/elevator/.env` entries from SSM, then recreates the backend |
+| `infra/terraform/` | ECR repositories (lifecycle: keep 3; repository policy for Lambda pulls), IAM roles and policies (documents in `deploy/aws/policies/`, asserted by `test_aws_policies.py`), both functions and their log groups, the orchestrator's async retry config (0 retries, 15 min max age), both schedules, SNS topic and alarms |
+| `deploy/aws/30-ssm.sh` | creates the three SSM parameters and writes their values: the token generated (≥ 32 chars), the Grafana values prompted silently. `--rotate` / `--reset-otel` replace them |
+| `deploy/aws/70-host-env.sh` | writes `/etc/elevator/.env` from SSM **on the instance** (Run Command) and recreates the backend |
+| `deploy/aws/push-bootstrap-images.sh` | once: builds and pushes both images for the commit the functions are created from |
 
-**First-time order:** 10 → 20 → 30 → 40 `--bootstrap-image` → 50 (schedules
-created disabled) → 60 → 70. Before the merge only what `main` supports can be
-checked: a direct scorer invocation and a `telemetry-ingest` invocation.
-Inference answers 503 until the merge brings the Lambda transport. Merge, check
-a production re-score, both workflows and a trace in Grafana Cloud, then
-`50-schedules.sh --enable` as the cutover. That also turns on the silence
-alarms' notifications.
+**Why the SSM parameters are not Terraform resources.** Anything Terraform
+manages lands in the state in clear, including a parameter's decrypted value:
+`ignore_changes = [value]` only hides the diff, the provider still refreshes
+the value into the state on every plan. So the parameters belong to
+`30-ssm.sh`, and Terraform refers to them by ARN only.
 
-**Rollback:** `50-schedules.sh --disable` stops all scheduled work. Removing
+**State.** S3 bucket `elevator-tfstate-150911080650` (`eu-north-1`), created
+by hand once: public access blocked, versioned, SSE-S3, TLS-only, old versions
+expire after 90 days. Locking is S3-native (`use_lockfile`, Terraform ≥ 1.10).
+
+**First-time order:**
+
+```bash
+terraform -chdir=infra/terraform init
+terraform -chdir=infra/terraform apply -target=aws_ecr_repository.this   # repositories only
+deploy/aws/push-bootstrap-images.sh                                      # images for HEAD
+deploy/aws/30-ssm.sh                                                     # parameters + values
+terraform -chdir=infra/terraform plan -var image_tag=$(git rev-parse HEAD) -var alarm_email=...
+terraform -chdir=infra/terraform apply -var image_tag=$(git rev-parse HEAD) -var alarm_email=...
+deploy/aws/70-host-env.sh
+terraform -chdir=infra/terraform plan -var image_tag=... -var alarm_email=...   # must be empty
+```
+
+Schedules are created disabled and the silence alarms without notifications.
+Before the merge only what `main` supports can be checked: a direct scorer
+invocation and a `telemetry-ingest` invocation; inference answers 503 until the
+merge brings the Lambda transport. Merge, check a production re-score, both
+workflows and a trace in Grafana Cloud, then cut over:
+
+```bash
+terraform -chdir=infra/terraform apply -var schedules_enabled=true -var image_tag=... -var alarm_email=...
+```
+
+**Rollback:** the same apply with `schedules_enabled=false` stops all
+scheduled work and silences the silence alarms. Removing
 `TELEMETRY_INGEST_TOKEN` from `/etc/elevator/.env` and recreating the backend
 returns the ingest and inference endpoints to 404. Neither touches the
 instance's services.
 
 **Rotating the ingest token:** `30-ssm.sh --rotate`, then `70-host-env.sh`. The
-orchestrator picks the new value up at its next cold start; force one with any
-configuration update (re-running `40-lambda.sh` does it).
+orchestrator picks the new value up at its next cold start.
+
+**CI** checks the configuration on every pull request with `terraform fmt
+-check` and `terraform validate` (no credentials). `plan` and `apply` are
+deliberate local steps.
 
 ### Alarms (SNS → email)
 
@@ -96,11 +123,11 @@ configuration update (re-running `40-lambda.sh` does it).
 | `elevator-ingest-missing` | no successful ingest for 2 hours (same rule) |
 
 The two silence alarms notify only while the schedules are enabled
-(`50-schedules.sh --enable` / `--disable` toggles their actions).
+(`schedules_enabled` in Terraform turns their actions on and off).
 
 Neither schedule retries, at either layer: the scheduler's retry policy is off
-and so is Lambda's own async retry (`put-function-event-invoke-config`, 0
-retries, 15 min maximum event age).
+and so is Lambda's own async retry (`aws_lambda_function_event_invoke_config`,
+0 retries, 15 min maximum event age).
 
 Free-tier levers if the GB-s alarm fires: drop the orchestrator to 1024 MB
 (slower, ~2× duration, measured), lengthen the ingest cadence, or move the tier

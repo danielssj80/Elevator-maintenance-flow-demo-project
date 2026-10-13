@@ -78,7 +78,7 @@ def test_every_lambda_image_build_disables_attestations():
     the flags the descriptor is `vnd.oci.image.index.v1+json`, with them a
     single `vnd.oci.image.manifest.v1+json`.
     """
-    sources = [LAMBDA_IMAGES, WORKFLOWS.parents[1] / "deploy" / "aws" / "40-lambda.sh"]
+    sources = [LAMBDA_IMAGES, WORKFLOWS.parents[1] / "deploy" / "aws" / "push-bootstrap-images.sh"]
     builds = [
         line.strip()
         for path in sources

@@ -173,7 +173,7 @@ Verified against the running image before relying on it (memory: read the runnin
 *Decision revised with the user on 2026-10-08, before any resource existed.* The first version used idempotent AWS CLI scripts. The independent review found several defects in their own describe/create/update logic. The tier is about 20 interdependent resources, and drift detection, an honest plan and a clean destroy are what Terraform provides and the scripts had to re-implement.
 
 **Layout.** `infra/terraform/`, one root module, AWS provider pinned, Terraform ≥ 1.10:
-- `backend.tf` (S3 backend), `providers.tf`, `variables.tf`, `data.tf` (existing resources), `ecr.tf`, `iam.tf`, `ssm.tf`, `lambda.tf`, `scheduler.tf`, `alarms.tf`, `outputs.tf`.
+- `backend.tf` (S3 backend), `providers.tf`, `variables.tf`, `data.tf` (existing resources), `ecr.tf` (repositories, lifecycle, and the repository policy that lets Lambda pull, so CI's `UpdateFunctionCode` never needs `ecr:SetRepositoryPolicy`), `iam.tf`, `lambda.tf`, `scheduler.tf`, `alarms.tf`, `outputs.tf`.
 
 **State.** S3 bucket `elevator-tfstate-150911080650` in `eu-north-1`:
 - created by hand once (bootstrap: Terraform cannot store its state in a bucket it creates);
@@ -185,7 +185,7 @@ Verified against the running image before relying on it (memory: read the runnin
 **Policies.** The JSON documents under `deploy/aws/policies/` stay the single source, loaded with `templatefile()`, so `test_aws_policies.py` keeps asserting exactly what is applied.
 
 **What Terraform must not own:**
-- *Secret values.* Anything Terraform manages is stored in the state in clear. `aws_ssm_parameter` resources are created with a placeholder and `lifecycle { ignore_changes = [value] }`; `30-ssm.sh` writes the real values, and the token is generated there. No secret value is ever in the state or the plan.
+- *Secret values, and the SSM parameters themselves.* Anything Terraform manages is stored in the state in clear. That includes values Terraform only *reads*: `aws_ssm_parameter` with `ignore_changes = [value]` still refreshes the decrypted value into the state on every plan, because `ignore_changes` only suppresses the diff. So Terraform does not manage the parameters at all. `30-ssm.sh` creates them (SecureString, the token generated there), and Terraform refers to them only by ARN in the IAM policies. No secret value is ever in the state or the plan.
 - *The function image.* CI moves `image_uri` on every merge (`lambda-images.yml`); Terraform declares the function and `ignore_changes = [image_uri]`.
 - *The host env file.* `70-host-env.sh` (SSM Run Command, read on the instance).
 
@@ -261,7 +261,7 @@ Production checks that need the new backend can only run **after** the merge: un
 1. **Provision (user's go-ahead).**
    - The user creates the state bucket by hand (D8).
    - `terraform init`, then the bootstrap order: ECR → push images → full `plan` reviewed → `apply`. Schedules are disabled and the silence alarms have no actions.
-   - `30-ssm.sh` writes the secret values; `70-host-env.sh` writes the host env file.
+   - `30-ssm.sh` creates the SSM parameters and their values (before the functions are invoked); `70-host-env.sh` writes the host env file.
    - A second `terraform plan` is empty.
    - After `70-host-env.sh` the backend on `main` holds the token, so the ingest and inference routes are registered behind it.
    - Inference answers 503 until the merge, because `main` has no scorer transport. Only token holders can see that.

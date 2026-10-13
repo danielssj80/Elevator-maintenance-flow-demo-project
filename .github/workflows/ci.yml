@@ -92,3 +92,26 @@ jobs:
             "pip install -q pytest==8.3.4 && cp -r /src /tmp/w && cd /tmp/w \
              && cp ml/model.joblib inference/model.joblib \
              && python -m pytest -q -p no:cacheprovider inference/tests"
+
+  terraform:
+    name: terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+
+      - name: Format
+        run: terraform fmt -check -recursive -diff
+
+      # No backend and no credentials: validate checks the configuration only.
+      # plan/apply are deliberate local steps (docs/deployment.md).
+      - name: Validate
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate

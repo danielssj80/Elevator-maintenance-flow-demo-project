@@ -35,12 +35,12 @@ The decision taken with the user: run both as **AWS Lambda functions inside the 
   - two ECR repositories with lifecycle rules;
   - two functions with least-privilege roles, and the function event-invoke config (no async retries);
   - the schedules (created disabled) and their role;
-  - the SSM parameters' existence and permissions, **not their values**;
+  - the permissions on the SSM parameters, referenced by ARN. The parameters themselves are created by a script, because the provider would refresh their decrypted values into the state;
   - the policy attachments on the existing instance and GitHub OIDC roles;
   - CloudWatch alarms for daily GB-s above 70 % of the free-tier pace, for any function error and for silent schedules, sent through SNS email.
 - **Existing resources are referenced, not managed.** The EC2 instance, `elevator-ssm-role`, `github-actions-deploy`, `ElevatorBedrockInvokeNova` and Route 53 are read as data sources. Importing them is a separate backlog task.
 - **Two scripts remain, for what must stay out of the Terraform state:**
-  - `deploy/aws/30-ssm.sh` writes the secret values (the generated token; the Grafana values entered silently);
+  - `deploy/aws/30-ssm.sh` creates the SSM parameters and writes their values (the generated token; the Grafana values entered silently);
   - `deploy/aws/70-host-env.sh` writes the host env file from SSM on the instance.
 - **BREAKING (spec):** *The orchestration tier is local-only and says so* is replaced, because production now runs scheduled work. The production compose still defines no orchestrator service, and the host gains no process.
 

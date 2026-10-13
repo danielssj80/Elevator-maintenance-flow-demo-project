@@ -129,11 +129,11 @@
 
 ## 7b. Terraform (D8)
 
-- [ ] 7b.1 State bucket: the user creates `elevator-tfstate-150911080650` by hand (commands handed over 2026-10-08): private, versioned, SSE-S3, TLS-only.
-- [ ] 7b.2 Write `infra/terraform/` (backend, providers pinned, variables, data sources for the existing resources, ECR, IAM from `deploy/aws/policies/*.json` via `templatefile`, SSM parameters with `ignore_changes = [value]`, Lambda with `ignore_changes = [image_uri]` + event-invoke config, scheduler gated by `schedules_enabled`, alarms with silence actions gated by the same variable, outputs).
-- [ ] 7b.3 `deploy/aws/push-bootstrap-images.sh` (build without attestations, push by SHA). Remove scripts 10/20/40/50/60 and their `lib.sh` helpers that only they used; keep `30-ssm.sh` and `70-host-env.sh`.
-- [ ] 7b.4 Static tests: no secret-looking literal in `infra/terraform/`; every SSM parameter ignores `value`; every Lambda ignores `image_uri`; the existing roles appear only as data sources; the schedules' state and the silence alarms' actions both follow `schedules_enabled`; the orchestrator's event-invoke config has 0 retries. Mutation per guard.
-- [ ] 7b.5 `terraform fmt -check` and `terraform validate` (`-backend=false`) locally in the official image, and as a CI job in `ci.yml` replacing the shellcheck targets that no longer exist (shellcheck stays for the remaining scripts).
+- [x] 7b.1 State bucket: the user creates `elevator-tfstate-150911080650` by hand (commands handed over 2026-10-08): private, versioned, SSE-S3, TLS-only. — Created 2026-10-13; versioning Enabled, public access fully blocked, AES256 with bucket key (SSE-C blocked by AWS default).
+- [x] 7b.2 Write `infra/terraform/` (backend, providers pinned, variables, data sources for the existing resources, ECR, IAM from `deploy/aws/policies/*.json` via `templatefile`, **no SSM parameter resources** (the provider would refresh decrypted values into the state; `30-ssm.sh` creates them), ECR repository policy for Lambda pulls, Lambda with `ignore_changes = [image_uri]` + event-invoke config, scheduler gated by `schedules_enabled`, alarms with silence actions gated by the same variable, outputs).
+- [x] 7b.3 `deploy/aws/push-bootstrap-images.sh` (build without attestations, push by SHA). Remove scripts 10/20/40/50/60 and their `lib.sh` helpers that only they used; keep `30-ssm.sh` and `70-host-env.sh`.
+- [x] 7b.4 Static tests (`test_terraform_config.py`, 9 tests; mutations each 1 failed: SSM parameter added, orchestrator image not ignored, schedules hard-enabled, silence alarms always notify, Lambda async retries 2, existing role managed, schedules default on): no secret-looking literal in `infra/terraform/`; no `aws_ssm_parameter` resource or data source exists; every Lambda ignores `image_uri`; the existing roles appear only as data sources; the schedules' state and the silence alarms' actions both follow `schedules_enabled`; the orchestrator's event-invoke config has 0 retries. Mutation per guard.
+- [x] 7b.5 `terraform fmt -check` and `terraform validate` (`-backend=false`) locally in the official image, and as a CI job in `ci.yml` replacing the shellcheck targets that no longer exist (shellcheck stays for the remaining scripts). — Terraform 1.15.8, AWS provider 6.68.0 (lock file committed): fmt clean, validate OK. Shellcheck for the three remaining scripts runs in CI (Docker unavailable locally on 2026-10-13).
 
 ## 8. Production compose and docs-adjacent config
 
@@ -196,7 +196,7 @@
 
 ## 15. Cutover and Verification
 
-- [ ] 15.0 Docs follow Terraform: `docs/deployment.md` (bucket, bootstrap order, cutover/rollback via `schedules_enabled`, rotation), `docs/orchestration.md` references; done with 7b, before the PR leaves draft.
+- [x] 15.0 Docs follow Terraform: `docs/deployment.md` (bucket, bootstrap order, cutover/rollback via `schedules_enabled`, rotation), `docs/orchestration.md` references; done with 7b, before the PR leaves draft.
 
 - [ ] 15.1 Commit and open the PR, unarchived: 11.3–11.5 and 15.3 can only run after the merge. **The merge needs the user's approval.** Archive in a follow-up PR once 15.3 is recorded.
 - [ ] 15.2 After the merge: CI updates both functions to the merge SHA (verify the image URIs).
