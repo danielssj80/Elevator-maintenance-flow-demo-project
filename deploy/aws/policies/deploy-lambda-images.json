@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrLoginHasNoResourceLevelPermission",
+      "Effect": "Allow",
+      "Action": ["ecr:GetAuthorizationToken"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PushTheTwoImages",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ],
+      "Resource": [
+        "arn:aws:ecr:${AWS_REGION}:${ACCOUNT_ID}:repository/elevator-orchestrator",
+        "arn:aws:ecr:${AWS_REGION}:${ACCOUNT_ID}:repository/elevator-scorer"
+      ]
+    },
+    {
+      "Sid": "MoveTheTwoFunctions",
+      "Effect": "Allow",
+      "Action": ["lambda:UpdateFunctionCode", "lambda:GetFunction"],
+      "Resource": [
+        "arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:elevator-orchestrator",
+        "arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:elevator-scorer"
+      ]
+    }
+  ]
+}

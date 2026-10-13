@@ -489,9 +489,30 @@ The failure is therefore not "no database spans" but "no idea which query ran or
 FastAPI app with no database session and no `DATABASE_URL`; it takes a matrix
 and returns scores and contributions. It is the only image carrying
 `model.joblib`. Keeping xgboost out of the runtime image saves ~300 MB on an
-image deployed to a ~916 MB-RAM instance and ~40 s of install on every CI run,
-for a capability production never invokes. It also earns a genuine multi-service
-trace, which is why the observability work has something to show.
+image deployed to a ~916 MB-RAM instance and ~40 s of install on every CI run.
+It also earns a genuine multi-service trace, which is why the observability work
+has something to show.
+
+**Two transports, one contract.** `get_inference_client()` in
+`app/services/inference_client.py` picks how the backend reaches the scorer:
+
+- `INFERENCE_LAMBDA_FUNCTION` set (production) → `LambdaInferenceClient`
+  invokes that AWS Lambda function with the instance role. boto3 is
+  synchronous, so the call runs through `anyio.to_thread` — the same rule as
+  Bedrock — and the W3C trace context travels in the payload, because a direct
+  invoke carries no HTTP headers.
+- unset or empty (local) → `InferenceClient` calls `INFERENCE_URL` over HTTP.
+
+Both keep the same failure contract, which the run endpoint returns unchanged:
+
+| Situation | Status |
+|---|---|
+| The scorer could not be reached: connection refused or reset, timeout, throttled, access denied, unknown function, no credentials | **503** — absent, not crashed |
+| The scorer ran and failed (HTTP error status, Lambda `FunctionError`) | **502** |
+| The scorer refused the input (column order; HTTP 422, or a Lambda `{"error": {"type": "client"}}` result) | **502**, with the scorer's detail |
+
+The Lambda handler (`inference/lambda_handler.py`) **returns** a refused input
+instead of raising it, so a caller's mistake never shows up as a function error.
 
 **Read column order from the model, never from a literal.** Build the feature
 matrix in the order the booster reports in `feature_names`, and reject a

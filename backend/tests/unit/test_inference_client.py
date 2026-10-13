@@ -1,7 +1,9 @@
-"""The scoring service is absent in production by design.
+"""The HTTP transport to the scoring service (the local stack's container).
 
-Unreachable therefore means 503 — a designed absence — and never 500 with a
-stack trace, which would report it as a crash.
+The scorer may be absent — no container runs on the production host, which
+invokes a Lambda instead (`test_inference_lambda_client.py`). Unreachable
+therefore means 503, an absence, and never 500 with a stack trace, which
+would report it as a crash.
 """
 
 import httpx

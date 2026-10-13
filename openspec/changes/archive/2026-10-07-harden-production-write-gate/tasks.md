@@ -85,4 +85,4 @@
 
 - [x] 13.1 Sync delta specs into `openspec/specs/`, archive the change (CLI; requirement renamed to "…reachable in production only behind a token")
 - [x] 13.2 Commit, push, open PR (merge needs user approval)
-- [ ] 13.3 After merge and deploy: verify production still answers 404 on `POST /api/telemetry/readings` and the startup log names the reason
+- [x] 13.3 After merge and deploy: verify production still answers 404 on `POST /api/telemetry/readings` and the startup log names the reason — 2026-10-08, deploy of `aaa0a61`: POST/GET `/api/telemetry/readings` and POST `/api/inference/run` → 404, `/health` and `/api/elevators` → 200. The startup log line was **not** read (no AWS CLI access from the agent's machine); it is read in `serverless-n8n-orchestration` 11.2, which needs host access anyway

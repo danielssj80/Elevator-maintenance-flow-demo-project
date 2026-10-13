@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadItsOwnSecrets",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameters"],
+      "Resource": [
+        "arn:aws:ssm:${AWS_REGION}:${ACCOUNT_ID}:parameter/elevator/orchestrator/ingest-token",
+        "arn:aws:ssm:${AWS_REGION}:${ACCOUNT_ID}:parameter/elevator/otel/grafana-otlp-endpoint",
+        "arn:aws:ssm:${AWS_REGION}:${ACCOUNT_ID}:parameter/elevator/otel/grafana-otlp-auth"
+      ]
+    },
+    {
+      "Sid": "WriteItsOwnLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:${AWS_REGION}:${ACCOUNT_ID}:log-group:/aws/lambda/elevator-orchestrator:*"
+    }
+  ]
+}

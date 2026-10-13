@@ -35,6 +35,17 @@ services:
       # every request to them then needs that token. This stack auto-deploys on
       # merge to the default branch. Do not set this to anything else.
       DEPLOYMENT_ENVIRONMENT: production
+      # Traces straight to Grafana Cloud: no Collector runs here. The endpoint
+      # (OTEL_EXPORTER_OTLP_ENDPOINT) and the auth header
+      # (OTEL_EXPORTER_OTLP_HEADERS) are secrets, written into
+      # /etc/elevator/.env from SSM by deploy/aws/70-host-env.sh. Metrics and
+      # logs stay off: with no Collector, nothing would select them.
+      OTEL_ENABLED: "true"
+      OTEL_METRICS_ENABLED: "false"
+      OTEL_LOGS_ENABLED: "false"
+      # No scoring container on this host: inference runs invoke the
+      # elevator-scorer Lambda with the instance role (ElevatorInvokeScorer).
+      INFERENCE_LAMBDA_FUNCTION: elevator-scorer
     # Bedrock env vars — add to /etc/elevator/.env on the EC2 instance:
     #   BEDROCK_REGION=eu-north-1
     #   BEDROCK_MODEL_ID=eu.amazon.nova-lite-v1:0

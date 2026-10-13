@@ -58,6 +58,11 @@ class Settings:
         "OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318"
     )
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "elevator-backend")
+    # Per-signal switches under OTEL_ENABLED. Local exports all three and lets
+    # the Collector choose what leaves the machine; production exports straight
+    # to Grafana Cloud with no Collector, so it turns metrics and logs off here.
+    otel_metrics_enabled: bool = os.getenv("OTEL_METRICS_ENABLED", "true").lower() == "true"
+    otel_logs_enabled: bool = os.getenv("OTEL_LOGS_ENABLED", "true").lower() == "true"
     otel_service_version: str = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
     # Fail-closed on purpose: classified by is_production(), so anything but
     # local/test/ci — including unset — is production. This value decides
@@ -76,10 +81,19 @@ class Settings:
     )
 
     # --- Inference (M5 - telemetry-ingestion-inference) ---------------------
-    # The scoring service is dev-only; production never has one, which is why
-    # an unreachable service is a 503 rather than an error worth paging on.
+    # Locally the scorer is the `inference` container at this URL. Production
+    # runs no scoring container and invokes the elevator-scorer Lambda instead
+    # (INFERENCE_LAMBDA_FUNCTION below). Either way an unreachable scorer is a
+    # 503: absent, not crashed.
     inference_url: str = os.getenv("INFERENCE_URL", "http://inference:8001")
     inference_timeout_seconds: int = int(os.getenv("INFERENCE_TIMEOUT_SECONDS", "30"))
+    # When set, the backend invokes this AWS Lambda function instead of calling
+    # INFERENCE_URL. Production sets it (no scoring container runs on the
+    # host); local leaves it unset and keeps the HTTP service.
+    inference_lambda_function: str | None = (
+        os.getenv("INFERENCE_LAMBDA_FUNCTION") or None
+    )
+    inference_lambda_region: str = os.getenv("INFERENCE_LAMBDA_REGION", "eu-north-1")
     # Readings older than this are pruned at the end of each successful run, so
     # an unattended local database stays bounded.
     telemetry_retention_days: int = int(os.getenv("TELEMETRY_RETENTION_DAYS", "30"))

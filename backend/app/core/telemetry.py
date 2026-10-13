@@ -187,11 +187,15 @@ def configure_telemetry(
         )
     trace.set_tracer_provider(_tracer_provider)
 
-    reader = metric_reader or PeriodicExportingMetricReader(
-        OTLPMetricExporter(endpoint=_signal_endpoint("/v1/metrics"))
-    )
-    _meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
-    metrics.set_meter_provider(_meter_provider)
+    # Metrics and logs can be switched off per signal (production: traces only).
+    # Off means no provider at all, so the instruments in metrics.py bind to the
+    # API's no-op provider rather than to one that exports nowhere.
+    if settings.otel_metrics_enabled:
+        reader = metric_reader or PeriodicExportingMetricReader(
+            OTLPMetricExporter(endpoint=_signal_endpoint("/v1/metrics"))
+        )
+        _meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
+        metrics.set_meter_provider(_meter_provider)
 
     # Console logging FIRST. `LoggingInstrumentor(set_logging_format=True)`
     # calls `logging.basicConfig`, which is a no-op once the root logger has any
@@ -208,18 +212,19 @@ def configure_telemetry(
     # LoggingInstrumentor alone only injects trace ids into the log FORMAT; it
     # does not ship anything. Without an explicit LoggerProvider the Collector's
     # logs pipeline receives nothing at all, silently.
-    _logger_provider = LoggerProvider(resource=resource)
-    # A seam for tests, matching the span and metric ones. Without it the test
-    # suite opens a real OTLP connection and ships every log record it produces
-    # under the production service name, indistinguishable from real traffic —
-    # and blocks for ~30s per run when no Collector is listening.
-    _logger_provider.add_log_record_processor(
-        log_record_processor
-        or BatchLogRecordProcessor(
-            OTLPLogExporter(endpoint=_signal_endpoint("/v1/logs"))
+    if settings.otel_logs_enabled:
+        _logger_provider = LoggerProvider(resource=resource)
+        # A seam for tests, matching the span and metric ones. Without it the
+        # test suite opens a real OTLP connection and ships every log record it
+        # produces under the production service name, indistinguishable from
+        # real traffic — and blocks for ~30s per run when no Collector listens.
+        _logger_provider.add_log_record_processor(
+            log_record_processor
+            or BatchLogRecordProcessor(
+                OTLPLogExporter(endpoint=_signal_endpoint("/v1/logs"))
+            )
         )
-    )
-    set_logger_provider(_logger_provider)
+        set_logger_provider(_logger_provider)
 
     # Opt into the STABLE HTTP semantic conventions before any instrumentor
     # initialises its stability singleton. Without this the instrumentation
@@ -262,11 +267,15 @@ def configure_telemetry(
     # lines therefore carry no trace id; the exported records do, via
     # otelTraceID/otelSpanID. Kept because the flag also governs handler
     # installation, not only formatting.
-    LoggingInstrumentor().instrument(set_logging_format=True)
-    _log_handler = next(
-        (h for h in logging.getLogger().handlers if isinstance(h, LoggingHandler)),
-        None,
-    )
+    #
+    # Skipped entirely with log export off: the handler would bind to the
+    # API's no-op provider and the console line carries no trace id anyway.
+    if settings.otel_logs_enabled:
+        LoggingInstrumentor().instrument(set_logging_format=True)
+        _log_handler = next(
+            (h for h in logging.getLogger().handlers if isinstance(h, LoggingHandler)),
+            None,
+        )
 
     _has_been_configured = True
 
