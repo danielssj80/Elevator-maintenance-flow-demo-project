@@ -89,3 +89,24 @@ test('the seed can be copied by a user that is not the image user', opts, () => 
   ], { encoding: 'utf8' }).trim();
   assert.equal(out, 'ok');
 });
+
+test('n8n becomes ready under Lambda limits: 1024 file descriptors, foreign uid', opts, () => {
+  // Lambda's nofile limit is 1024 and cannot be raised; Docker's default is far
+  // higher, so this passed under the RIE and failed in AWS with EMFILE while
+  // n8n processed the editor UI's assets. No UI runs in the Lambda.
+  const out = execFileSync('docker', [
+    'run', '--rm', '--user', '993:990', '--ulimit', 'nofile=1024:1024', '--read-only',
+    '--tmpfs', '/tmp:exec,mode=1777', '--entrypoint', 'sh', image, '-c',
+    `cp -r "$N8N_SEED_FOLDER" "$N8N_USER_FOLDER" && (n8n start >/tmp/n8n.log 2>&1 &)
+     for i in $(seq 1 90); do
+       if wget -qO- http://127.0.0.1:5678/healthz/readiness 2>/dev/null | grep -q ok; then echo ready; exit 0; fi
+       sleep 1
+     done
+     grep -m3 -E 'EMFILE|Error' /tmp/n8n.log; exit 1`,
+  ], { encoding: 'utf8', timeout: 150_000 }).trim();
+  assert.match(out, /ready$/);
+});
+
+test('the editor UI is disabled', opts, () => {
+  assert.equal(inspect().env.N8N_DISABLE_UI, 'true');
+});

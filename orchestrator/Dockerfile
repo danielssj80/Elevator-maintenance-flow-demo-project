@@ -54,6 +54,9 @@ ENV N8N_SEED_FOLDER=/opt/n8n-seed \
     N8N_DIAGNOSTICS_ENABLED=false \
     N8N_PERSONALIZATION_ENABLED=false \
     N8N_VERSION_NOTIFICATIONS_ENABLED=false \
+    # No editor in the Lambda; processing its assets at start-up opened more
+    # files than Lambda's fixed 1024-descriptor limit (EMFILE).
+    N8N_DISABLE_UI=true \
     N8N_ENABLED_MODULES=otel \
     N8N_OTEL_EXPORTER_SERVICE_NAME=n8n-lambda \
     N8N_OTEL_TRACES_PRODUCTION_ONLY=true \

@@ -47,4 +47,5 @@ console.log(JSON.stringify({ workflows, credentials, secretHits: hits, env: {
   N8N_AGENTS_TRACING_RECORD_INPUTS: process.env.N8N_AGENTS_TRACING_RECORD_INPUTS,
   N8N_AGENTS_TRACING_RECORD_OUTPUTS: process.env.N8N_AGENTS_TRACING_RECORD_OUTPUTS,
   N8N_BLOCK_ENV_ACCESS_IN_NODE: process.env.N8N_BLOCK_ENV_ACCESS_IN_NODE ?? null,
+  N8N_DISABLE_UI: process.env.N8N_DISABLE_UI ?? null,
 } }));
