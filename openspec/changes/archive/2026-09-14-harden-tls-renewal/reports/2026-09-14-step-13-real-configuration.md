@@ -99,9 +99,16 @@ having *"ran with error output"*, and nginx writes its reload notice to stderr �
 every successful renewal from now on would have been logged with the word "error"
 in the one mechanism whose failures already went unnoticed for three months. The
 hook now redirects `2>&1`; the exit status still decides success, only the label
-changes. **The instance is running the version without that redirect**; it is the
-same command with the same semantics, and the next deploy re-installs the corrected
-file.
+changes. **Confirmed after the merge** (task 13.8). The deploy re-installed the corrected
+hook, and the same dry-run now reads:
+
+```
+Hook 'deploy-hook' ran with output:
+ 2026/09/14 10:27:23 [notice] 39#39: signal process started
+```
+
+"ran with output", not "ran with error output", for the identical successful
+reload.
 
 ## 13.4 — One renewer, and the backup
 
@@ -118,19 +125,130 @@ requires. The `ls` failed because `sudo` applied only to the preceding command i
 that line — the operator's copy of the instruction, not a property of the host; the
 backup path is named in the installer's own output above.
 
-**Still to confirm** (three lines, recorded here when they come back):
+### 13.9 — Confirmed, with one command that asked the wrong question
 
-```bash
-sudo crontab -l; echo "exit: $?"
-sudo ls -l /root/crontab.bak.*
-sudo journalctl -u certbot-renew -n 20 --no-pager
+```
+$ sudo crontab -l
+(no output)
+
+$ sudo journalctl -u certbot-renew -n 20 --no-pager
+Sep 14 04:56:51 ... Starting certbot-renew.service - Renew the *.dsaavedra.dev Let's Encrypt certificate...
+Sep 14 04:56:52 ... certbot-renew.service: Deactivated successfully.
+Sep 14 04:56:52 ... Finished certbot-renew.service - Renew the *.dsaavedra.dev Let's Encrypt certificate.
+Sep 14 07:15:32 ... Starting certbot-renew.service - Renew the *.dsaavedra.dev Let's Encrypt certificate...
+Sep 14 07:15:34 ... certbot-renew.service: Deactivated successfully.
+Sep 14 07:15:34 ... Finished certbot-renew.service - Renew the *.dsaavedra.dev Let's Encrypt certificate.
 ```
 
-## 13.5 / 13.6 — Post-merge
+Both runs are there: 04:56 is the attended install, 07:15 is the deploy. Each one
+`Deactivated successfully` then `Finished`, which is systemd for exit 0. This is
+the question cron could not answer on this host — no `/var/log/cron`, no MTA — and
+it is answered, provided the reader has `sudo`, which is why the docs now insist
+on it.
 
-Open by construction: `deploy.yml`'s new steps run on a merge to `main`, and
-`tls-expiry-check.yml` can only be dispatched once it exists on the default branch.
-The agent executes and records both.
+No timer-triggered run appears yet; the first is due at 15:53 UTC.
+
+```
+$ sudo ls -l /root/crontab.bak.*
+ls: cannot access '/root/crontab.bak.*': No such file or directory
+```
+
+**That output does not mean the backup is missing.** The glob is expanded by the
+*calling* shell, which is the unprivileged SSM user and cannot read `/root`;
+matching nothing, it passes the pattern through literally, and `ls` — running as
+root — then looks for a file named exactly `crontab.bak.*`. The day before, the
+same command without `sudo` failed with `Permission denied` for the same reason.
+Expanding as root gives the real answer:
+
+```bash
+sudo sh -c 'ls -l /root/crontab.bak.*'
+```
+
+Worth recording rather than quietly fixing, because it is the third time in this
+change that a command answered a different question than the one being asked —
+after `journalctl` reporting `-- No entries --` without privileges, and certbot
+labelling a successful reload as "error output". All three are the same failure:
+reading a signal produced in a context other than the one you are standing in,
+which is precisely how a renewal that had never worked was certified as working.
+
+```
+$ sudo sh -c 'ls -l /root/crontab.bak.*'
+-rw-r--r--. 1 root root 149 Sep 14 04:56 /root/crontab.bak.20260914T045652Z.3213611
+```
+
+There it is: 149 bytes, written at 04:56 by the attended install, carrying the PID
+suffix that exists because a step-12 mutation stayed green when two runs inside the
+same second collided on one filename. The scenario *"the previous crontab content
+has been preserved as a backup that a later run cannot overwrite"* is satisfied on
+the host, and the subsequent deploy did not write a second one, because there was
+nothing left to remove.
+
+Mode `0644` is the ambient umask rather than a decision; `/root` is not traversable
+by the SSM user — the `Permission denied` in the first attempt above is the proof —
+so the file is root-only in practice. Tightening the write to `0600` would be
+defence in depth, not a fix, and is left alone rather than churned into an archived
+change.
+
+## 13.5 — The deploy installs it, unattended
+
+PR #35 merged as `a4ac001`. `Build and push images` → `Deploy to production`
+(run `34816961434`), both green. The remote output of the new step:
+
+```
+##[group]Remote output
+install-renewal: certbot-renew.service ran from its own unit environment
+NEXT                        LEFT    LAST PASSED UNIT                ACTIVATES
+Mon 2026-09-14 15:53:01 UTC 8h left -    -      certbot-renew.timer certbot-renew.service
+1 timers listed.
+install-renewal: ok
+##[endgroup]
+SSM command status: Success
+```
+
+Two things are proven here that the attended run could not prove:
+
+1. **It is idempotent on a host that already has it.** There is no `removed the
+   legacy crontab renewer` line this time, because there was nothing left to
+   remove — the `deploy-pipeline` scenario *"Repeated deployments change nothing"*,
+   verified against real state rather than in a sandbox.
+2. **Every deploy now exercises renewal.** `certbot-renew.service ran from its own
+   unit environment` appears in an unattended run, which is the property the
+   adversarial review asked for: a unit whose `ExecStart` stops resolving, a
+   plugin that breaks, or a credential that is revoked fails this step and turns
+   the run red, rather than waiting to be discovered by an expired certificate.
+
+The next run is 15:53:01 UTC, where the attended install had said 15:49:22 —
+`RandomizedDelaySec=3600` re-rolls its jitter, as it should.
+
+The certificate health step, in the same run:
+
+```
+check-tls-expiry: elevator.dsaavedra.dev: expires Dec 12 16:52:28 2026 GMT (89 days remaining)
+check-tls-expiry: dsaavedra.dev: expires Dec 12 16:52:28 2026 GMT (89 days remaining)
+```
+
+## 13.6 — The scheduled check, dispatched
+
+`tls-expiry-check.yml` run `34817092374`, `workflow_dispatch` on `main`, both jobs
+green:
+
+```
+✓ elevator.dsaavedra.dev in 5s
+✓ dsaavedra.dev in 8s
+
+check-tls-expiry: elevator.dsaavedra.dev: expires Dec 12 16:52:28 2026 GMT (89 days remaining)
+check-tls-expiry: dsaavedra.dev: expires Dec 12 16:52:28 2026 GMT (89 days remaining)
+```
+
+Five and eight seconds: the `timeout 15` bound holds in the environment that
+matters, and one host per job, so neither can mask the other. The daily schedule
+(`17 6 * * *`) is now live on the default branch.
+
+**The detection gap that produced the outage is closed.** From 2026-06-12 to
+2026-09-13 the only thing in this system that would have failed on an expired
+certificate was the deploy smoke check, and no deploy ran inside the renewal
+window. There is now a check that runs whether or not anyone deploys, and a
+renewal that every deploy exercises.
 
 ## Outcome
 
