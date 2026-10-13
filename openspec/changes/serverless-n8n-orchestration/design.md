@@ -81,6 +81,12 @@
 - `N8N_OTEL_EXPORTER_SERVICE_NAME=n8n-lambda`;
 - agent input/output recording off.
 
+**Lambda's runtime differs from Docker's in two ways the RIE does not show** (both found on the first AWS invocation):
+- Lambda runs the image as its own unprivileged user, not the image's `USER`. n8n writes its seed config as 0600, so the seed is made `a+rX` at build. It holds no secret.
+- The file-descriptor limit is fixed at 1024. n8n opens the editor UI's assets at start-up and hit `EMFILE`, so `N8N_DISABLE_UI=true` is set; no editor runs in the Lambda anyway. With the UI off, n8n becomes ready even at 256 descriptors.
+
+The image tests boot n8n as a foreign uid under `nofile=1024`.
+
 **`N8N_ENCRYPTION_KEY` is not set.** The seed's `.n8n/config` carries the key generated at build. That key encrypts only empty placeholders, so it protects nothing and reveals nothing.
 
 **Logic split.** The handler logic is split into pure functions (`resolveWorkflow`, `buildCredentialOverwrite`, `isRealWebhookResponse`, `waitForReadiness`) so that Node's built-in `node:test` can cover them without Docker or network.
