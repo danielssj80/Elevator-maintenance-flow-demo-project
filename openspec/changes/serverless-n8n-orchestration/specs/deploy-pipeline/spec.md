@@ -7,6 +7,8 @@ The separation is deliberate: the application deploy runs when the GHCR build wo
 
 Every Lambda image SHALL be built without provenance or SBOM attestations, in CI and in the bootstrap push script alike. Lambda accepts a single image manifest, and BuildKit wraps the image in an index whenever it attaches attestations. Docker 29 with the containerd store does that by default, even for a plain `docker build`.
 
+Every layer of a Lambda image SHALL be recompressed to gzip when the image is built. The n8n base image ships zstd layers, and a builder that keeps those bytes under a gzip media type produces an image Lambda refuses (`UnsupportedImageLayerDetected`).
+
 It SHALL then point each function at the image of that commit. Once all updates are issued, it SHALL wait until each function reports the update as successful.
 
 ECR SHALL keep only the three most recent images per repository. CI SHALL authenticate through the existing OIDC deploy role, extended with exactly the permissions this requires:
@@ -30,6 +32,10 @@ ECR SHALL keep only the three most recent images per repository. CI SHALL authen
 #### Scenario: A pushed image is one Lambda accepts
 - **WHEN** a Lambda image build is inspected, in the workflow or in the bootstrap push script
 - **THEN** it disables provenance and SBOM attestations
+
+#### Scenario: Every layer is what its media type says
+- **WHEN** a Lambda image published by CI or the bootstrap script is inspected
+- **THEN** every layer is declared `tar+gzip` and its bytes are gzip
 
 #### Scenario: Old images are expired
 - **WHEN** a repository holds more than three images

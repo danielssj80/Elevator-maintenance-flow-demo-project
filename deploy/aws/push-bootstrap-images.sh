@@ -25,11 +25,13 @@ if [[ "$DRY_RUN" == 1 ]]; then
   exit 0
 fi
 
-# No attestations: Lambda rejects the image index they wrap the image in.
+# No attestations (Lambda rejects the image index they create) and every layer
+# recompressed to gzip (the n8n base ships zstd layers; see lambda-images.yml).
+LAMBDA_OUTPUT="compression=gzip,force-compression=true,oci-mediatypes=true"
 docker build --provenance=false --sbom=false -f "$REPO_ROOT/orchestrator/Dockerfile" \
-  -t "$REGISTRY/$ORCHESTRATOR:$TAG" "$REPO_ROOT"
+  --output "type=image,name=$REGISTRY/$ORCHESTRATOR:$TAG,$LAMBDA_OUTPUT" "$REPO_ROOT"
 docker build --provenance=false --sbom=false -f "$REPO_ROOT/backend/inference/Dockerfile.lambda" \
-  -t "$REGISTRY/$SCORER:$TAG" "$REPO_ROOT/backend"
+  --output "type=image,name=$REGISTRY/$SCORER:$TAG,$LAMBDA_OUTPUT" "$REPO_ROOT/backend"
 
 # Log in and push with a throwaway Docker config that has no credential
 # helper: the Windows credential store behind Docker Desktop rejects the long
