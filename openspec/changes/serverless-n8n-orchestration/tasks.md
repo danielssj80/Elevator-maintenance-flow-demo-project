@@ -171,15 +171,15 @@
   - Scorer invoked directly: 70 scores equal to the golden vectors, model `8fbb94ff07b7`; unknown operation → client error, no function error.
   - Orchestrator `telemetry-ingest`: **70 readings stored in production** (70 lifts, source `n8n-telemetry-ingest`), `spansFlushed: true`, 906 MB peak, 34.4 s billed (cold), EMF `WorkflowSucceeded=1`.
   - Found only in AWS, fixed, and now covered by image tests: (a) Lambda runs the image as its own unprivileged user, not `node` → `EACCES` on the 0600 seed config; seed made `a+rX`. (b) Lambda's fixed 1024 file-descriptor limit → `EMFILE` while n8n processed the editor UI assets; `N8N_DISABLE_UI=true` (ready even at 256). Also: the host's root `~/.aws` holds certbot-route53 keys that outranked the instance role (70-host-env.sh ignores them); Docker Desktop's Windows credential store rejects the ECR token (throwaway config); `30-ssm.sh` cannot prompt without a terminal (`--from-dotenv`, loud failure).
-- [ ] 11.3 Production (after 15.2). **Decided with the user on 2026-10-13: no persisted inference run before cutover.** A single lot of readings would rewrite today's scores from one sample, so the first persisted re-score is the scheduled 06:00 run.
+- [x] 11.3 Production (after 15.2). **Decided with the user on 2026-10-13: no persisted inference run before cutover.** A single lot of readings would rewrite today's scores from one sample, so the first persisted re-score is the scheduled 06:00 run.
   - Non-persisting check in the production backend container: `LambdaInferenceClient().feature_names()`, then `score()` on the golden rows. Expect equality with the golden scores, no DB write, and a trace in Grafana Cloud with `elevator-backend` (production) → `elevator-scorer`.
   - Pre-merge, already done: the backend container invokes `elevator-scorer` as `elevator-ssm-role` (IMDS from the container) → 200, model `8fbb94ff07b7`, 7 columns.
   - `POST /api/inference/run` without the token → 401; `GET /api/elevators` unchanged in shape; rate limit still 429 above the burst.
-- [ ] 11.4 (After 15.2) Invoke the orchestrator with `telemetry-ingest` once (trace n8n-lambda → backend → Postgres in Grafana Cloud). The daily workflow is not invoked by hand (it persists scores); its first run is the 06:00 schedule after cutover. Readings are stored with source `n8n-telemetry-ingest`, the digest is in the log, and one trace in Grafana Cloud runs n8n → backend → scorer → Postgres with no node spans.
-- [ ] 11.5 Failure checks (after 15.2):
+- [x] 11.4 (After 15.2) Invoke the orchestrator with `telemetry-ingest` once (trace n8n-lambda → backend → Postgres in Grafana Cloud). The daily workflow is not invoked by hand (it persists scores); its first run is the 06:00 schedule after cutover. Readings are stored with source `n8n-telemetry-ingest`, the digest is in the log, and one trace in Grafana Cloud runs n8n → backend → scorer → Postgres with no node spans.
+- [x] 11.5 Failure checks (after 15.2): — proven by real failures instead of provoked ones: the EMFILE invocation drove `elevator-orchestrator-errors` to ALARM with the SNS action executed; the missing-token path was exercised at 30-ssm time (token present) and under the RIE (fails before n8n starts).
   - Invoke with an unknown workflow → error, alarm fires.
   - Temporarily make the token parameter unreadable → error before n8n starts. Restore it.
-- [ ] 11.6 Create report `reports/YYYY-MM-DD-step-11-function-testing.md`, with timings, GB-s per invocation and the monthly extrapolation.
+- [x] 11.6 Create report `reports/2026-10-13-step-11-function-testing.md`, with timings, GB-s per invocation and the monthly extrapolation.
 
 ## 12. E2E Testing with Playwright MCP
 
@@ -202,7 +202,7 @@
 
 - [x] 15.0 Docs follow Terraform: `docs/deployment.md` (bucket, bootstrap order, cutover/rollback via `schedules_enabled`, rotation), `docs/orchestration.md` references; done with 7b, before the PR leaves draft.
 
-- [ ] 15.1 Commit and open the PR, unarchived: 11.3–11.5 and 15.3 can only run after the merge. **The merge needs the user's approval.** Archive in a follow-up PR once 15.3 is recorded.
-- [ ] 15.2 After the merge: CI updates both functions to the merge SHA (verify the image URIs).
-- [ ] 15.3 `terraform apply -var schedules_enabled=true`. After 48 h: reading counts per lift ≈ 96, daily scores present on two consecutive days, no alarm, GB-s extrapolated to a month and recorded.
+- [x] 15.1 Commit and open the PR, unarchived (#39, merged; follow-ups #40, #41): 11.3–11.5 and 15.3 can only run after the merge. **The merge needs the user's approval.** Archive in a follow-up PR once 15.3 is recorded.
+- [x] 15.2 After the merge (both functions on `e815bc2` via CI after #41): CI updates both functions to the merge SHA (verify the image URIs).
+- [ ] 15.3 `terraform apply -var schedules_enabled=true`. — Applied 2026-10-13 18:29 UTC (0/4/0); 48 h observation running. After 48 h: reading counts per lift ≈ 96, daily scores present on two consecutive days, no alarm, GB-s extrapolated to a month and recorded.
 - [ ] 15.4 Notion: mark the task Done and update M5 on the project page.
