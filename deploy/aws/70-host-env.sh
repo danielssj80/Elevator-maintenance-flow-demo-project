@@ -23,7 +23,11 @@ script = [
     "set -eu",
     "umask 077",
     "F=/etc/elevator/.env",
-    f"get() {{ aws ssm get-parameter --region {region} --name \"$1\" --with-decryption --query Parameter.Value --output text; }}",
+    # The host's root ~/.aws holds the static keys of the certbot-route53 IAM
+    # user (DNS-01 renewal), which outrank the instance role. Ignore those
+    # files so this read uses elevator-ssm-role, the identity granted the
+    # parameters; certbot's configuration is left untouched.
+    f"get() {{ AWS_SHARED_CREDENTIALS_FILE=/dev/null AWS_CONFIG_FILE=/dev/null aws ssm get-parameter --region {region} --name \"$1\" --with-decryption --query Parameter.Value --output text; }}",
     "put() { grep -v \"^$1=\" \"$F\" > \"$F.new\" || true; printf '%s=%s\\n' \"$1\" \"$2\" >> \"$F.new\"; chmod --reference=\"$F\" \"$F.new\"; mv \"$F.new\" \"$F\"; }",
     # Assignments, not "$(get ...)" as an argument: set -e does not see a
     # failure inside an argument, and an empty token would be written.

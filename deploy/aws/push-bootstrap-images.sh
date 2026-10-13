@@ -25,12 +25,20 @@ if [[ "$DRY_RUN" == 1 ]]; then
   exit 0
 fi
 
-aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
 # No attestations: Lambda rejects the image index they wrap the image in.
 docker build --provenance=false --sbom=false -f "$REPO_ROOT/orchestrator/Dockerfile" \
   -t "$REGISTRY/$ORCHESTRATOR:$TAG" "$REPO_ROOT"
 docker build --provenance=false --sbom=false -f "$REPO_ROOT/backend/inference/Dockerfile.lambda" \
   -t "$REGISTRY/$SCORER:$TAG" "$REPO_ROOT/backend"
-docker push "$REGISTRY/$ORCHESTRATOR:$TAG"
-docker push "$REGISTRY/$SCORER:$TAG"
+
+# Log in and push with a throwaway Docker config that has no credential
+# helper: the Windows credential store behind Docker Desktop rejects the long
+# ECR token ("error storing credentials"), and the token should not outlive
+# this script anyway.
+PUSH_CONFIG=$(mktemp -d)
+trap 'rm -rf "$PUSH_CONFIG"' EXIT
+echo '{}' >"$PUSH_CONFIG/config.json"
+aws ecr get-login-password | DOCKER_CONFIG="$PUSH_CONFIG" docker login --username AWS --password-stdin "$REGISTRY"
+DOCKER_CONFIG="$PUSH_CONFIG" docker push "$REGISTRY/$ORCHESTRATOR:$TAG"
+DOCKER_CONFIG="$PUSH_CONFIG" docker push "$REGISTRY/$SCORER:$TAG"
 echo "pushed; next: terraform -chdir=infra/terraform apply -var image_tag=$TAG"

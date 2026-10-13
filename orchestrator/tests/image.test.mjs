@@ -74,3 +74,18 @@ test('every seeded HTTP node calls the build-time origin', opts, () => {
     }
   }
 });
+
+test('the seed can be copied by a user that is not the image user', opts, () => {
+  // Lambda runs a container image as its own unprivileged user, not the image's
+  // USER (node, uid 1000). Under the RIE it ran as node, so a seed only node
+  // could read passed locally and failed in AWS with EACCES on .n8n.
+  const out = execFileSync('docker', [
+    'run', '--rm', '--user', '993:990', '--read-only', '--tmpfs', '/tmp:exec', '--entrypoint', 'node', image, '-e',
+    `const fs = require('fs');
+     fs.cpSync(process.env.N8N_SEED_FOLDER, '/tmp/n8n-home', { recursive: true });
+     fs.readFileSync('/tmp/n8n-home/.n8n/config');
+     fs.appendFileSync('/tmp/n8n-home/.n8n/database.sqlite', '');
+     console.log('ok');`,
+  ], { encoding: 'utf8' }).trim();
+  assert.equal(out, 'ok');
+});

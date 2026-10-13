@@ -32,7 +32,12 @@ RUN ELEVATOR_API_BASE_URL="$ELEVATOR_API_BASE_URL" node /opt/seed/prepare-workfl
  && n8n import:credentials --input=/opt/seed/credentials.json \
  && for f in /opt/seed-input/*.json; do n8n import:workflow --input="$f"; done \
  && n8n publish:workflow --id=elevIngest00001 \
- && n8n publish:workflow --id=elevDigest00001
+ && n8n publish:workflow --id=elevDigest00001 \
+ && chmod -R a+rX /opt/n8n-seed
+# a+rX: Lambda runs the image as its own unprivileged user, not as `node`, and
+# n8n writes .n8n/config as 0600. Only the copy in /tmp is ever written to,
+# and the seed holds no secret: empty credential placeholders and an
+# encryption key that protects nothing but them.
 
 # ── Function ──────────────────────────────────────────────────────────────────
 FROM ${N8N_IMAGE}
