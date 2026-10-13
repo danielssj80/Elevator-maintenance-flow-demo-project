@@ -72,22 +72,38 @@ def test_it_is_not_part_of_the_workflow_the_deploy_waits_for():
     assert deploy["workflow_run"]["workflows"] == ["Build and push images"]
 
 
-def test_every_lambda_image_build_disables_attestations():
-    """Lambda takes a single image manifest. Docker 29 (containerd store) wraps
-    even a plain `docker build` in an index carrying provenance and SBOM
-    attestations, and Lambda rejects that at create or update time — after the
-    push, so CI would be green up to the last step. Verified locally: without
-    the flags the descriptor is `vnd.oci.image.index.v1+json`, with them a
-    single `vnd.oci.image.manifest.v1+json`.
-    """
-    sources = [LAMBDA_IMAGES, WORKFLOWS.parents[1] / "deploy" / "aws" / "push-bootstrap-images.sh"]
-    builds = [
+def _build_commands(path: pathlib.Path) -> list[str]:
+    """Each image build as one string, shell and YAML continuations joined."""
+    text = path.read_text().replace("\\\n", " ")
+    # YAML folded scalars (`run: >-`) split a command over indented lines.
+    text = re.sub(r"\n\s{10,}(?=--|-f |\S+\s*$)", " ", text)
+    return [
         line.strip()
-        for path in sources
-        for line in path.read_text().splitlines()
-        if "docker build" in line and not line.strip().startswith(("#", "echo"))
+        for line in text.splitlines()
+        if re.search(r"docker (buildx )?build\b", line) and not line.strip().startswith(("#", "echo"))
     ]
 
+
+def test_every_lambda_image_build_is_one_lambda_accepts():
+    """Two Lambda constraints, both found against real AWS, not the emulator.
+
+    - One image manifest, not an index. Docker 29 (containerd store) wraps even
+      a plain `docker build` in an index carrying provenance and SBOM
+      attestations: without the flags the descriptor is
+      `vnd.oci.image.index.v1+json`, with them `vnd.oci.image.manifest.v1+json`.
+    - Every layer really gzip. The n8n base image ships zstd layers; the CI
+      runner's classic Docker pushed them under a gzip media type and Lambda
+      refused the update with UnsupportedImageLayerDetected. Forcing the
+      recompression gave 15/15 layers whose bytes start with the gzip magic.
+    """
+    sources = [LAMBDA_IMAGES, WORKFLOWS.parents[1] / "deploy" / "aws" / "push-bootstrap-images.sh"]
+    builds = [command for path in sources for command in _build_commands(path)]
+
     assert len(builds) == 4, builds
-    for line in builds:
-        assert "--provenance=false" in line and "--sbom=false" in line, line
+    for command in builds:
+        assert "--provenance=false" in command and "--sbom=false" in command, command
+        assert "compression=gzip" in command or "LAMBDA_OUTPUT" in command, command
+    bootstrap = (WORKFLOWS.parents[1] / "deploy" / "aws" / "push-bootstrap-images.sh").read_text()
+    assert 'LAMBDA_OUTPUT="compression=gzip,force-compression=true' in bootstrap
+    outputs = re.findall(r'--output "type=image,[^"]*force-compression=true[^"]*"', LAMBDA_IMAGES.read_text())
+    assert len(outputs) == 2, outputs

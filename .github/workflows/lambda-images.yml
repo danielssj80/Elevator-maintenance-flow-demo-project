@@ -41,23 +41,30 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Lambda accepts a single image manifest, not an index. BuildKit wraps the
-      # image in an index whenever it attaches provenance or SBOM attestations,
-      # which Docker 29 with the containerd store does by default, even for a
-      # plain `docker build`. Both flags, on every build of a Lambda image.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Two Lambda constraints, both learned in AWS:
+      # - one image manifest, not an index: BuildKit wraps the image in an index
+      #   whenever it attaches provenance or SBOM attestations (no attestations);
+      # - every layer really gzip: n8nio/n8n ships zstd layers, and the runner's
+      #   classic Docker pushed them under a gzip media type, which Lambda
+      #   rejects as UnsupportedImageLayerDetected (force-compression=true).
       - name: Build and push orchestrator image
         env:
           IMAGE: ${{ steps.ecr.outputs.registry }}/elevator-orchestrator:${{ github.sha }}
-        run: |
-          docker build --provenance=false --sbom=false -f orchestrator/Dockerfile -t "$IMAGE" .
-          docker push "$IMAGE"
+        run: >-
+          docker buildx build --provenance=false --sbom=false
+          --output "type=image,name=$IMAGE,push=true,compression=gzip,force-compression=true,oci-mediatypes=true"
+          -f orchestrator/Dockerfile .
 
       - name: Build and push scorer image
         env:
           IMAGE: ${{ steps.ecr.outputs.registry }}/elevator-scorer:${{ github.sha }}
-        run: |
-          docker build --provenance=false --sbom=false -f backend/inference/Dockerfile.lambda -t "$IMAGE" backend
-          docker push "$IMAGE"
+        run: >-
+          docker buildx build --provenance=false --sbom=false
+          --output "type=image,name=$IMAGE,push=true,compression=gzip,force-compression=true,oci-mediatypes=true"
+          -f backend/inference/Dockerfile.lambda backend
 
       # Both images exist before either function moves, so a failed build above
       # leaves both functions on their previous image.

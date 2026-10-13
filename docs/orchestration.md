@@ -74,6 +74,7 @@ or the image build, and each has a test.
 | The process environment holds the token, the OTLP header and the AWS session, and any expression could read `$env` if it were allowed | `$env` stays **blocked** (n8n's default); the backend address is rewritten into the HTTP nodes at image build instead |
 | Lambda runs the image as its own user, not `node`; n8n's seed config is 0600 → `EACCES` | seed made world-readable at build (no secret in it) |
 | Lambda's file-descriptor limit is fixed at 1024; n8n opens the editor's assets at start-up → `EMFILE` | `N8N_DISABLE_UI=true` (ready even at 256 descriptors) |
+| The n8n base image ships zstd layers; a builder that labels them gzip yields an image Lambda refuses (`UnsupportedImageLayerDetected`) | every Lambda image is built with `compression=gzip,force-compression=true` |
 | A schedule falls inside an invocation's lifetime | Schedule Triggers are disabled in the seeded copy |
 | Lambda retries an async invocation twice by default, on top of the scheduler | the function's event-invoke config: 0 retries, 15 min maximum event age |
 | Lambda kills the sandbox at its deadline, before n8n's shutdown hook | readiness and webhook waits end 25 s before the deadline; a forced stop reports `spansFlushed: false` |
