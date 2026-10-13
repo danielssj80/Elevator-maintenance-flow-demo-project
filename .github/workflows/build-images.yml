@@ -3,6 +3,9 @@ name: Build and push images
 on:
   push:
     branches: [main]
+  # Manual re-run of a push whose event GitHub never delivered (2026-10-13:
+  # the merge of #39 created no runs at all).
+  workflow_dispatch:
 
 permissions:
   contents: read

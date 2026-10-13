@@ -27,10 +27,12 @@ def _triggers(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True))
 
 
-def test_it_runs_only_on_pushes_to_main():
+def test_it_runs_on_pushes_to_main_or_by_hand_only():
+    """No pull_request trigger: a PR from a branch must never reach ECR or the
+    functions. workflow_dispatch exists for a push event GitHub never delivered."""
     triggers = _triggers(_load(LAMBDA_IMAGES))
 
-    assert set(triggers) == {"push"}, triggers
+    assert set(triggers) == {"push", "workflow_dispatch"}, triggers
     assert triggers["push"]["branches"] == ["main"]
 
 
